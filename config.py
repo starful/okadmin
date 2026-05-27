@@ -28,11 +28,7 @@ COL_GSC_ACTIONS = "work_hub_gsc_actions"
 META_DOC_ID = "settings"
 
 def _resolve_ops_root() -> Path:
-    local = OKADMIN_ROOT / "ops"
-    if local.is_dir():
-        return local
-    legacy = WORK_ROOT / "ops"
-    return legacy if legacy.is_dir() else local
+    return OKADMIN_ROOT / "ops"
 
 
 OPS_ROOT = _resolve_ops_root()
@@ -50,6 +46,37 @@ AUTO_REGISTER_SCHEDULE = [
     ("Sat", "jpcampus"),
     ("Sun", "hatena · okpy.net"),
 ]
+
+def _schedule_project_id(proj: str) -> str:
+    return "hatena" if "hatena" in proj.lower() else proj
+
+
+def auto_register_projects() -> list[dict[str, str]]:
+    """Selectable services: weekday schedule + git sites with deploy.sh (e.g. okcafejp)."""
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for day, proj in AUTO_REGISTER_SCHEDULE:
+        pid = _schedule_project_id(proj)
+        items.append({"day": day, "id": pid, "label": proj})
+        seen.add(pid)
+    for svc in list_services():
+        sid = (svc.get("id") or "").strip()
+        if sid in ("okadmin",) or not svc.get("git", True):
+            continue
+        path = (svc.get("path") or sid).strip()
+        if not path or path in seen:
+            continue
+        repo = WORK_ROOT / path
+        if not repo.is_dir() or not (repo / "deploy.sh").is_file():
+            continue
+        label = (svc.get("label") or sid).strip()
+        items.append({"day": "—", "id": path, "label": label})
+        seen.add(path)
+    return items
+
+
+def auto_register_project_ids() -> list[str]:
+    return [p["id"] for p in auto_register_projects()]
 
 # 예전 GCal 서브캘린더 색과 동일 계열
 SITE_COLORS: dict[str, str] = {
@@ -205,6 +232,116 @@ CONTENT_JOBS: dict[str, list[dict[str, str]]] = {
             "id": "seo_guard",
             "label": "seo_guard",
             "command": "python3 scripts/seo_guard.py",
+        },
+    ],
+}
+
+# CSV 편집 (콘텐츠 페이지) — repo 상대 경로
+CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
+    "okcafejp": [
+        {
+            "id": "items",
+            "label": "items.csv · 카페 시드",
+            "rel_path": "script/csv/items.csv",
+            "headers": ["Name", "Lat", "Lng", "Address", "Features", "Agoda"],
+        },
+        {
+            "id": "guides",
+            "label": "guides.csv · 가이드 토픽",
+            "rel_path": "script/csv/guides.csv",
+            "headers": ["id", "topic_en", "topic_ko", "keywords"],
+        },
+    ],
+    "hatena": [
+        {
+            "id": "python",
+            "label": "python.csv",
+            "rel_path": "csv/python.csv",
+            "headers": ["lib_name"],
+        },
+        {
+            "id": "cloud",
+            "label": "cloud.csv",
+            "rel_path": "csv/cloud.csv",
+            "headers": ["Topic"],
+        },
+        {
+            "id": "positions",
+            "label": "positions.csv",
+            "rel_path": "csv/positions.csv",
+            "headers": ["position_name"],
+        },
+    ],
+    "okramen": [
+        {
+            "id": "ramens",
+            "label": "ramens.csv",
+            "rel_path": "script/csv/ramens.csv",
+            "headers": ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"],
+        },
+        {
+            "id": "guides",
+            "label": "guides.csv",
+            "rel_path": "script/csv/guides.csv",
+            "headers": ["id", "topic_en", "topic_ko", "keywords"],
+        },
+    ],
+    "okonsen": [
+        {
+            "id": "onsens",
+            "label": "onsens.csv",
+            "rel_path": "script/csv/onsens.csv",
+            "headers": ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"],
+        },
+        {
+            "id": "guides",
+            "label": "guides.csv",
+            "rel_path": "script/csv/guides.csv",
+            "headers": ["id", "topic_en", "topic_ko", "keywords"],
+        },
+    ],
+    "okcaddie": [
+        {
+            "id": "courses",
+            "label": "courses.csv",
+            "rel_path": "script/csv/courses.csv",
+            "headers": ["Name", "Lat", "Lng", "Address", "Features", "Booking"],
+        },
+        {
+            "id": "guides",
+            "label": "guides.csv",
+            "rel_path": "script/csv/guides.csv",
+            "headers": ["id", "topic_en", "topic_ko", "keywords"],
+        },
+    ],
+    "oksushi": [
+        {
+            "id": "items",
+            "label": "items.csv",
+            "rel_path": "script/csv/items.csv",
+            "headers": ["Name", "Lat", "Lng", "Address", "Features", "Agoda"],
+        },
+        {
+            "id": "guides",
+            "label": "guides.csv",
+            "rel_path": "script/csv/guides.csv",
+            "headers": ["id", "topic_en", "topic_ko", "keywords"],
+        },
+    ],
+    "starful.biz": [
+        {
+            "id": "positions",
+            "label": "positions.csv",
+            "rel_path": "scripts/data/positions.csv",
+            "headers": ["position_name"],
+        },
+    ],
+    "jpcampus": [
+        {
+            "id": "guide_topics",
+            "label": "guide_topics.csv",
+            "rel_path": "data/guide_topics.csv",
+            "headers": ["slug", "category", "title", "description", "prompt"],
         },
     ],
 }

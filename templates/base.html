@@ -43,10 +43,9 @@
         <div class="nav-section">HUB</div>
         <a href="{{ url_for('pages.dashboard') }}" class="{% if active == 'dashboard' %}active{% endif %}">대시보드</a>
         <a href="{{ url_for('pages.schedule_page') }}" class="{% if active == 'schedule' %}active{% endif %}">달력</a>
-        <a href="{{ url_for('pages.ops_page') }}" class="{% if active == 'ops' %}active{% endif %}">Auto Register</a>
+        <a href="{{ url_for('pages.ops_page') }}" class="{% if active == 'ops' %}active{% endif %}">운영 · 콘텐츠</a>
         <a href="{{ url_for('pages.oktemplate_page') }}" class="{% if active == 'oktemplate' %}active{% endif %}">새 OK 사이트</a>
         <a href="{{ url_for('pages.gsc_page') }}" class="{% if active == 'gsc' %}active{% endif %}">GSC</a>
-        <a href="{{ url_for('pages.content_page') }}" class="{% if active == 'content' %}active{% endif %}">콘텐츠</a>
         <div class="nav-section">ASSETS</div>
         <a href="{{ url_for('pages.images_page') }}" class="{% if active == 'images' %}active{% endif %}">GCS 이미지</a>
         <div class="user-line">

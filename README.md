@@ -24,10 +24,9 @@ chmod +x start.sh scripts/fetch_secrets.sh
 |------|------|
 | 대시보드 | `/opt/work/sites.yaml` · Git · GSC 링크 |
 | 달력 | Firestore `work_hub_ops_events` · FullCalendar |
-| Auto Register | `okadmin/ops/auto_register.sh` |
+| 운영 · 콘텐츠 | 사이트별 원클릭 콘텐츠 생성 · 실행 상한/요약 (`/ops`) |
 | 새 OK 사이트 | oktemplate 복사 |
-| GSC | Search Console / GA4 API · 액션 큐 |
-| 콘텐츠 | starful.biz / hatena / jpcampus 스크립트 실행 |
+| GSC | Search Console / GA4 · SEO |
 | GCS 이미지 | 사이트별 버킷 관리 |
 
 Phase 2 상세: [docs/PHASE2.md](docs/PHASE2.md)

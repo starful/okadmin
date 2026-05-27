@@ -15,7 +15,7 @@ Usage:
   retry_auto_register.sh              Re-run today's scheduled site under /opt/work.
   retry_auto_register.sh <project>  Re-run one site (e.g. okcaddie, okramen).
 
-Logs append to: /opt/work/ops/logs/auto-register-YYYY-MM-DD.log
+Logs append to: okadmin/ops/logs/auto-register-YYYY-MM-DD.log
 
 Optional env:
   CONTENT_LIMIT=10 GUIDE_LIMIT=3 AUTO_WITH_GIT=1 AUTO_WITH_DEPLOY=1

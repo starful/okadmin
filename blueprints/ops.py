@@ -1,6 +1,7 @@
 """Auto register ops panel API."""
 from __future__ import annotations
 
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import requires_auth
 from config import (
+    auto_register_project_ids,
     AUTO_REGISTER_SCHEDULE,
     AUTO_REGISTER_SCRIPT,
     AUTO_REGISTER_STATUS_SCRIPT,
@@ -17,6 +19,7 @@ from config import (
     META_DOC_ID,
     STATE_FILE,
     WORK_ROOT,
+    auto_register_projects,
     work_root_available,
 )
 from firestore_db import firestore_unavailable_message, get_db
@@ -71,6 +74,7 @@ def auto_register_status():
             "last_run_file": last_run,
             "last_run_meta": meta_last,
             "schedule": [{"day": d, "project": p} for d, p in AUTO_REGISTER_SCHEDULE],
+            "projects": auto_register_projects(),
             "log_tail": _tail_log(),
             "launchctl_snippet": launchctl_snippet,
             "script_path": str(AUTO_REGISTER_SCRIPT),
@@ -88,7 +92,19 @@ def auto_register_run():
 
     data = request.get_json(silent=True) or {}
     force = bool(data.get("force"))
-    project = (data.get("project") or "").strip()
+    project = (data.get("project") or data.get("site_id") or "").strip()
+    allowed = auto_register_project_ids()
+    if project and project not in allowed:
+        return jsonify(
+            {
+                "error": f"unknown project: {project}",
+                "allowed": allowed,
+            }
+        ), 400
+    if project and not re.match(r"^[a-zA-Z0-9._-]+$", project):
+        return jsonify({"error": "invalid project id"}), 400
+    if project and not (WORK_ROOT / project).is_dir():
+        return jsonify({"error": f"no directory: {WORK_ROOT / project}"}), 400
 
     cmd = ["bash", str(AUTO_REGISTER_SCRIPT)]
     if force:
@@ -105,11 +121,15 @@ def auto_register_run():
             cwd=str(WORK_ROOT),
         )
         # Run in background for long deploys
+        msg = "auto_register started"
+        if project:
+            msg = f"auto_register started for {project}"
         return jsonify(
             {
                 "ok": True,
-                "message": "auto_register started",
+                "message": msg,
                 "pid": proc.pid,
+                "project": project or None,
                 "command": cmd,
             }
         )

@@ -1,58 +1,268 @@
 {% extends "base.html" %}
-{% block title %}Auto Register{% endblock %}
+{% block title %}운영 · 콘텐츠{% endblock %}
+{% block head %}
+<style>
+    .ops-intro { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); margin: 0 0 20px; line-height: 1.5; max-width: 720px; }
+    .ops-layout {
+        display: grid; grid-template-columns: minmax(200px, 240px) 1fr; gap: 16px; align-items: start;
+    }
+    @media (max-width: 960px) { .ops-layout { grid-template-columns: 1fr; } }
+    .schedule-card { position: sticky; top: 16px; }
+    .schedule-card h2 { margin: 0 0 4px; font-size: 14px; }
+    .schedule-card .hint { font-family: 'DM Mono'; font-size: 10px; color: #666; margin: 0 0 12px; line-height: 1.4; }
+    table.schedule-table { width: 100%; border-collapse: collapse; font-family: 'DM Mono'; font-size: 11px; }
+    table.schedule-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    table.schedule-table td:first-child { color: #888; width: 36px; }
+    table.schedule-table tr.today td { color: var(--accent); font-weight: 700; }
+    table.schedule-table tr.today td:first-child::after { content: ' ·'; color: var(--accent); }
+    .ops-main { min-width: 0; }
+    .pipeline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+    .pipeline-card {
+        background: var(--surf); border: 1px solid var(--border); border-radius: 12px;
+        padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .pipeline-card.running { border-color: #a80; box-shadow: 0 0 0 1px #a804; }
+    .pipeline-card.done-ok { border-color: #4a4; }
+    .pipeline-card.done-err { border-color: #a44; }
+    .pipeline-card h3 { margin: 0; font-size: 14px; }
+    .pipeline-card .tagline { font-family: 'DM Mono'; font-size: 10px; color: #666; margin: 0; }
+    .last-run {
+        font-family: 'DM Mono'; font-size: 10px; color: #555; margin: 0;
+        padding-top: 4px; border-top: 1px solid var(--border);
+    }
+    .last-run.ok { color: #6a8; }
+    .last-run.err { color: #a66; }
+    .limits-table { width: 100%; font-family: 'DM Mono'; font-size: 10px; border-collapse: collapse; }
+    .limits-table td { padding: 3px 0; vertical-align: top; }
+    .limits-table td:first-child { color: #888; width: 52px; }
+    .limits-table td:nth-child(2) { color: var(--accent); }
+    .limits-table td:nth-child(3) { color: #555; font-size: 9px; padding-left: 6px; }
+    .pipeline-card .actions { margin-top: auto; }
+    .pipeline-card .btn { width: 100%; }
+    .result-panel { margin-top: 24px; }
+    .result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+    .result-head h2 { margin: 0; font-size: 15px; }
+    .result-badge {
+        font-family: 'DM Mono'; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px;
+    }
+    .result-badge.ok { background: #1a2e1a; color: #8f8; }
+    .result-badge.err { background: #2e1a1a; color: #f88; }
+    .result-badge.run { background: #2e2a1a; color: #fa0; }
+    .result-badge.idle { background: #1a1a1a; color: #666; }
+    .summary-lines { list-style: none; margin: 0; padding: 0; font-family: 'DM Mono'; font-size: 11px; line-height: 1.6; }
+    .summary-lines li { padding: 2px 0; color: #ccc; }
+    .log-snippet {
+        margin-top: 12px; padding: 10px 12px; background: #000; border: 1px solid var(--border);
+        border-radius: 8px; font-family: 'DM Mono'; font-size: 10px; color: #8a8;
+        white-space: pre-wrap; max-height: 140px; overflow: auto;
+    }
+    details.log-full summary { cursor: pointer; font-family: 'DM Mono'; font-size: 10px; color: #666; margin-top: 10px; }
+    details.log-full pre {
+        margin-top: 8px; padding: 10px; background: #000; border: 1px solid var(--border);
+        border-radius: 8px; font-size: 10px; color: #666; max-height: 220px; overflow: auto;
+        white-space: pre-wrap;
+    }
+</style>
+{% endblock %}
 {% block content %}
-<h1>Auto Register</h1>
-<p class="sub">okadmin/ops/auto_register.sh (legacy: /opt/work/ops)</p>
+<h1>운영 · 콘텐츠</h1>
+<p class="ops-intro">
+    사이트별 원클릭 생성입니다. 표시된 개수는 <strong>1회 실행 상한</strong>이며, 이미 있는 MD/포스트는 건너뜁니다.
+    환경변수 <code>CONTENT_LIMIT</code> · <code>GUIDE_LIMIT</code> · <code>HATENA_MAX_POSTS</code>로 조정할 수 있습니다.
+</p>
 {% if not work_root_ok %}
-<div class="warn">이 호스트에서 WORK_ROOT(/opt/work)를 사용할 수 없습니다. 로컬 Mac에서 실행하세요.</div>
+<div class="warn">WORK_ROOT(/opt/work) 없음 — 로컬 Mac에서만 실행 가능합니다.</div>
 {% endif %}
-<div class="card">
-    <h3 style="margin-top:0">요일표</h3>
-    <table class="mono" style="width:100%;border-collapse:collapse">
-        {% for day, project in schedule %}
-        <tr><td style="padding:6px;color:#888">{{ day }}</td><td style="padding:6px">{{ project }}</td></tr>
-        {% endfor %}
-    </table>
+
+<div class="ops-layout">
+    <aside class="card schedule-card">
+        <h2>주간 예정표</h2>
+        <p class="hint">Auto Register · launchd<br>요일별 deploy 대상</p>
+        <table class="schedule-table">
+            {% set day_ko = {'Mon':'월','Tue':'화','Wed':'수','Thu':'목','Fri':'금','Sat':'토','Sun':'일'} %}
+            {% for day, project in schedule %}
+            <tr class="{% if day == today_weekday %}today{% endif %}">
+                <td>{{ day_ko.get(day, day) }}</td>
+                <td>{{ project }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <p class="hint" style="margin-top:10px;margin-bottom:0">okcafejp 등은 수동 · 원클릭 생성</p>
+    </aside>
+    <div class="ops-main">
+        <div id="pipeline-grid" class="pipeline-grid"></div>
+    </div>
 </div>
-<div style="display:flex;gap:8px;margin:16px 0">
-    <button class="btn" onclick="runRegister(true)" {% if not work_root_ok %}disabled{% endif %}>Force 실행</button>
-    <button class="btn btn-ghost" onclick="runRegister(false)" {% if not work_root_ok %}disabled{% endif %}>실행 (guards)</button>
-    <button class="btn btn-ghost" onclick="loadStatus()">새로고침</button>
+
+<div class="result-panel card" id="result-panel">
+    <div class="result-head">
+        <h2>최종 결과 <span class="mono" id="result-site" style="color:#666;font-size:11px;font-weight:400"></span></h2>
+        <span class="result-badge idle" id="result-badge">—</span>
+    </div>
+    <ul class="summary-lines" id="summary-lines">
+        <li style="color:#666">사이트에서 「콘텐츠 생성」을 누르면 여기에 요약이 표시됩니다.</li>
+    </ul>
+    <div class="log-snippet" id="log-snippet" style="display:none"></div>
+    <details class="log-full" id="log-full" style="display:none">
+        <summary>상세 로그 보기</summary>
+        <pre id="log-full-text"></pre>
+    </details>
 </div>
-<div class="card">
-    <div class="mono" id="status-meta">—</div>
-</div>
-<div class="card">
-    <h3 style="margin-top:0">최근 로그</h3>
-    <pre class="mono" id="log-tail" style="white-space:pre-wrap;max-height:320px;overflow:auto;color:#aaa;margin:0">—</pre>
-</div>
-<details class="card"><summary class="mono">launchd / status script</summary>
-<pre class="mono" id="launchctl-out" style="white-space:pre-wrap;color:#666;margin-top:12px">—</pre>
-</details>
 {% endblock %}
 {% block scripts %}
 <script>
-async function loadStatus() {
-    const res = await fetch('/api/ops/auto-register/status');
-    const d = await res.json();
-    document.getElementById('status-meta').innerHTML =
-        `last_run (file): <b>${d.last_run_file || '—'}</b><br>` +
-        `last_run (Firestore): <b>${d.last_run_meta || '—'}</b><br>` +
-        `work_root: <b>${d.work_root_ok}</b>`;
-    document.getElementById('log-tail').textContent = d.log_tail || '(no logs)';
-    document.getElementById('launchctl-out').textContent = d.launchctl_snippet || '—';
+let activePipelineSite = '';
+let pipelinePoll = null;
+
+function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 }
-async function runRegister(force) {
-    const res = await fetch('/api/ops/auto-register/run', {
+
+function lastRunHtml(p) {
+    if (!p.last_run_display) {
+        return '<p class="last-run">마지막 실행: —</p>';
+    }
+    const cls = p.last_run_ok === true ? 'ok' : (p.last_run_ok === false ? 'err' : '');
+    const status = p.last_run_ok === true ? ' · 완료' : (p.last_run_ok === false ? ' · 실패' : '');
+    return `<p class="last-run ${cls}">마지막 실행: ${esc(p.last_run_display)}${status}</p>`;
+}
+
+function limitsHtml(parts) {
+    if (!parts || !parts.length) return '<p class="tagline">—</p>';
+    return '<table class="limits-table"><tbody>' + parts.map(p => `
+        <tr>
+            <td>${esc(p.label)}</td>
+            <td>${esc(p.cap)}</td>
+            <td>${esc(p.note || '')}</td>
+        </tr>`).join('') + '</tbody></table>';
+}
+
+function cardClass(p) {
+    if (p.running) return 'running';
+    if (activePipelineSite === p.site_id && p.last_ok === true) return 'done-ok';
+    if (activePipelineSite === p.site_id && p.last_ok === false) return 'done-err';
+    return '';
+}
+
+async function loadPipelines() {
+    const res = await fetch('/api/content/pipelines');
+    const items = await res.json();
+    document.getElementById('pipeline-grid').innerHTML = items.map(p => `
+        <article class="pipeline-card ${cardClass(p)}" data-site="${esc(p.site_id)}">
+            <h3>${esc(p.label)}</h3>
+            <p class="tagline">${esc(p.description || '')}</p>
+            ${limitsHtml(p.limits)}
+            ${lastRunHtml(p)}
+            <div class="actions">
+                <button type="button" class="btn" ${p.available && !p.running ? '' : 'disabled'}
+                    onclick="runPipeline('${esc(p.site_id)}', '${esc(p.label)}')">
+                    ${p.running ? '실행 중…' : '콘텐츠 생성'}
+                </button>
+            </div>
+        </article>
+    `).join('');
+    const running = items.find(p => p.running);
+    if (running && !pipelinePoll) {
+        activePipelineSite = running.site_id;
+        document.getElementById('result-site').textContent = '· ' + running.label;
+        pipelinePoll = setInterval(pollActivePipeline, 2500);
+        pollActivePipeline();
+    }
+}
+
+function setResultBadge(kind, text) {
+    const el = document.getElementById('result-badge');
+    el.className = 'result-badge ' + kind;
+    el.textContent = text;
+}
+
+function renderSummary(summary, logTail, lastRun) {
+    const linesEl = document.getElementById('summary-lines');
+    const snipEl = document.getElementById('log-snippet');
+    const fullWrap = document.getElementById('log-full');
+    const fullPre = document.getElementById('log-full-text');
+    const siteEl = document.getElementById('result-site');
+
+    if (lastRun?.last_run_display && siteEl) {
+        const st = lastRun.last_run_ok === true ? '완료' : (lastRun.last_run_ok === false ? '실패' : '');
+        const base = siteEl.textContent.replace(/\s*·\s*마지막.*$/, '').trim();
+        siteEl.textContent = base + ' · 마지막 ' + lastRun.last_run_display + (st ? ' ' + st : '');
+    }
+
+    const title = summary?.title || '—';
+    if (title === '완료') setResultBadge('ok', '완료');
+    else if (title === '실패') setResultBadge('err', '실패');
+    else if (title === '실행 중') setResultBadge('run', '실행 중');
+    else setResultBadge('idle', title);
+
+    const lines = summary?.lines?.length ? summary.lines : ['결과 없음'];
+    linesEl.innerHTML = lines.map(l => `<li>${esc(l)}</li>`).join('');
+
+    const snip = (summary?.log_snippet || '').trim();
+    if (snip) {
+        snipEl.style.display = 'block';
+        snipEl.textContent = snip;
+    } else {
+        snipEl.style.display = 'none';
+    }
+
+    if (logTail && logTail.length > 80) {
+        fullWrap.style.display = 'block';
+        fullPre.textContent = logTail;
+    } else {
+        fullWrap.style.display = 'none';
+    }
+}
+
+async function runPipeline(siteId, label) {
+    activePipelineSite = siteId;
+    document.getElementById('result-site').textContent = '· ' + (label || siteId);
+    setResultBadge('run', '시작');
+    renderSummary({ title: '실행 중', lines: ['파이프라인을 시작합니다…'] }, '', null);
+
+    const res = await fetch('/api/content/pipeline/run', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ force }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ site_id: siteId }),
     });
     const d = await res.json();
-    if (d.ok) showToast('시작됨 PID ' + d.pid);
-    else showToast('오류: ' + (d.error || ''));
-    setTimeout(loadStatus, 2000);
+    if (!res.ok) {
+        setResultBadge('err', '오류');
+        renderSummary({ title: '실패', lines: [d.error || '시작 실패'] }, '', null);
+        return;
+    }
+    showToast((label || siteId) + ' 생성 시작');
+    if (pipelinePoll) clearInterval(pipelinePoll);
+    pipelinePoll = setInterval(pollActivePipeline, 2500);
+    pollActivePipeline();
+    loadPipelines();
 }
-loadStatus();
+
+async function pollActivePipeline() {
+    if (!activePipelineSite) return;
+    const siteId = activePipelineSite;
+    const res = await fetch('/api/content/pipeline/result?site_id=' + encodeURIComponent(siteId));
+    const d = await res.json();
+    renderSummary(d.summary, d.log_tail || '', {
+        last_run_display: d.last_run_display,
+        last_run_ok: d.last_run_ok,
+    });
+
+    if (d.running) {
+        document.querySelectorAll('.pipeline-card').forEach(c => {
+            c.classList.toggle('running', c.dataset.site === siteId);
+        });
+        return;
+    }
+
+    clearInterval(pipelinePoll);
+    pipelinePoll = null;
+    loadPipelines();
+
+    if (d.ok) showToast(siteId + ' 완료');
+    else if (d.ok === false) showToast(siteId + ' 실패');
+}
+
+loadPipelines();
 </script>
 {% endblock %}

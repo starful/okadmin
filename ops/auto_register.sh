@@ -167,7 +167,11 @@ if [ -n "$ONLY_PROJECT" ]; then
         exit 1
     fi
     echo "[$(date '+%F %T')] Single project: $ONLY_PROJECT" | tee -a "$LOG_FILE"
-    run_deploy "$ONLY_PROJECT"
+    if [ "$ONLY_PROJECT" = "hatena" ]; then
+        run_hatena_sunday
+    else
+        run_deploy "$ONLY_PROJECT"
+    fi
 else
     case "$weekday" in
         1) # Mon

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 
 from flask import Blueprint, redirect, render_template, session, url_for
 
@@ -59,8 +60,9 @@ def ops_page():
         "ops.html",
         active="ops",
         user_email=session.get("user_email", ""),
-        schedule=AUTO_REGISTER_SCHEDULE,
         work_root_ok=work_root_available(),
+        schedule=AUTO_REGISTER_SCHEDULE,
+        today_weekday=datetime.now().strftime("%a"),
     )
 
 
@@ -88,11 +90,8 @@ def gsc_page():
 @pages_bp.route("/content")
 @requires_auth
 def content_page():
-    return render_template(
-        "content.html",
-        active="content",
-        user_email=session.get("user_email", ""),
-    )
+    """Legacy URL → unified ops hub."""
+    return redirect(url_for("pages.ops_page"))
 
 
 @pages_bp.route("/images")

@@ -4,11 +4,12 @@
 
 | 항목 | 설명 |
 |------|------|
-| **ops → okadmin/ops** | Auto Register 스크립트·state·logs. `config.OPS_ROOT`는 `okadmin/ops` 우선, 없으면 `/opt/work/ops` |
+| **okadmin/ops** | Auto Register 스크립트·state·logs (`config.OPS_ROOT`) |
 | **GSC 허브** (`/gsc`) | 사이트 선택 시 GSC·GA4 자동 로드, N개 URL SEO 작업(Gemini+MD 반영) |
+| **GSC CSV 아카이브** | 수동 export: `okadmin/data/gsc_archive/` (구 `/opt/work/tmp_gsc*`) |
 | **GSC/GA4 API** | 서비스 계정(`GOOGLE_APPLICATION_CREDENTIALS`) + `sites.yaml` `analytics` |
 | **sites.yaml** | `links.gsc`, `analytics.gsc_site_url`, `analytics.ga4_property_id` |
-| **콘텐츠** (`/content`) | starful.biz, hatena, jpcampus 스크립트 버튼·로그 |
+| **운영 · 콘텐츠** (`/ops`) | 원클릭 파이프라인 · 주간 예정표 (구 `/content` 통합) |
 | **대시보드** | `links.gsc` 버튼 (기존) |
 
 ## 제외
