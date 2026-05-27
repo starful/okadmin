@@ -1,0 +1,621 @@
+{% extends "base.html" %}
+{% block title %}GSC{% endblock %}
+{% block head %}
+<style>
+    .two-col { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+    table.gsc { width: 100%; border-collapse: collapse; font-family: 'DM Mono'; font-size: 11px; }
+    table.gsc th, table.gsc td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
+    table.gsc th { color: #888; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+    .metrics.gsc-metrics { grid-template-columns: repeat(4, 1fr); }
+    .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    @media (max-width: 1100px) { .analytics-grid { grid-template-columns: 1fr; } }
+    .metric { background: #000; border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
+    .metric .v { font-size: 20px; font-weight: 800; color: var(--accent); }
+    .metric .l { font-family: 'DM Mono'; font-size: 10px; color: #666; margin-top: 4px; }
+    .meta { font-family: 'DM Mono'; font-size: 10px; color: #666; margin-bottom: 8px; }
+    .chart-wrap { position: relative; height: 240px; }
+    .result-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; background: #000; }
+    .result-card h4 { margin: 0 0 6px; font-size: 12px; word-break: break-all; }
+    #panel-results.has-results { border-color: var(--accent); }
+    .badge-ok { color: #8f8; }
+    .badge-warn { color: #fa0; }
+    .badge-err { color: #f88; }
+    .loading { opacity: .5; pointer-events: none; }
+    .url-list-wrap { max-height: 420px; overflow: auto; margin-top: 8px; }
+    .url-list-wrap a { color: var(--accent); text-decoration: none; }
+    .url-list-wrap a:hover { text-decoration: underline; }
+    .url-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .url-toolbar .btn { padding: 5px 10px; font-size: 10px; }
+    table.gsc input[type=checkbox] { width: auto; accent-color: var(--accent); }
+    .hub-git-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .hub-git-actions .btn { flex: 1; padding: 8px 10px; font-size: 11px; }
+    .hub-git-actions .btn:disabled { opacity: .4; }
+    #gsc-ops-status {
+        display: none; margin-top: 10px; padding: 10px;
+        background: #000; border: 1px solid var(--border); border-radius: 8px;
+        font-family: 'DM Mono'; font-size: 10px;
+    }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% endblock %}
+{% block content %}
+<!-- gsc-ui-v5: GA4/GSC 수동 불러오기 · 표 체크 URL만 SEO -->
+<h1>GSC 분석</h1>
+<p class="sub">사이트 선택 → 분석 불러오기 → URL 체크 → SEO 작업 · Push/Deploy는 수동</p>
+<div class="card gsc-load-bar" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+    <span class="mono" style="color:#888;font-size:11px">선택한 사이트의 GA4·GSC·저CTR URL (API 호출 · 수십 초 소요 가능)</span>
+    <button type="button" class="btn" id="btn-load-gsc-dashboard">GSC 분석 불러오기</button>
+</div>
+<div class="two-col" id="gsc-root">
+    <div class="card">
+        <label>사이트</label>
+        <select id="site-id" onchange="onSiteChange()" aria-label="사이트"></select>
+        <p class="meta" id="selected-count" style="margin-top:12px">선택 0건 (최대 20)</p>
+        <label class="mono" style="display:flex;align-items:center;gap:6px;margin:12px 0">
+            <input type="checkbox" id="apply-files" checked> MD 파일에 반영 (가능한 경우)
+        </label>
+        <button class="btn" type="button" style="width:100%" id="run-btn" onclick="runSeo()">SEO 작업 실행 (선택 URL)</button>
+        <div class="hub-git-actions">
+            <button type="button" class="btn" id="gsc-push-btn" disabled title="Git push">Push</button>
+            <button type="button" class="btn btn-ghost" id="gsc-deploy-btn" disabled title="deploy.sh">Deploy</button>
+        </div>
+        <p class="mono" style="color:#666;font-size:10px;margin-top:6px">Push/Deploy는 수동 · 아래에 성공/실패 표시</p>
+        <div id="gsc-ops-status"></div>
+        <p class="meta" id="gsc-count" style="margin-top:12px">—</p>
+        <p class="mono" id="api-hint" style="color:#666;margin-top:8px"></p>
+        <p class="mono" id="gemini-hint" style="margin-top:6px"></p>
+        <p class="mono" style="margin-top:8px">
+            <a href="/oauth/gsc/setup" style="color:var(--accent)">API 설정</a>
+        </p>
+    </div>
+    <div>
+        <div class="analytics-grid">
+            <div class="card" id="panel-ga4">
+                <h3 style="margin-top:0">GA4 · 28일</h3>
+                <p class="meta" id="ga4-meta">「GSC 분석 불러오기」 클릭</p>
+                <div class="metrics">
+                    <div class="metric"><div class="v" id="m-sessions">—</div><div class="l">세션</div></div>
+                    <div class="metric"><div class="v" id="m-users">—</div><div class="l">사용자</div></div>
+                    <div class="metric"><div class="v" id="m-pageviews">—</div><div class="l">페이지뷰</div></div>
+                </div>
+                <div class="chart-wrap"><canvas id="ga4-chart"></canvas></div>
+            </div>
+            <div class="card" id="panel-gsc">
+                <h3 style="margin-top:0">GSC · 28일</h3>
+                <p class="meta" id="gsc-meta">「GSC 분석 불러오기」 클릭</p>
+                <div class="metrics gsc-metrics">
+                    <div class="metric"><div class="v" id="g-clicks">—</div><div class="l">클릭</div></div>
+                    <div class="metric"><div class="v" id="g-impressions">—</div><div class="l">노출</div></div>
+                    <div class="metric"><div class="v" id="g-ctr">—</div><div class="l">CTR</div></div>
+                    <div class="metric"><div class="v" id="g-position">—</div><div class="l">평균 순위</div></div>
+                </div>
+                <div class="chart-wrap"><canvas id="gsc-chart"></canvas></div>
+            </div>
+        </div>
+        <div class="card" id="panel-urls">
+            <h3 style="margin-top:0">GSC · 저CTR · 고노출 URL</h3>
+            <p class="meta" id="url-list-meta">분석 불러오기 후 표시 (노출≥10, CTR≤3%)</p>
+            <div class="url-list-wrap" id="low-ctr-list"><p class="mono" style="color:#666">분석 불러오기 후 표시</p></div>
+        </div>
+        <div class="card" id="panel-results">
+            <h3 style="margin-top:0">작업 결과</h3>
+            <p class="meta" id="results-meta">SEO 작업 실행 후 표시</p>
+            <div id="results"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let sites = [], ga4Chart = null, gscChart = null, dashboard = null, currentLowCtr = [];
+let dashboardSeq = 0, seoInFlight = false;
+let selectedUrls = new Set();
+const GSC_RESULTS_KEY = 'okadmin_gsc_last_results';
+const MAX_SELECT = 20;
+
+async function loadSites() {
+    const res = await fetch('/api/gsc/sites');
+    sites = await res.json();
+    const sel = document.getElementById('site-id');
+    sel.innerHTML = sites.map(s => `<option value="${s.id}">${s.label}</option>`).join('');
+    const saved = sessionStorage.getItem('okadmin_gsc_site');
+    if (saved && sites.some(s => s.id === saved)) sel.value = saved;
+    sessionStorage.removeItem('okadmin_gsc_site');
+    onSiteChange();
+}
+
+function resetDashboardIdle() {
+    dashboard = null;
+    currentLowCtr = [];
+    document.getElementById('ga4-meta').textContent = '「GSC 분석 불러오기」 클릭';
+    document.getElementById('gsc-meta').textContent = '「GSC 분석 불러오기」 클릭';
+    document.getElementById('gsc-count').textContent = '—';
+    document.getElementById('low-ctr-list').innerHTML = '<p class="mono" style="color:#666">분석 불러오기 후 표시</p>';
+    document.getElementById('url-list-meta').textContent = '분석 불러오기 후 표시 (노출≥10, CTR≤3%)';
+    ['m-sessions', 'm-users', 'm-pageviews', 'g-clicks', 'g-impressions', 'g-ctr', 'g-position'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '—';
+    });
+    if (ga4Chart) { ga4Chart.destroy(); ga4Chart = null; }
+    if (gscChart) { gscChart.destroy(); gscChart = null; }
+}
+
+async function loadDashboard(clearResults) {
+    const site_id = document.getElementById('site-id').value;
+    const seq = ++dashboardSeq;
+    const s = sites.find(x => x.id === site_id);
+    document.getElementById('api-hint').textContent =
+        `GSC: ${s?.analytics?.gsc_site_url || '—'} · GA4: ${s?.analytics?.ga4_property_id || '(미설정)'}`;
+    if (clearResults && !seoInFlight) {
+        document.getElementById('results').innerHTML = '';
+        document.getElementById('results-meta').textContent = 'SEO 작업 실행 후 표시';
+        try { sessionStorage.removeItem(GSC_RESULTS_KEY); } catch (_) {}
+    }
+    document.getElementById('gsc-root').classList.add('loading');
+    document.getElementById('ga4-meta').textContent = '로딩…';
+    document.getElementById('gsc-meta').textContent = '로딩…';
+    document.getElementById('gsc-count').textContent = '로딩…';
+    document.getElementById('low-ctr-list').innerHTML = '<p class="mono" style="color:#666">로딩…</p>';
+    try {
+        const res = await fetch('/api/gsc/dashboard?site_id=' + encodeURIComponent(site_id));
+        if (seq !== dashboardSeq) return;
+        dashboard = await res.json();
+        if (seq !== dashboardSeq) return;
+        const gh = document.getElementById('gemini-hint');
+        gh.textContent = dashboard.gemini_configured
+            ? 'Gemini: 설정됨'
+            : 'Gemini: 미설정 (.env GEMINI_API_KEY)';
+        gh.style.color = dashboard.gemini_configured ? '#6a6' : '#c66';
+        renderGa4(dashboard.ga4 || {});
+        renderGsc(dashboard.gsc || {});
+    } catch (e) {
+        showToast('로드 실패');
+    } finally {
+        document.getElementById('gsc-root').classList.remove('loading');
+    }
+}
+
+function onSiteChange() {
+    document.getElementById('gemini-hint').textContent = '';
+    selectedUrls = new Set();
+    updateSelectedCount();
+    updateGitButtons();
+    const site_id = document.getElementById('site-id').value;
+    const s = sites.find(x => x.id === site_id);
+    document.getElementById('api-hint').textContent =
+        `GSC: ${s?.analytics?.gsc_site_url || '—'} · GA4: ${s?.analytics?.ga4_property_id || '(미설정)'}`;
+    if (!seoInFlight) {
+        document.getElementById('results').innerHTML = '';
+        document.getElementById('results-meta').textContent = 'SEO 작업 실행 후 표시';
+        try { sessionStorage.removeItem(GSC_RESULTS_KEY); } catch (_) {}
+    }
+    resetDashboardIdle();
+}
+
+function currentSiteMeta() {
+    const site_id = document.getElementById('site-id').value;
+    return sites.find(x => x.id === site_id) || {};
+}
+
+function updateGitButtons() {
+    const s = currentSiteMeta();
+    const pushBtn = document.getElementById('gsc-push-btn');
+    const deployBtn = document.getElementById('gsc-deploy-btn');
+    const canGit = s.git !== false;
+    pushBtn.disabled = !canGit;
+    deployBtn.disabled = !(canGit && s.has_deploy);
+    pushBtn.title = canGit ? 'git push (커밋 포함 가능)' : 'Git 없음';
+    deployBtn.title = s.has_deploy ? './deploy.sh --deploy-only' : 'deploy.sh 없음';
+}
+
+function updateSelectedCount() {
+    const n = selectedUrls.size;
+    document.getElementById('selected-count').textContent =
+        `선택 ${n}건 (최대 ${MAX_SELECT})`;
+}
+
+function getSelectedUrls() {
+    return [...selectedUrls].slice(0, MAX_SELECT);
+}
+
+function toggleUrlSelection(url, checked) {
+    if (checked) {
+        if (selectedUrls.size >= MAX_SELECT) {
+            showToast(`최대 ${MAX_SELECT}개까지 선택`);
+            return false;
+        }
+        selectedUrls.add(url);
+    } else {
+        selectedUrls.delete(url);
+    }
+    updateSelectedCount();
+    return true;
+}
+
+function selectAllUrls(limit) {
+    selectedUrls = new Set();
+    const rows = currentLowCtr.slice(0, limit || MAX_SELECT);
+    rows.forEach(r => {
+        const u = r.label || r.page;
+        if (u) selectedUrls.add(u);
+    });
+    document.querySelectorAll('.url-pick').forEach(cb => {
+        cb.checked = selectedUrls.has(cb.value);
+    });
+    updateSelectedCount();
+}
+
+function clearUrlSelection() {
+    selectedUrls = new Set();
+    document.querySelectorAll('.url-pick').forEach(cb => { cb.checked = false; });
+    updateSelectedCount();
+}
+
+async function gscSiteAction(action) {
+    const site_id = document.getElementById('site-id').value;
+    const btn = document.getElementById(action === 'push' ? 'gsc-push-btn' : 'gsc-deploy-btn');
+    const statusEl = document.getElementById('gsc-ops-status');
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = action === 'push' ? '푸시…' : '배포…';
+    renderOpsStatus(statusEl, 'running', action === 'push' ? 'Push 진행 중…' : 'Deploy 시작 중…', '', '');
+    try {
+        const res = await fetch(`/api/sites/${encodeURIComponent(site_id)}/${action}`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(action === 'deploy' ? { mode: 'deploy-only' } : {}),
+        });
+        const d = await res.json();
+        if (!res.ok || d.error) {
+            const err = d.error || d.message || '실패';
+            renderOpsStatus(statusEl, 'failed', '실패', err, d.output || '');
+            return showToast(err);
+        }
+        if (action === 'push') {
+            const detail = [d.message, d.last_commit, d.output].filter(Boolean).join('\n');
+            renderOpsStatus(statusEl, 'success', 'Push 성공', detail, '');
+            showToast(d.message || '푸시 완료');
+        } else {
+            renderOpsStatus(statusEl, 'running', d.message || '배포 진행 중', d.log_path || '', '');
+            showToast(d.message || '배포 시작');
+            if (d.job_id) await pollDeployStatus(site_id, d.job_id, statusEl);
+        }
+    } catch (e) {
+        renderOpsStatus(statusEl, 'failed', '요청 실패', String(e), '');
+        showToast('요청 실패');
+    } finally {
+        btn.textContent = label;
+        updateGitButtons();
+    }
+}
+
+function renderGa4(d) {
+    if (d.error) {
+        document.getElementById('ga4-meta').textContent = d.error;
+        return;
+    }
+    const t = d.totals || {};
+    document.getElementById('m-sessions').textContent = (t.sessions ?? 0).toLocaleString();
+    document.getElementById('m-users').textContent = (t.users ?? 0).toLocaleString();
+    document.getElementById('m-pageviews').textContent = (t.pageviews ?? 0).toLocaleString();
+    document.getElementById('ga4-meta').textContent =
+        `Property ${d.property_id || ''} · ${d.start || ''} ~ ${d.end || ''}`;
+    const rows = (d.rows || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+    const canvas = document.getElementById('ga4-chart');
+    if (!rows.length) return;
+    if (ga4Chart) ga4Chart.destroy();
+    ga4Chart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: rows.map(r => r.date.slice(5)),
+            datasets: [
+                { label: '세션', data: rows.map(r => r.sessions), borderColor: '#e8ff47', tension: 0.25, pointRadius: 0 },
+                { label: '사용자', data: rows.map(r => r.users), borderColor: '#60a5fa', tension: 0.25, pointRadius: 0 },
+                { label: '페이지뷰', data: rows.map(r => r.pageviews), borderColor: '#f59e0b', tension: 0.25, pointRadius: 0 },
+            ],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#888', font: { size: 10 } } } },
+            scales: {
+                x: { ticks: { color: '#666', maxTicksLimit: 10 }, grid: { color: '#222' } },
+                y: { ticks: { color: '#666' }, grid: { color: '#222' } },
+            },
+        },
+    });
+}
+
+function renderLowCtrList(rows) {
+    currentLowCtr = rows || [];
+    const el = document.getElementById('low-ctr-list');
+    const meta = document.getElementById('url-list-meta');
+    if (!rows?.length) {
+        el.innerHTML = '<p class="mono" style="color:#666">해당 조건 URL 없음</p>';
+        meta.textContent = '분석 불러오기 후 표시 (노출≥10, CTR≤3%)';
+        selectedUrls = new Set();
+        updateSelectedCount();
+        return;
+    }
+    const show = rows.slice(0, 100);
+    meta.textContent = `총 ${rows.length}건 · 표시 ${show.length}건 · 체크한 URL만 SEO 작업`;
+    el.innerHTML = `<div class="url-toolbar">
+        <button type="button" class="btn btn-ghost" id="select-top5">상위 5개 선택</button>
+        <button type="button" class="btn btn-ghost" id="select-all-urls">최대 20개 선택</button>
+        <button type="button" class="btn btn-ghost" id="clear-urls">선택 해제</button>
+    </div>
+    <table class="gsc"><thead><tr>
+        <th></th><th>#</th><th>URL</th><th>노출</th><th>클릭</th><th>CTR</th><th>순위</th>
+    </tr></thead><tbody>` +
+        show.map((r, i) => {
+            const url = r.label || r.page || '';
+            const checked = selectedUrls.has(url) ? 'checked' : '';
+            return `<tr>
+            <td><input type="checkbox" class="url-pick" value="${escapeHtml(url)}" ${checked}></td>
+            <td>${i + 1}</td>
+            <td><a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a></td>
+            <td>${(r.impressions ?? 0).toLocaleString()}</td>
+            <td>${r.clicks ?? 0}</td>
+            <td>${((r.ctr ?? 0) * 100).toFixed(2)}%</td>
+            <td>${r.position != null ? Number(r.position).toFixed(1) : '—'}</td>
+        </tr>`;
+        }).join('') + '</tbody></table>';
+
+    document.getElementById('select-top5').onclick = () => selectAllUrls(5);
+    document.getElementById('select-all-urls').onclick = () => selectAllUrls(MAX_SELECT);
+    document.getElementById('clear-urls').onclick = () => clearUrlSelection();
+    el.querySelectorAll('.url-pick').forEach(cb => {
+        cb.addEventListener('change', () => {
+            if (!toggleUrlSelection(cb.value, cb.checked)) cb.checked = false;
+        });
+    });
+    updateSelectedCount();
+}
+
+function renderGsc(d) {
+    if (d.error) {
+        document.getElementById('gsc-meta').textContent = d.error;
+        document.getElementById('gsc-count').textContent = '—';
+        renderLowCtrList([]);
+        return;
+    }
+    const t = d.totals || {};
+    document.getElementById('g-clicks').textContent = (t.clicks ?? 0).toLocaleString();
+    document.getElementById('g-impressions').textContent = (t.impressions ?? 0).toLocaleString();
+    document.getElementById('g-ctr').textContent = ((t.ctr ?? 0) * 100).toFixed(2) + '%';
+    document.getElementById('g-position').textContent = (t.position ?? 0).toFixed(1);
+    const n = d.low_ctr_count ?? (d.low_ctr || []).length;
+    document.getElementById('gsc-meta').textContent =
+        `${d.start || ''} ~ ${d.end || ''} · 페이지 ${d.page_rows ?? '—'}개 분석`;
+    document.getElementById('gsc-count').textContent = `저CTR 후보 ${n}건`;
+    renderLowCtrList(d.low_ctr || []);
+
+    const rows = (d.daily || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+    const canvas = document.getElementById('gsc-chart');
+    if (!rows.length) {
+        if (gscChart) { gscChart.destroy(); gscChart = null; }
+        return;
+    }
+    if (gscChart) gscChart.destroy();
+    gscChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: rows.map(r => r.date.slice(5)),
+            datasets: [
+                { label: '클릭', data: rows.map(r => r.clicks), borderColor: '#e8ff47', tension: 0.25, pointRadius: 0, yAxisID: 'y' },
+                { label: '노출', data: rows.map(r => r.impressions), borderColor: '#a78bfa', tension: 0.25, pointRadius: 0, yAxisID: 'y1' },
+            ],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: { color: '#888', font: { size: 10 } } } },
+            scales: {
+                x: { ticks: { color: '#666', maxTicksLimit: 10 }, grid: { color: '#222' } },
+                y: { position: 'left', ticks: { color: '#888' }, grid: { color: '#222' } },
+                y1: { position: 'right', ticks: { color: '#666' }, grid: { drawOnChartArea: false } },
+            },
+        },
+    });
+}
+
+function statusClass(s) {
+    if (s === 'applied') return 'badge-ok';
+    if (s === 'suggested' || s === 'suggested_no_file') return 'badge-warn';
+    return 'badge-err';
+}
+
+function statusLabel(s) {
+    const m = {
+        applied: 'MD 반영됨', suggested: '제안만 (미반영)', suggested_no_file: '제안 (파일 없음)',
+        no_changes: '변경 없음', fetch_failed: '페이지 로드 실패', ai_failed: 'AI 실패',
+    };
+    return m[s] || s;
+}
+
+function fmtPct(ctr) {
+    const n = Number(ctr);
+    return (Number.isFinite(n) ? n * 100 : 0).toFixed(2) + '%';
+}
+
+function fmtPos(pos) {
+    const n = Number(pos);
+    return Number.isFinite(n) ? n.toFixed(1) : '—';
+}
+
+function renderResults(data) {
+    const el = document.getElementById('results');
+    const panel = document.getElementById('panel-results');
+    const items = Array.isArray(data?.results) ? data.results : [];
+    document.getElementById('results-meta').textContent =
+        `${items.length}건 처리 · 후보 ${data.candidates_total ?? '—'}건 중`;
+    el.innerHTML = '';
+    panel.classList.toggle('has-results', items.length > 0);
+    if (!items.length) {
+        el.appendChild(Object.assign(document.createElement('p'), {
+            className: 'mono',
+            style: 'color:#666',
+            textContent: data?.error || '결과 없음 (저CTR 후보가 없거나 API 오류)',
+        }));
+        return;
+    }
+    try { sessionStorage.setItem(GSC_RESULTS_KEY, JSON.stringify(data)); } catch (_) {}
+    for (const it of items) {
+        const card = document.createElement('div');
+        card.className = 'result-card';
+        const h4 = document.createElement('h4');
+        const badge = document.createElement('span');
+        badge.className = statusClass(it.status);
+        badge.textContent = '[' + statusLabel(it.status) + '] ';
+        h4.appendChild(badge);
+        h4.appendChild(document.createTextNode(it.url || ''));
+        card.appendChild(h4);
+        const meta = document.createElement('p');
+        meta.className = 'meta';
+        meta.textContent = `노출 ${it.impressions ?? 0} · CTR ${fmtPct(it.ctr)} · 순위 ${fmtPos(it.position)}`;
+        card.appendChild(meta);
+        if (it.error) {
+            const err = document.createElement('p');
+            err.className = 'meta badge-err';
+            err.textContent = it.error;
+            card.appendChild(err);
+        }
+        if (it.summary_ko) {
+            const sum = document.createElement('p');
+            sum.className = 'meta';
+            sum.textContent = it.summary_ko;
+            card.appendChild(sum);
+        }
+        if (it.before) {
+            const b = document.createElement('p');
+            b.className = 'meta';
+            b.innerHTML = '<strong>Before</strong> ' + escapeHtml(it.before.title || '') +
+                '<br>' + escapeHtml(it.before.description || '');
+            card.appendChild(b);
+        }
+        if (it.after) {
+            const a = document.createElement('p');
+            a.className = 'meta';
+            a.innerHTML = '<strong>After</strong> ' + escapeHtml(it.after.title || '') +
+                '<br>' + escapeHtml(it.after.description || '');
+            card.appendChild(a);
+        }
+        if (Array.isArray(it.files) && it.files.length) {
+            const f = document.createElement('p');
+            f.className = 'meta';
+            f.textContent = '파일: ' + it.files.join(', ');
+            card.appendChild(f);
+        }
+        if (Array.isArray(it.applied_fields) && it.applied_fields.length) {
+            const af = document.createElement('p');
+            af.className = 'meta';
+            af.textContent = '반영 필드: ' + it.applied_fields.join(', ');
+            card.appendChild(af);
+        }
+        el.appendChild(card);
+    }
+}
+
+function restoreLastResults() {
+    try {
+        const raw = sessionStorage.getItem(GSC_RESULTS_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (data?.results?.length) renderResults(data);
+    } catch (_) {}
+}
+
+async function runSeo() {
+    const site_id = document.getElementById('site-id').value;
+    const urls = getSelectedUrls();
+    if (!urls.length) {
+        showToast('표에서 URL을 1개 이상 선택하세요');
+        return;
+    }
+    const apply = document.getElementById('apply-files').checked;
+    const btn = document.getElementById('run-btn');
+    const panel = document.getElementById('panel-results');
+    btn.disabled = true;
+    seoInFlight = true;
+    document.getElementById('gsc-root').classList.add('loading');
+    document.getElementById('results-meta').textContent = `SEO 작업 중… (${urls.length}개, 1건당 ~10초)`;
+    document.getElementById('results').innerHTML =
+        '<p class="mono" style="color:#888">Gemini 분석 중입니다. 잠시만 기다려 주세요…</p>';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showToast('SEO 작업 중…');
+    try {
+        const res = await fetch('/api/gsc/run', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ site_id, urls, apply }),
+        });
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('application/json')) {
+            document.getElementById('results').innerHTML =
+                '<p class="mono" style="color:#f88">JSON이 아닌 응답 (HTTP ' + res.status + '). 로그인 만료 시 새로고침하세요.</p>';
+            return showToast('응답 형식 오류 · 새로고침');
+        }
+        let d;
+        try { d = await res.json(); } catch (_) {
+            document.getElementById('results').innerHTML =
+                '<p class="mono" style="color:#f88">응답 파싱 실패 (HTTP ' + res.status + ')</p>';
+            return showToast('응답 오류 (HTTP ' + res.status + ')');
+        }
+        if (!res.ok && d.error && !d.results) {
+            document.getElementById('results-meta').textContent = d.error;
+            document.getElementById('results').innerHTML =
+                '<p class="mono" style="color:#f88">' + escapeHtml(d.error) + '</p>';
+            return showToast(d.error);
+        }
+        if (d.error && !d.results) {
+            document.getElementById('results-meta').textContent = d.error;
+            document.getElementById('results').innerHTML =
+                '<p class="mono" style="color:#f88">' + escapeHtml(d.error) + '</p>';
+            return showToast(d.error);
+        }
+        renderResults(d);
+        const n = (d.results || []).length;
+        if (n > 0) {
+            showToast('완료 · ' + n + '건 · 작업 결과 확인');
+            panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+            showToast(d.error || '처리할 URL 없음');
+            panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    } catch (e) {
+        document.getElementById('results').innerHTML =
+            '<p class="mono" style="color:#f88">요청 실패: ' + escapeHtml(String(e)) + '</p>';
+        showToast('요청 실패');
+    } finally {
+        seoInFlight = false;
+        btn.disabled = false;
+        document.getElementById('gsc-root').classList.remove('loading');
+    }
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+}
+
+(function initGscLoadButton() {
+    const btn = document.getElementById('btn-load-gsc-dashboard');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = '불러오는 중…';
+        await loadDashboard(false);
+        btn.disabled = false;
+        btn.textContent = 'GSC 분석 불러오기';
+    });
+})();
+
+loadSites().then(() => {
+    updateGitButtons();
+    document.getElementById('gsc-push-btn').onclick = () => gscSiteAction('push');
+    document.getElementById('gsc-deploy-btn').onclick = () => gscSiteAction('deploy');
+});
+restoreLastResults();
+</script>
+{% endblock %}

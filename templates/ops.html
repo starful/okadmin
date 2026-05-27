@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Auto Register{% endblock %}
+{% block content %}
+<h1>Auto Register</h1>
+<p class="sub">okadmin/ops/auto_register.sh (legacy: /opt/work/ops)</p>
+{% if not work_root_ok %}
+<div class="warn">이 호스트에서 WORK_ROOT(/opt/work)를 사용할 수 없습니다. 로컬 Mac에서 실행하세요.</div>
+{% endif %}
+<div class="card">
+    <h3 style="margin-top:0">요일표</h3>
+    <table class="mono" style="width:100%;border-collapse:collapse">
+        {% for day, project in schedule %}
+        <tr><td style="padding:6px;color:#888">{{ day }}</td><td style="padding:6px">{{ project }}</td></tr>
+        {% endfor %}
+    </table>
+</div>
+<div style="display:flex;gap:8px;margin:16px 0">
+    <button class="btn" onclick="runRegister(true)" {% if not work_root_ok %}disabled{% endif %}>Force 실행</button>
+    <button class="btn btn-ghost" onclick="runRegister(false)" {% if not work_root_ok %}disabled{% endif %}>실행 (guards)</button>
+    <button class="btn btn-ghost" onclick="loadStatus()">새로고침</button>
+</div>
+<div class="card">
+    <div class="mono" id="status-meta">—</div>
+</div>
+<div class="card">
+    <h3 style="margin-top:0">최근 로그</h3>
+    <pre class="mono" id="log-tail" style="white-space:pre-wrap;max-height:320px;overflow:auto;color:#aaa;margin:0">—</pre>
+</div>
+<details class="card"><summary class="mono">launchd / status script</summary>
+<pre class="mono" id="launchctl-out" style="white-space:pre-wrap;color:#666;margin-top:12px">—</pre>
+</details>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadStatus() {
+    const res = await fetch('/api/ops/auto-register/status');
+    const d = await res.json();
+    document.getElementById('status-meta').innerHTML =
+        `last_run (file): <b>${d.last_run_file || '—'}</b><br>` +
+        `last_run (Firestore): <b>${d.last_run_meta || '—'}</b><br>` +
+        `work_root: <b>${d.work_root_ok}</b>`;
+    document.getElementById('log-tail').textContent = d.log_tail || '(no logs)';
+    document.getElementById('launchctl-out').textContent = d.launchctl_snippet || '—';
+}
+async function runRegister(force) {
+    const res = await fetch('/api/ops/auto-register/run', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ force }),
+    });
+    const d = await res.json();
+    if (d.ok) showToast('시작됨 PID ' + d.pid);
+    else showToast('오류: ' + (d.error || ''));
+    setTimeout(loadStatus, 2000);
+}
+loadStatus();
+</script>
+{% endblock %}

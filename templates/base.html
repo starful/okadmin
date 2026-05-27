@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Work Hub{% endblock %} · OK Admin</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400&family=Syne:wght@700;800&display=swap');
+        :root { --bg: #0a0a0a; --surf: #121212; --border: #222; --accent: #e8ff47; --text: #eee; --muted: #777; }
+        * { box-sizing: border-box; }
+        body { background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        nav { width: 220px; border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+        .logo-area { font-size: 18px; font-weight: 800; margin-bottom: 20px; }
+        .logo-area span { color: var(--accent); font-size: 9px; border: 1px solid var(--accent); padding: 2px 5px; margin-left: 8px; }
+        nav a { color: #666; text-decoration: none; padding: 10px 12px; font-weight: 700; border-radius: 8px; font-size: 13px; }
+        nav a:hover { color: #aaa; }
+        nav a.active { background: var(--accent); color: #000; }
+        .nav-section { font-size: 10px; color: #444; margin-top: 16px; margin-bottom: 4px; padding-left: 12px; letter-spacing: 1px; }
+        .user-line { margin-top: auto; font-family: 'DM Mono'; font-size: 10px; color: var(--muted); padding: 12px; }
+        .user-line a { color: var(--accent); padding: 0; font-weight: 400; }
+        main { flex: 1; overflow-y: auto; padding: 32px 40px; }
+        h1 { margin: 0 0 8px; font-size: 22px; }
+        .sub { font-family: 'DM Mono'; font-size: 11px; color: var(--muted); margin-bottom: 24px; }
+        .btn { padding: 9px 16px; background: var(--accent); color: #000; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 12px; }
+        .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+        .btn-danger { background: #c44; color: #fff; }
+        .card { background: var(--surf); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+        .mono { font-family: 'DM Mono', monospace; font-size: 11px; }
+        input, select, textarea { background: #000; border: 1px solid var(--border); color: #fff; padding: 9px 12px; border-radius: 8px; width: 100%; font-size: 13px; }
+        label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; }
+        .form-row { margin-bottom: 12px; }
+        .grid-sites { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-family: 'DM Mono'; }
+        .badge-dirty { background: #422; color: #f88; }
+        .badge-clean { background: #242; color: #8f8; }
+        #toast { position: fixed; bottom: 20px; right: 20px; background: var(--accent); color: #000; padding: 10px 20px; border-radius: 5px; font-weight: bold; display: none; z-index: 1000; }
+        .warn { background: #332200; border: 1px solid #664400; padding: 12px; border-radius: 8px; font-size: 12px; margin-bottom: 16px; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav>
+        <div class="logo-area">OK Admin <span>WORK HUB</span></div>
+        <div class="nav-section">HUB</div>
+        <a href="{{ url_for('pages.dashboard') }}" class="{% if active == 'dashboard' %}active{% endif %}">대시보드</a>
+        <a href="{{ url_for('pages.schedule_page') }}" class="{% if active == 'schedule' %}active{% endif %}">달력</a>
+        <a href="{{ url_for('pages.ops_page') }}" class="{% if active == 'ops' %}active{% endif %}">Auto Register</a>
+        <a href="{{ url_for('pages.oktemplate_page') }}" class="{% if active == 'oktemplate' %}active{% endif %}">새 OK 사이트</a>
+        <a href="{{ url_for('pages.gsc_page') }}" class="{% if active == 'gsc' %}active{% endif %}">GSC</a>
+        <a href="{{ url_for('pages.content_page') }}" class="{% if active == 'content' %}active{% endif %}">콘텐츠</a>
+        <div class="nav-section">ASSETS</div>
+        <a href="{{ url_for('pages.images_page') }}" class="{% if active == 'images' %}active{% endif %}">GCS 이미지</a>
+        <div class="user-line">
+            {{ user_email }}<br>
+            <a href="{{ url_for('auth.logout') }}">로그아웃</a>
+        </div>
+    </nav>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <div id="toast"></div>
+    <script>
+        function showToast(m) {
+            const t = document.getElementById('toast');
+            t.innerText = m; t.style.display = 'block';
+            setTimeout(() => t.style.display = 'none', 3000);
+        }
+
+        function escapeHtmlOps(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+        }
+
+        function renderOpsStatus(el, state, title, detail, logTail) {
+            if (!el) return;
+            const colors = {
+                success: '#6a6', running: '#fa0', failed: '#f88', unknown: '#888',
+            };
+            const c = colors[state] || '#888';
+            let html = `<div style="color:${c};font-weight:700;margin-bottom:4px">${escapeHtmlOps(title)}</div>`;
+            if (detail) html += `<div style="color:#aaa;white-space:pre-wrap;word-break:break-word">${escapeHtmlOps(detail)}</div>`;
+            if (logTail) {
+                html += `<pre style="margin-top:8px;max-height:160px;overflow:auto;background:#000;border:1px solid #333;padding:8px;color:#8a8;font-size:10px">${escapeHtmlOps(logTail)}</pre>`;
+            }
+            el.style.display = 'block';
+            el.innerHTML = html;
+        }
+
+        async function pollDeployStatus(siteId, jobId, statusEl, onDone) {
+            const maxMs = 45 * 60 * 1000;
+            const started = Date.now();
+            while (Date.now() - started < maxMs) {
+                await new Promise(r => setTimeout(r, 3000));
+                const res = await fetch(
+                    `/api/sites/${encodeURIComponent(siteId)}/deploy/status?job_id=${encodeURIComponent(jobId)}`,
+                    { credentials: 'same-origin' }
+                );
+                const d = await res.json();
+                if (!res.ok || d.error) {
+                    renderOpsStatus(statusEl, 'failed', '상태 조회 실패', d.error || '', '');
+                    if (onDone) onDone(false, d);
+                    return;
+                }
+                renderOpsStatus(statusEl, d.state, d.message || d.state, d.log_path || '', d.log_tail || '');
+                if (d.state === 'success') {
+                    showToast('배포 완료');
+                    if (onDone) onDone(true, d);
+                    return;
+                }
+                if (d.state === 'failed') {
+                    showToast('배포 실패');
+                    if (onDone) onDone(false, d);
+                    return;
+                }
+                if (d.state === 'unknown') {
+                    if (onDone) onDone(null, d);
+                    return;
+                }
+            }
+            renderOpsStatus(statusEl, 'failed', '타임아웃', '45분 내 완료 신호 없음', '');
+            showToast('배포 타임아웃 · 로그 확인');
+            if (onDone) onDone(false, null);
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

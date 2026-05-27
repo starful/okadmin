@@ -1,0 +1,12 @@
+flask
+google-cloud-storage
+google-cloud-firestore
+firebase-admin
+requests
+python-dotenv
+Pillow
+PyYAML
+google-api-python-client
+google-analytics-data
+google-auth-oauthlib
+google-generativeai

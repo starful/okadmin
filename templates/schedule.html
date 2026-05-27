@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title %}달력{% endblock %}
+{% block head %}
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<style>
+    #calendar-wrap { background: var(--surf); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+    .fc { color: var(--text); --fc-border-color: #333; --fc-page-bg-color: #121212; --fc-neutral-bg-color: #1a1a1a; --fc-today-bg-color: #1a1a0a; }
+    .fc-col-header-cell-cushion, .fc-daygrid-day-number { color: var(--text); }
+    .fc .fc-daygrid-day.fc-day-jp-holiday { background: #1a1218; }
+    .fc .fc-daygrid-day.fc-day-weekend { background: #141414; }
+    .fc .fc-jp-holiday { font-family: 'DM Mono'; font-size: 9px; color: #f9a8d4; margin-top: 2px; line-height: 1.2; }
+    .fc-event { font-size: 10px; font-weight: 600; border-radius: 4px; border-left-width: 4px !important; cursor: pointer; margin-bottom: 2px; }
+    .fc-event .fc-event-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fc-daygrid-event { opacity: 1 !important; }
+    .fc-event.ev-phase-planned { opacity: 0.5 !important; border-style: dashed !important; border-width: 2px !important; }
+    .fc-event.ev-phase-skipped { opacity: 0.35 !important; background: #444 !important; border-color: #666 !important; color: #aaa !important; }
+    .phase-legend { display: flex; gap: 12px; font-family: 'DM Mono'; font-size: 10px; color: #888; margin-bottom: 12px; align-items: center; }
+    .phase-legend .sample { display: inline-block; padding: 3px 10px; border-radius: 4px; font-weight: 600; }
+    .phase-legend .sample.done { background: #22c55e; color: #111; }
+    .phase-legend .sample.planned { background: #333; color: #ccc; border: 2px dashed #888; opacity: 0.7; }
+    .fc .fc-daygrid-day.fc-day-today { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .fc .fc-daygrid-day.fc-day-outside-hub { opacity: 0.35; }
+    .fc .fc-daygrid-day.fc-day-outside-hub .fc-daygrid-day-events { pointer-events: none; }
+    .legend-sites { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; font-family: 'DM Mono'; font-size: 10px; }
+    .legend-sites span { padding: 2px 8px; border-radius: 4px; color: #111; font-weight: 600; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+    .range-hint { font-family: 'DM Mono'; font-size: 10px; color: #666; margin-bottom: 12px; }
+    #todo-fields { display: none; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 8px; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>작업 달력</h1>
+<p class="sub">기준일 ±{{ calendar_window_days }}일(2주) · ◀▶ 1주 이동 · 사이트별 색 · 🇯🇵 공휴일</p>
+<div class="phase-legend">
+    <span><span class="sample done">실행</span> 완료</span>
+    <span><span class="sample planned">예정</span> 미래·예약</span>
+    <span>종류: <b>GSC</b>·<b>컨텐츠</b>(Auto Register·글 추가) · <b>기능</b>·<b>git</b> — <i>실행=사이트 색 · 예정=회색</i></span>
+</div>
+<div class="legend-sites">
+    {% for sid, hex in site_colors.items() %}
+    <span style="background:{{ hex }}">{{ sid }}</span>
+    {% endfor %}
+</div>
+<div class="toolbar">
+    <button class="btn" type="button" onclick="seedAutoRegister()">Auto Register 이력·예정 가져오기</button>
+    <button class="btn btn-ghost" type="button" onclick="reloadCalendar()">새로고침</button>
+</div>
+<p class="range-hint" id="range-hint"></p>
+<div id="calendar-wrap"><div id="calendar"></div></div>
+<div id="ev-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:50;align-items:center;justify-content:center">
+    <div class="card" style="width:440px;max-height:90vh;overflow:auto">
+        <h3 style="margin-top:0">일정</h3>
+        <div class="form-row"><label>종류</label>
+            <select id="ev-kind" onchange="onKindChange()">{% for k in event_kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}</select>
+        </div>
+        <div class="form-row"><label>제목</label><input id="ev-title"></div>
+        <div class="form-row"><label>site</label>
+            <select id="ev-site"><option value="">—</option>{% for s in services %}<option value="{{ s.id }}">{{ s.id }}</option>{% endfor %}</select>
+        </div>
+        <div class="form-row"><label>날짜</label><input type="date" id="ev-date"></div>
+        <div id="todo-fields">
+            <div class="form-row"><label>TODO 상태</label>
+                <select id="ev-status"><option value="open">open</option><option value="done">done</option></select>
+            </div>
+        </div>
+        <div class="form-row"><label>메모</label><textarea id="ev-notes" rows="2"></textarea></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" type="button" onclick="saveEvent()">저장</button>
+            <button class="btn btn-danger" type="button" id="ev-del-btn" onclick="deleteEvent()">삭제</button>
+            <button class="btn btn-ghost" type="button" onclick="closeEvModal()">닫기</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const WINDOW_DAYS = {{ calendar_window_days }};
+const WEEK_STEP = 7;
+let calendar = null, editCalId = null, editSeeded = false;
+let holidayMap = {}, anchorDate = null, serverToday = null;
+let rangeStart = null, rangeEnd = null;
+
+function fmtDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function addDays(iso, n) {
+    const d = new Date(iso + 'T12:00:00');
+    d.setDate(d.getDate() + n);
+    return fmtDate(d);
+}
+
+/** 주(일~토) 그리드: 범위를 포함하는 주 수·그리드 시작일 */
+function weekGridForRange(startIso, endIso) {
+    const start = new Date(startIso + 'T12:00:00');
+    const end = new Date(endIso + 'T12:00:00');
+    const gridStart = new Date(start);
+    gridStart.setDate(gridStart.getDate() - gridStart.getDay());
+    const gridEnd = new Date(end);
+    gridEnd.setDate(gridEnd.getDate() + (6 - gridEnd.getDay()));
+    const weeks = Math.floor((gridEnd - gridStart) / 604800000) + 1;
+    return { gridStart: fmtDate(gridStart), weeks };
+}
+
+function onKindChange() {
+    const k = document.getElementById('ev-kind').value;
+    document.getElementById('todo-fields').style.display = k === 'todo' ? 'block' : 'none';
+    if (k === 'auto_register' && !editCalId) {
+        const site = document.getElementById('ev-site').value;
+        document.getElementById('ev-title').value = site ? `Auto Register · ${site}` : 'Auto Register';
+    }
+}
+
+function openEvModal(item, dateStr) {
+    editCalId = item ? (item.cal_id || item.id) : null;
+    editSeeded = !!(item && item.seeded);
+    const kind = item ? (item.kind || 'manual') : 'manual';
+    document.getElementById('ev-kind').value = kind;
+    document.getElementById('ev-kind').disabled = !!editCalId;
+    onKindChange();
+    document.getElementById('ev-title').value = item ? (item.title || item.label || '') : '';
+    document.getElementById('ev-site').value = item ? (item.site_id || '') : '';
+    const day = item ? (item.date || item.start_at || '').slice(0, 10) : (dateStr || '');
+    document.getElementById('ev-date').value = day;
+    document.getElementById('ev-notes').value = item ? (item.notes || item.body || '') : '';
+    document.getElementById('ev-status').value = item ? (item.status || 'open') : 'open';
+    document.getElementById('ev-del-btn').style.display = editCalId ? 'inline-block' : 'none';
+    document.getElementById('ev-modal').style.display = 'flex';
+}
+
+function closeEvModal() {
+    document.getElementById('ev-modal').style.display = 'none';
+    document.getElementById('ev-kind').disabled = false;
+    editCalId = null;
+}
+
+async function saveEvent() {
+    const day = document.getElementById('ev-date').value;
+    if (!day) return showToast('날짜 필요');
+    const payload = {
+        title: document.getElementById('ev-title').value,
+        site_id: document.getElementById('ev-site').value,
+        kind: document.getElementById('ev-kind').value,
+        start_at: day,
+        end_at: '',
+        all_day: true,
+        notes: document.getElementById('ev-notes').value,
+        status: document.getElementById('ev-status').value,
+    };
+    const url = editCalId ? '/api/calendar/events/' + encodeURIComponent(editCalId) : '/api/calendar/events';
+    const method = editCalId ? 'PUT' : 'POST';
+    const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    if (res.ok) { closeEvModal(); reloadCalendar(); showToast('저장됨'); }
+    else showToast('오류: ' + (await res.text()).slice(0, 80));
+}
+
+async function deleteEvent() {
+    if (!editCalId || !confirm('삭제?')) return;
+    await fetch('/api/calendar/events/' + encodeURIComponent(editCalId), { method: 'DELETE' });
+    closeEvModal(); reloadCalendar();
+}
+
+async function seedAutoRegister() {
+    if (!confirm('2026-04-27 ~ 오늘+90일 Auto Register 일정을 추가합니다.\n(이미 있는 날짜는 건너뜀)')) return;
+    const res = await fetch('/api/calendar/seed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    const d = await res.json();
+    if (d.ok) {
+        showToast(`추가 ${d.created}건 · 스킵 ${d.skipped}건`);
+        reloadCalendar();
+    } else showToast('시드 실패');
+}
+
+function itemToFcEvent(it) {
+    return {
+        id: it.cal_id,
+        title: it.chip_title || `${it.site_id} · ${it.tag}`,
+        start: it.date,
+        allDay: true,
+        backgroundColor: it.color,
+        borderColor: it.color,
+        textColor: it.text_color,
+        classNames: [`ev-phase-${it.phase || 'done'}`],
+        extendedProps: it,
+    };
+}
+
+function paintEvent(info) {
+    const p = info.event.extendedProps;
+    const phase = p.phase || 'done';
+    const bg = info.event.backgroundColor || p.color;
+    if (phase === 'skipped') return;
+    if (bg) {
+        info.el.style.setProperty('background-color', bg, 'important');
+        info.el.style.setProperty('border-color', bg, 'important');
+        info.el.style.color = info.event.textColor || p.text_color || '#111';
+    }
+    if (phase === 'planned') {
+        info.el.style.setProperty('background-color', '#3a3a3a', 'important');
+        info.el.style.setProperty('border-color', '#666', 'important');
+        info.el.style.setProperty('color', '#bbb', 'important');
+        info.el.style.setProperty('opacity', '0.85', 'important');
+        info.el.style.borderStyle = 'dashed';
+        info.el.style.borderWidth = '2px';
+    }
+    const label = p.label || '';
+    info.el.title = `${p.site_id} · ${p.phase_label || ''} · ${p.tag} · ${label}`;
+}
+
+function updateRangeHint(data) {
+    const rel = data.anchor === data.today ? '오늘 기준' : `기준 ${data.anchor}`;
+    document.getElementById('range-hint').textContent =
+        `${data.start} ~ ${data.end} · ${rel} · ±${WINDOW_DAYS}일`;
+}
+
+function applyCalendarData(data, events) {
+    serverToday = data.today;
+    anchorDate = data.anchor;
+    rangeStart = data.start;
+    rangeEnd = data.end;
+    holidayMap = {};
+    data.days.forEach(d => { if (d.holiday) holidayMap[d.date] = d.holiday; });
+    updateRangeHint(data);
+    const endExclusive = addDays(data.end, 1);
+    const valid = { start: data.start, end: endExclusive };
+    const grid = weekGridForRange(data.start, data.end);
+    const hubView = {
+        type: 'dayGrid',
+        duration: { weeks: grid.weeks },
+        dateAlignment: 'week',
+    };
+    if (calendar) {
+        calendar.setOption('validRange', valid);
+        calendar.setOption('views', { dayGridHub: hubView });
+        calendar.changeView('dayGridHub', grid.gridStart);
+        calendar.removeAllEvents();
+        events.forEach(e => calendar.addEvent(e));
+        calendar.render();
+        return;
+    }
+    calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+        initialView: 'dayGridHub',
+        locale: 'ko',
+        firstDay: 0,
+        initialDate: grid.gridStart,
+        validRange: valid,
+        fixedWeekCount: true,
+        showNonCurrentDates: true,
+        height: 'auto',
+        customButtons: {
+            prevWeek: { text: '◀ 1주', click: () => shiftWeek(-1) },
+            nextWeek: { text: '1주 ▶', click: () => shiftWeek(1) },
+            hubToday: { text: '오늘', click: () => reloadCalendar(serverToday) },
+        },
+        headerToolbar: { left: 'prevWeek,nextWeek hubToday', center: 'title', right: '' },
+        views: { dayGridHub: hubView },
+        dayMaxEvents: 5,
+        moreLinkClick: 'popover',
+        events,
+        eventDidMount: paintEvent,
+        dayCellClassNames: (arg) => {
+            const ds = fmtDate(arg.date);
+            const cls = [];
+            if (rangeStart && rangeEnd && (ds < rangeStart || ds > rangeEnd)) {
+                cls.push('fc-day-outside-hub');
+            } else if (holidayMap[ds]) cls.push('fc-day-jp-holiday');
+            else if (arg.date.getDay() === 0 || arg.date.getDay() === 6) cls.push('fc-day-weekend');
+            return cls;
+        },
+        dayCellContent: (arg) => {
+            const ds = fmtDate(arg.date);
+            const hol = holidayMap[ds];
+            const parts = document.createElement('div');
+            const num = document.createElement('div');
+            num.className = 'fc-daygrid-day-number';
+            num.textContent = arg.dayNumberText;
+            parts.appendChild(num);
+            if (hol) {
+                const h = document.createElement('div');
+                h.className = 'fc-jp-holiday';
+                h.textContent = '🇯🇵 ' + hol;
+                parts.appendChild(h);
+            }
+            return { domNodes: [parts] };
+        },
+        dateClick: (info) => openEvModal(null, info.dateStr),
+        eventClick: (info) => openEvModal(info.event.extendedProps),
+    });
+    calendar.render();
+}
+
+function shiftWeek(n) {
+    const base = anchorDate || serverToday;
+    reloadCalendar(addDays(base, n * WEEK_STEP));
+}
+
+async function reloadCalendar(anchor) {
+    const q = anchor ? `?anchor=${encodeURIComponent(anchor)}` : '';
+    const res = await fetch('/api/calendar/days' + q);
+    if (!res.ok) return showToast('달력 불러오기 실패');
+    const data = await res.json();
+    applyCalendarData(data, data.days.flatMap(d => d.items.map(itemToFcEvent)));
+}
+
+document.addEventListener('DOMContentLoaded', () => reloadCalendar());
+</script>
+{% endblock %}

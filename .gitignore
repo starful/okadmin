@@ -1,0 +1,32 @@
+# Secrets & local env
+.env
+.env.*
+!.env.example
+secrets/
+gsc-token.json
+gsc-oauth-user.json
+**/firebase-key.json
+**/*-oauth-user.json
+scripts/secrets/
+
+# Runtime / logs (paths, GCP project, deploy output)
+ops/logs/
+ops/state/
+data/
+*.log
+
+# Local-only deploy notes
+command.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

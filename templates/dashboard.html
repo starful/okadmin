@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}대시보드{% endblock %}
+{% block head %}
+<style>
+    .dash-metrics {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 12px;
+    }
+    .dash-metric-box {
+        background: #000;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px;
+        font-family: 'DM Mono', monospace;
+        font-size: 10px;
+    }
+    .dash-metric-box h4 {
+        margin: 0 0 8px;
+        font-size: 10px;
+        color: #888;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+    }
+    .dash-metric-box .row { display: flex; justify-content: space-between; margin: 3px 0; color: #aaa; }
+    .dash-metric-box .row b { color: var(--accent); font-weight: 700; }
+    .dash-metric-box .err { color: #a66; font-size: 9px; line-height: 1.4; }
+    .dash-metric-box .period { color: #555; font-size: 9px; margin-top: 6px; }
+    .dash-gsc-link { display: inline-block; margin-top: 10px; font-size: 11px; color: var(--accent); text-decoration: none; font-weight: 700; }
+    .dash-gsc-link:hover { text-decoration: underline; }
+    .dash-logs {
+        margin-top: 12px;
+        padding: 10px;
+        background: #000;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-family: 'DM Mono', monospace;
+        font-size: 10px;
+    }
+    .dash-logs h4 { margin: 0 0 6px; font-size: 10px; color: #888; }
+    .dash-logs .line { color: #888; margin: 2px 0; word-break: break-all; }
+    .dash-logs pre {
+        margin: 6px 0 0;
+        max-height: 100px;
+        overflow: auto;
+        color: #8a8;
+        white-space: pre-wrap;
+        font-size: 9px;
+    }
+    .dash-logs .tag-ok { color: #6a6; }
+    .dash-logs .tag-err { color: #f88; }
+    .dash-global-log pre { max-height: 200px; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>대시보드</h1>
+<p class="sub">sites.yaml · Git · 운영 로그 · Push/Deploy는 <a href="{{ url_for('pages.gsc_page') }}" style="color:var(--accent)">GSC</a></p>
+<div class="card dash-analytics-bar" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+    <span class="mono" style="color:#888;font-size:11px">GA4/GSC 지표는 필요할 때만 불러옵니다 (전체 사이트 API 호출 · 1~2분 소요 가능)</span>
+    <button type="button" class="btn" id="btn-load-analytics">GA4/GSC 불러오기</button>
+</div>
+<div class="card dash-global-log" id="global-log-card" style="display:none">
+    <h3 style="margin-top:0">Auto Register · 최근 로그</h3>
+    <p class="mono" id="global-log-meta" style="color:#666;font-size:10px">—</p>
+    <pre class="mono" id="global-log-tail" style="color:#8a8;white-space:pre-wrap;max-height:200px;overflow:auto;margin:8px 0">—</pre>
+    <a href="{{ url_for('pages.ops_page') }}" class="dash-gsc-link">Auto Register 전체 →</a>
+</div>
+<div id="loading" class="mono">로딩 중…</div>
+<div id="sites-grid" class="grid-sites"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+}
+
+function fmtNum(n) {
+    const x = Number(n);
+    return Number.isFinite(x) ? x.toLocaleString() : '—';
+}
+
+function fmtPct(ctr) {
+    const x = Number(ctr);
+    return Number.isFinite(x) ? (x * 100).toFixed(2) + '%' : '—';
+}
+
+function renderMetricBox(title, data) {
+    if (!data || data.error) {
+        return `<div class="dash-metric-box"><h4>${title}</h4><div class="err">${escapeHtml(data?.error || '—')}</div></div>`;
+    }
+    const period = (data.start && data.end) ? `${data.start} ~ ${data.end}` : '';
+    if (title === 'GA4') {
+        return `<div class="dash-metric-box"><h4>GA4 · 28일</h4>
+            <div class="row"><span>세션</span><b>${fmtNum(data.sessions)}</b></div>
+            <div class="row"><span>사용자</span><b>${fmtNum(data.users)}</b></div>
+            <div class="row"><span>페이지뷰</span><b>${fmtNum(data.pageviews)}</b></div>
+            ${period ? `<div class="period">${escapeHtml(period)}</div>` : ''}
+        </div>`;
+    }
+    return `<div class="dash-metric-box"><h4>GSC · 28일</h4>
+        <div class="row"><span>클릭</span><b>${fmtNum(data.clicks)}</b></div>
+        <div class="row"><span>노출</span><b>${fmtNum(data.impressions)}</b></div>
+        <div class="row"><span>CTR</span><b>${fmtPct(data.ctr)}</b></div>
+        <div class="row"><span>순위</span><b>${Number.isFinite(Number(data.position)) ? Number(data.position).toFixed(1) : '—'}</b></div>
+        ${period ? `<div class="period">${escapeHtml(period)}</div>` : ''}
+    </div>`;
+}
+
+function analyticsHtml(siteId, analytics) {
+    const a = analytics || {};
+    const hasAny = a.ga4 && !a.ga4.error || a.gsc && !a.gsc.error;
+    return `<div class="dash-metrics">
+        ${renderMetricBox('GA4', a.ga4)}
+        ${renderMetricBox('GSC', a.gsc)}
+    </div>
+    ${hasAny ? `<a class="dash-gsc-link" href="/gsc" onclick="sessionStorage.setItem('okadmin_gsc_site','${escapeHtml(siteId)}')">GSC 상세 · SEO →</a>` : ''}`;
+}
+
+function logsHtml(siteId, logs) {
+    if (!logs) return '';
+    let html = '<div class="dash-logs">';
+    if (logs.git_commits?.length) {
+        html += '<h4>Git 최근 커밋</h4>';
+        logs.git_commits.forEach(c => {
+            html += `<div class="line">${escapeHtml(c)}</div>`;
+        });
+    }
+    if (logs.auto_register?.length) {
+        html += '<h4 style="margin-top:8px">Auto Register (오늘 로그)</h4>';
+        logs.auto_register.forEach(l => {
+            html += `<div class="line">${escapeHtml(l)}</div>`;
+        });
+    }
+    if (logs.deploy?.length) {
+        logs.deploy.forEach(d => {
+            const cls = d.state === 'success' ? 'tag-ok' : d.state === 'failed' ? 'tag-err' : '';
+            html += `<h4 style="margin-top:8px" class="${cls}">Deploy · ${escapeHtml(d.mtime)} · ${escapeHtml(d.state)}</h4>`;
+            html += `<pre>${escapeHtml(d.tail || '')}</pre>`;
+        });
+    }
+    if (!logs.git_commits?.length && !logs.auto_register?.length && !logs.deploy?.length) {
+        html += '<div class="line" style="color:#555">로그 없음</div>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function renderGlobalLogs(global) {
+    const card = document.getElementById('global-log-card');
+    if (!global?.log_tail && !global?.last_run) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = 'block';
+    document.getElementById('global-log-meta').textContent =
+        `마지막 실행: ${global.last_run || '—'} · 파일: ${global.log_file || '—'}`;
+    document.getElementById('global-log-tail').textContent = global.log_tail || '(비어 있음)';
+}
+
+function renderSitesGrid(sites, analytics, logData) {
+    renderGlobalLogs(logData.global);
+    const grid = document.getElementById('sites-grid');
+    grid.innerHTML = sites.map(s => {
+        if (s.id === 'okadmin') return '';
+        const links = s.links || {};
+        const git = s.git_summary;
+        let gitHtml = '<span class="mono" style="color:#666">Git 없음</span>';
+        if (s.git === false) gitHtml = '<span class="mono">git: false</span>';
+        else if (git && git.error) gitHtml = `<span class="mono" style="color:#a66">${escapeHtml(git.error)}</span>`;
+        else if (git) {
+            const badge = git.dirty ? '<span class="badge badge-dirty">dirty</span>' : '<span class="badge badge-clean">clean</span>';
+            gitHtml = `${badge} <span class="mono">${escapeHtml(git.branch || '')}</span>`;
+        } else if (s.git) gitHtml = '<span class="mono" style="color:#666">(WORK_ROOT 없음)</span>';
+
+        const linkBtns = [
+            links.production && `<a href="${links.production}" target="_blank" rel="noreferrer" class="btn btn-ghost" style="display:inline-block;text-decoration:none;margin:2px">Production</a>`,
+            links.github && `<a href="${links.github}" target="_blank" rel="noreferrer" class="btn btn-ghost" style="display:inline-block;text-decoration:none;margin:2px">GitHub</a>`,
+            links.gsc && `<a href="${links.gsc}" target="_blank" rel="noreferrer" class="btn btn-ghost" style="display:inline-block;text-decoration:none;margin:2px">GSC</a>`,
+        ].filter(Boolean).join('');
+
+        return `<div class="card">
+            <div style="font-weight:800;font-size:16px;margin-bottom:8px">${escapeHtml(s.label || s.id)}</div>
+            <div class="mono" style="color:#555;margin-bottom:8px">${escapeHtml(s.id)}</div>
+            <div style="margin-bottom:8px">${linkBtns || '<span class="mono">—</span>'}</div>
+            <div style="margin-bottom:4px">${gitHtml}</div>
+            ${analyticsHtml(s.id, analytics[s.id])}
+            ${logsHtml(s.id, logData.sites[s.id])}
+        </div>`;
+    }).join('');
+}
+
+async function loadSites() {
+    document.getElementById('loading').textContent = '사이트 목록 로딩…';
+    const sitesRes = await fetch('/api/sites');
+    const sites = await sitesRes.json();
+    document.getElementById('loading').style.display = 'none';
+    renderSitesGrid(sites, {}, { global: {}, sites: {} });
+
+    loadDashboardLogs(sites);
+}
+
+async function loadDashboardLogs(sites) {
+    const loading = document.getElementById('loading');
+    loading.style.display = 'block';
+    loading.textContent = '운영 로그 로딩…';
+    let logData = { global: {}, sites: {} };
+    try {
+        const logsRes = await fetch('/api/dashboard/logs', { signal: AbortSignal.timeout(30000) });
+        try { logData = await logsRes.json(); } catch (_) {}
+    } catch (_) {}
+    loading.style.display = 'none';
+    window.__dashLogData = logData;
+    const analytics = window.__dashAnalytics || {};
+    renderSitesGrid(sites, analytics, logData);
+}
+
+async function loadAnalyticsOnly(sites) {
+    const loading = document.getElementById('loading');
+    loading.style.display = 'block';
+    loading.textContent = 'GA4/GSC 로딩… (사이트마다 최대 ~20초)';
+    let analytics = {};
+    try {
+        const analyticsRes = await fetch('/api/sites/analytics-summary', { signal: AbortSignal.timeout(180000) });
+        try { analytics = await analyticsRes.json(); } catch (_) {}
+    } catch (_) {}
+    loading.style.display = 'none';
+    window.__dashAnalytics = analytics;
+    const logData = window.__dashLogData || { global: {}, sites: {} };
+    renderSitesGrid(sites, analytics, logData);
+}
+
+(function initAnalyticsButton() {
+    const btn = document.getElementById('btn-load-analytics');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = '불러오는 중…';
+        const sitesRes = await fetch('/api/sites');
+        const sites = await sitesRes.json();
+        await loadAnalyticsOnly(sites);
+        btn.disabled = false;
+        btn.textContent = 'GA4/GSC 불러오기';
+    });
+})();
+
+loadSites();
+</script>
+{% endblock %}

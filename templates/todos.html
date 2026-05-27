@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}TODO{% endblock %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div><h1>TODO</h1><p class="sub" style="margin:0">Firestore · work_hub_todos</p></div>
+    <button class="btn" onclick="openForm()">+ 추가</button>
+</div>
+<div style="display:flex;gap:8px;margin-bottom:16px">
+    <select id="filter-status" onchange="loadTodos()" style="width:auto">
+        <option value="">전체 status</option>
+        <option value="open">open</option>
+        <option value="done">done</option>
+    </select>
+    <select id="filter-site" onchange="loadTodos()" style="width:auto">
+        <option value="">전체 site</option>
+        {% for s in services %}
+        <option value="{{ s.id }}">{{ s.id }}</option>
+        {% endfor %}
+    </select>
+</div>
+<div id="todo-list"></div>
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:50;align-items:center;justify-content:center">
+    <div class="card" style="width:400px;max-width:90vw">
+        <h2 style="margin-top:0" id="modal-title">TODO</h2>
+        <div class="form-row"><label>제목</label><input id="f-title"></div>
+        <div class="form-row"><label>site</label>
+            <select id="f-site"><option value="">—</option>{% for s in services %}<option value="{{ s.id }}">{{ s.id }}</option>{% endfor %}</select>
+        </div>
+        <div class="form-row"><label>due</label><input type="date" id="f-due"></div>
+        <div class="form-row"><label>메모</label><textarea id="f-body" rows="3"></textarea></div>
+        <div style="display:flex;gap:8px">
+            <button class="btn" onclick="saveTodo()">저장</button>
+            <button class="btn btn-ghost" onclick="closeForm()">취소</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let editId = null;
+async function loadTodos() {
+    const st = document.getElementById('filter-status').value;
+    const site = document.getElementById('filter-site').value;
+    let url = '/api/todos/?';
+    if (st) url += 'status=' + encodeURIComponent(st) + '&';
+    if (site) url += 'site_id=' + encodeURIComponent(site);
+    const res = await fetch(url);
+    if (!res.ok) { document.getElementById('todo-list').innerHTML = '<div class="warn">' + (await res.text()) + '</div>'; return; }
+    const items = await res.json();
+    document.getElementById('todo-list').innerHTML = items.length ? items.map(t => `
+        <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+                <div style="font-weight:700">${t.status === 'done' ? '✓ ' : ''}${t.title}</div>
+                <div class="mono" style="color:#666;margin-top:6px">${t.site_id || '—'} · ${t.due_at || 'no due'}</div>
+                ${t.body ? '<div class="mono" style="margin-top:6px;color:#888">'+t.body+'</div>' : ''}
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0">
+                ${t.status !== 'done' ? '<button class="btn btn-ghost" onclick="markDone(\''+t.id+'\')">완료</button>' : ''}
+                <button class="btn btn-ghost" onclick="editTodo(\''+t.id+'\')">편집</button>
+                <button class="btn btn-danger" onclick="delTodo(\''+t.id+'\')">삭제</button>
+            </div>
+        </div>`).join('') : '<p class="mono">할 일 없음</p>';
+}
+function openForm() { editId = null; document.getElementById('modal-title').innerText = 'TODO 추가';
+    ['f-title','f-body','f-due'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('f-site').value = '';
+    document.getElementById('modal').style.display = 'flex'; }
+function closeForm() { document.getElementById('modal').style.display = 'none'; }
+async function saveTodo() {
+    const payload = { title: document.getElementById('f-title').value, body: document.getElementById('f-body').value,
+        site_id: document.getElementById('f-site').value, due_at: document.getElementById('f-due').value };
+    const url = editId ? '/api/todos/' + editId : '/api/todos/';
+    const method = editId ? 'PUT' : 'POST';
+    const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    if (res.ok) { closeForm(); loadTodos(); showToast('저장됨'); } else showToast('오류: ' + await res.text());
+}
+async function editTodo(id) {
+    const res = await fetch('/api/todos/'); const items = await res.json();
+    const t = items.find(x => x.id === id); if (!t) return;
+    editId = id; document.getElementById('f-title').value = t.title || '';
+    document.getElementById('f-body').value = t.body || '';
+    document.getElementById('f-site').value = t.site_id || '';
+    document.getElementById('f-due').value = (t.due_at || '').slice(0, 10);
+    document.getElementById('modal').style.display = 'flex';
+}
+async function markDone(id) {
+    await fetch('/api/todos/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status:'done'}) });
+    loadTodos();
+}
+async function delTodo(id) {
+    if (!confirm('삭제?')) return;
+    await fetch('/api/todos/' + id, { method:'DELETE' });
+    loadTodos();
+}
+loadTodos();
+</script>
+{% endblock %}
