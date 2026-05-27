@@ -49,6 +49,16 @@
     .result-badge.err { background: #2e1a1a; color: #f88; }
     .result-badge.run { background: #2e2a1a; color: #fa0; }
     .result-badge.idle { background: #1a1a1a; color: #666; }
+    .phase-track {
+        display: flex; gap: 8px; margin-bottom: 12px; font-family: 'DM Mono'; font-size: 10px;
+    }
+    .phase-step {
+        flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+        background: #0a0a0a; color: #555; text-align: center;
+    }
+    .phase-step.active { border-color: #a80; color: #fa0; background: #1a1608; }
+    .phase-step.done { border-color: #4a4; color: #8c8; background: #0f1a0f; }
+    .log-label { font-family: 'DM Mono'; font-size: 10px; color: #666; margin: 10px 0 4px; }
     .summary-lines { list-style: none; margin: 0; padding: 0; font-family: 'DM Mono'; font-size: 11px; line-height: 1.6; }
     .summary-lines li { padding: 2px 0; color: #ccc; }
     .log-snippet {
@@ -67,8 +77,9 @@
 {% block content %}
 <h1>운영 · 콘텐츠</h1>
 <p class="ops-intro">
-    사이트별 원클릭 생성입니다. 표시된 개수는 <strong>1회 실행 상한</strong>이며, 이미 있는 MD/포스트는 건너뜁니다.
-    환경변수 <code>CONTENT_LIMIT</code> · <code>GUIDE_LIMIT</code> · <code>HATENA_MAX_POSTS</code>로 조정할 수 있습니다.
+    사이트별 원클릭 생성입니다. 기본 상한: <strong>가이드 3토픽(최대 6 MD)</strong> · <strong>아이템 6건( en+ko 최대 12 MD)</strong>.
+    이미 있는 MD/포스트는 건너뜁니다. 생성·빌드 성공 후 <strong>deploy.sh</strong>로 git push + Cloud Build까지 실행합니다 (Hatena 제외).
+    <code>CONTENT_PIPELINE_WITH_DEPLOY=0</code>이면 배포만 생략합니다.
 </p>
 {% if not work_root_ok %}
 <div class="warn">WORK_ROOT(/opt/work) 없음 — 로컬 Mac에서만 실행 가능합니다.</div>
@@ -99,9 +110,14 @@
         <h2>최종 결과 <span class="mono" id="result-site" style="color:#666;font-size:11px;font-weight:400"></span></h2>
         <span class="result-badge idle" id="result-badge">—</span>
     </div>
+    <div class="phase-track" id="phase-track" style="display:none">
+        <div class="phase-step" id="phase-generate">① 생성·빌드</div>
+        <div class="phase-step" id="phase-deploy">② 배포</div>
+    </div>
     <ul class="summary-lines" id="summary-lines">
         <li style="color:#666">사이트에서 「콘텐츠 생성」을 누르면 여기에 요약이 표시됩니다.</li>
     </ul>
+    <p class="log-label" id="log-label" style="display:none"></p>
     <div class="log-snippet" id="log-snippet" style="display:none"></div>
     <details class="log-full" id="log-full" style="display:none">
         <summary>상세 로그 보기</summary>
@@ -156,7 +172,7 @@ async function loadPipelines() {
             <div class="actions">
                 <button type="button" class="btn" ${p.available && !p.running ? '' : 'disabled'}
                     onclick="runPipeline('${esc(p.site_id)}', '${esc(p.label)}')">
-                    ${p.running ? '실행 중…' : '콘텐츠 생성'}
+                    ${p.running ? (p.phase === 'deploy' ? '② 배포 중…' : '① 생성 중…') : '콘텐츠 생성'}
                 </button>
             </div>
         </article>
@@ -165,7 +181,7 @@ async function loadPipelines() {
     if (running && !pipelinePoll) {
         activePipelineSite = running.site_id;
         document.getElementById('result-site').textContent = '· ' + running.label;
-        pipelinePoll = setInterval(pollActivePipeline, 2500);
+        pipelinePoll = setInterval(pollActivePipeline, 1500);
         pollActivePipeline();
     }
 }
@@ -176,14 +192,39 @@ function setResultBadge(kind, text) {
     el.textContent = text;
 }
 
-function renderSummary(summary, logTail, lastRun) {
+function renderPhaseTrack(phase, running) {
+    const track = document.getElementById('phase-track');
+    const gen = document.getElementById('phase-generate');
+    const dep = document.getElementById('phase-deploy');
+    if (!running) {
+        track.style.display = 'none';
+        gen.className = 'phase-step';
+        dep.className = 'phase-step';
+        return;
+    }
+    track.style.display = 'flex';
+    if (phase === 'deploy') {
+        gen.className = 'phase-step done';
+        dep.className = 'phase-step active';
+    } else {
+        gen.className = 'phase-step active';
+        dep.className = 'phase-step';
+    }
+}
+
+function renderSummary(summary, logTail, lastRun, opts) {
     const linesEl = document.getElementById('summary-lines');
     const snipEl = document.getElementById('log-snippet');
+    const logLabel = document.getElementById('log-label');
     const fullWrap = document.getElementById('log-full');
     const fullPre = document.getElementById('log-full-text');
     const siteEl = document.getElementById('result-site');
+    const phase = opts?.phase || null;
+    const running = !!opts?.running;
 
-    if (lastRun?.last_run_display && siteEl) {
+    renderPhaseTrack(phase, running);
+
+    if (lastRun?.last_run_display && siteEl && !running) {
         const st = lastRun.last_run_ok === true ? '완료' : (lastRun.last_run_ok === false ? '실패' : '');
         const base = siteEl.textContent.replace(/\s*·\s*마지막.*$/, '').trim();
         siteEl.textContent = base + ' · 마지막 ' + lastRun.last_run_display + (st ? ' ' + st : '');
@@ -192,6 +233,8 @@ function renderSummary(summary, logTail, lastRun) {
     const title = summary?.title || '—';
     if (title === '완료') setResultBadge('ok', '완료');
     else if (title === '실패') setResultBadge('err', '실패');
+    else if (title === '배포 중') setResultBadge('run', '② 배포 중');
+    else if (title === '생성 중') setResultBadge('run', '① 생성 중');
     else if (title === '실행 중') setResultBadge('run', '실행 중');
     else setResultBadge('idle', title);
 
@@ -200,15 +243,23 @@ function renderSummary(summary, logTail, lastRun) {
 
     const snip = (summary?.log_snippet || '').trim();
     if (snip) {
+        logLabel.style.display = 'block';
+        logLabel.textContent = phase === 'deploy' && running
+            ? 'deploy.sh 로그 (실시간)'
+            : '파이프라인 로그';
         snipEl.style.display = 'block';
         snipEl.textContent = snip;
     } else {
+        logLabel.style.display = 'none';
         snipEl.style.display = 'none';
     }
 
-    if (logTail && logTail.length > 80) {
+    const fullText = (opts?.deploy_log_tail && running && phase === 'deploy')
+        ? opts.deploy_log_tail + '\n\n--- pipeline ---\n\n' + (logTail || '')
+        : (logTail || '');
+    if (fullText && fullText.length > 80) {
         fullWrap.style.display = 'block';
-        fullPre.textContent = logTail;
+        fullPre.textContent = fullText;
     } else {
         fullWrap.style.display = 'none';
     }
@@ -218,7 +269,7 @@ async function runPipeline(siteId, label) {
     activePipelineSite = siteId;
     document.getElementById('result-site').textContent = '· ' + (label || siteId);
     setResultBadge('run', '시작');
-    renderSummary({ title: '실행 중', lines: ['파이프라인을 시작합니다…'] }, '', null);
+    renderSummary({ title: '생성 중', lines: ['① 콘텐츠 생성을 시작합니다…'] }, '', null, { running: true, phase: 'generate' });
 
     const res = await fetch('/api/content/pipeline/run', {
         method: 'POST',
@@ -233,7 +284,7 @@ async function runPipeline(siteId, label) {
     }
     showToast((label || siteId) + ' 생성 시작');
     if (pipelinePoll) clearInterval(pipelinePoll);
-    pipelinePoll = setInterval(pollActivePipeline, 2500);
+    pipelinePoll = setInterval(pollActivePipeline, 1500);
     pollActivePipeline();
     loadPipelines();
 }
@@ -246,6 +297,10 @@ async function pollActivePipeline() {
     renderSummary(d.summary, d.log_tail || '', {
         last_run_display: d.last_run_display,
         last_run_ok: d.last_run_ok,
+    }, {
+        running: d.running,
+        phase: d.phase,
+        deploy_log_tail: d.deploy_log_tail,
     });
 
     if (d.running) {

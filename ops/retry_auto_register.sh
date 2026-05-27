@@ -18,7 +18,7 @@ Usage:
 Logs append to: okadmin/ops/logs/auto-register-YYYY-MM-DD.log
 
 Optional env:
-  CONTENT_LIMIT=10 GUIDE_LIMIT=3 AUTO_WITH_GIT=1 AUTO_WITH_DEPLOY=1
+  CONTENT_LIMIT=6 GUIDE_LIMIT=3 AUTO_WITH_GIT=1 AUTO_WITH_DEPLOY=1
   AUTO_REGISTER_NO_NOTIFY=1           — macOS 알림/사운드 끄기
   AUTO_REGISTER_ALERT_SOUND=Ping      — 실패 시 사운드 (.aiff 이름, 빈 값=무음)
   AUTO_REGISTER_SUCCESS_SOUND=Glass   — 성공 시만 재생(기본 무음)

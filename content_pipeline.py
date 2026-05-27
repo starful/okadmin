@@ -16,6 +16,16 @@ from config import get_service, repo_path, work_root_available
 MIN_ITEM_ROWS = 8
 MIN_GUIDE_ROWS = 3
 
+# Hub one-click caps: 가이드 3토픽(최대 6 MD) · 아이템 6행(최대 12 MD en/ko).
+DEFAULT_CONTENT_LIMIT = 6
+DEFAULT_GUIDE_LIMIT = 3
+DEFAULT_HATENA_MAX_POSTS = 6
+DEFAULT_KOREAN_LIMIT = 6
+MAX_CONTENT_LIMIT = 50
+MAX_GUIDE_LIMIT = 20
+MAX_HATENA_MAX_POSTS = 20
+MAX_KOREAN_LIMIT = 30
+
 # Tokyo cafe seeds when items.csv is nearly empty
 DEFAULT_ITEM_SEEDS: list[dict[str, str]] = [
     {
@@ -324,12 +334,24 @@ def _run_step(
 
 def _merge_pipeline_env(repo: Path) -> dict[str, str]:
     env = os.environ.copy()
-    for key in ("CONTENT_LIMIT", "GUIDE_LIMIT", "GEMINI_API_KEY", "GEMINI_MODEL", "GOOGLE_PLACES_API_KEY"):
+    for key in (
+        "CONTENT_LIMIT",
+        "GUIDE_LIMIT",
+        "HATENA_MAX_POSTS",
+        "KOREAN_LIMIT",
+        "GEMINI_API_KEY",
+        "GEMINI_MODEL",
+        "GOOGLE_PLACES_API_KEY",
+    ):
         if key not in env:
             if key == "CONTENT_LIMIT":
-                env[key] = "10"
+                env[key] = str(DEFAULT_CONTENT_LIMIT)
             elif key == "GUIDE_LIMIT":
-                env[key] = "3"
+                env[key] = str(DEFAULT_GUIDE_LIMIT)
+            elif key == "HATENA_MAX_POSTS":
+                env[key] = str(DEFAULT_HATENA_MAX_POSTS)
+            elif key == "KOREAN_LIMIT":
+                env[key] = str(DEFAULT_KOREAN_LIMIT)
     repo_env = repo / ".env"
     if repo_env.is_file():
         try:
@@ -357,6 +379,7 @@ def _merge_pipeline_env(repo: Path) -> dict[str, str]:
                     env[k] = str(v)
         except ImportError:
             pass
+    _sanitize_pipeline_limits(env)
     return env
 
 
@@ -514,7 +537,7 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
     steps: list[tuple[str, str, list[str], int]] = []
 
     if site_id == "okcafejp":
-        item_limit = env.get("CONTENT_LIMIT", "10")
+        item_limit = env["CONTENT_LIMIT"]
 
         def ensure(repo_p: Path, logf):
             return ensure_okcafejp_csv(repo_p, logf)
@@ -529,14 +552,14 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                 )
             )
         steps = [
-            ("guides", "guide_generator", ["python3", "script/guide_generator.py"], 3600),
+            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
             ("items", "item_generator", ["python3", "script/item_generator.py", "--limit", item_limit], 3600),
             ("build", "build_data", ["python3", "script/build_data.py"], 600),
         ]
         return _execute_pipeline(site_id, repo, ensure_fn=ensure, steps=steps, env=env, extra_steps=extra)
 
     if site_id in ("oksushi",):
-        item_limit = env.get("CONTENT_LIMIT", "10")
+        item_limit = env["CONTENT_LIMIT"]
 
         def ensure(repo_p: Path, logf):
             return ensure_dual_csv(
@@ -551,7 +574,7 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
             )
 
         steps = [
-            ("guides", "guide_generator", ["python3", "script/guide_generator.py"], 3600),
+            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
             ("items", "item_generator", ["python3", "script/item_generator.py", "--limit", item_limit], 3600),
             ("build", "build_data", ["python3", "script/build_data.py"], 600),
         ]
@@ -576,11 +599,10 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                 guide_seeds=DEFAULT_GUIDE_SEEDS,
             )
 
-        limit = env.get("CONTENT_LIMIT", "10")
-        glimit = env.get("GUIDE_LIMIT", "3")
+        limit = env["CONTENT_LIMIT"]
         steps = [
             ("items", "ramen_generator", ["python3", "script/ramen_generator.py", limit], 3600),
-            ("guides", "guide_generator", ["python3", "script/guide_generator.py", glimit], 3600),
+            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
             ("build", "build_data", ["python3", "script/build_data.py"], 600),
         ]
         return _execute_pipeline(site_id, repo, ensure_fn=ensure, steps=steps, env=env)
@@ -604,11 +626,10 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                 guide_seeds=DEFAULT_GUIDE_SEEDS,
             )
 
-        limit = env.get("CONTENT_LIMIT", "10")
-        glimit = env.get("GUIDE_LIMIT", "3")
+        limit = env["CONTENT_LIMIT"]
         steps = [
             ("items", "onsen_generator", ["python3", "script/onsen_generator.py", limit], 3600),
-            ("guides", "guide_generator", ["python3", "script/guide_generator.py", glimit], 3600),
+            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
             ("build", "build_data", ["python3", "script/build_data.py"], 600),
         ]
         return _execute_pipeline(site_id, repo, ensure_fn=ensure, steps=steps, env=env)
@@ -632,11 +653,10 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                 item_col="Name",
             )
 
-        limit = env.get("CONTENT_LIMIT", "10")
-        glimit = env.get("GUIDE_LIMIT", "3")
+        limit = env["CONTENT_LIMIT"]
         steps = [
             ("items", "course_generator", ["python3", "script/course_generator.py", limit], 3600),
-            ("guides", "guide_generator", ["python3", "script/guide_generator.py", glimit], 3600),
+            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
             ("build", "build_data", ["python3", "script/build_data.py"], 600),
         ]
         return _execute_pipeline(site_id, repo, ensure_fn=ensure, steps=steps, env=env)
@@ -649,7 +669,7 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
         return _execute_pipeline(site_id, repo, ensure_fn=ensure_starful_csv, steps=steps, env=env)
 
     if site_id == "hatena":
-        max_posts = env.get("HATENA_MAX_POSTS", "5")
+        max_posts = env["HATENA_MAX_POSTS"]
         steps = [
             ("py", "unified_poster py", ["python3", "unified_poster.py", "py", "--max_posts", max_posts], 3600),
             ("cloud", "unified_poster cloud", ["python3", "unified_poster.py", "cloud", "--max_posts", max_posts], 3600),
@@ -669,6 +689,62 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
         return _execute_pipeline(site_id, repo, ensure_fn=ensure_jpcampus_csv, steps=steps, env=env, optional_steps=optional)
 
     return {"ok": False, "error": f"no pipeline definition for {site_id}"}
+
+
+def run_post_pipeline_deploy(
+    site_id: str,
+    *,
+    on_job_started: Any = None,
+) -> dict[str, Any]:
+    """After content pipeline OK: git push + Cloud Build (same flags as auto_register)."""
+    import os
+
+    from git_ops import deploy_script_path, start_deploy, wait_for_deploy_job
+
+    if site_id == "hatena":
+        return {"ok": True, "skipped": True, "message": "Hatena: deploy.sh 없음"}
+
+    with_git = os.environ.get("CONTENT_PIPELINE_WITH_GIT", "1").strip() not in ("0", "false", "no")
+    with_deploy = os.environ.get("CONTENT_PIPELINE_WITH_DEPLOY", "1").strip() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+    svc = get_service(site_id)
+    if not svc:
+        return {"ok": False, "error": f"{site_id} not in sites.yaml"}
+    repo = repo_path(svc)
+    if not repo.is_dir():
+        return {"ok": False, "error": f"missing repo {repo}"}
+    if not deploy_script_path(repo):
+        return {"ok": False, "error": "deploy.sh not found"}
+
+    started = start_deploy(
+        repo,
+        site_id=site_id,
+        mode="deploy-only",
+        with_git=with_git,
+        with_deploy=with_deploy,
+    )
+    if not started.get("ok"):
+        return started
+
+    if on_job_started is not None and callable(on_job_started):
+        on_job_started(started["job_id"], started)
+
+    log_path = pipeline_log_path(site_id)
+    with open(log_path, "a", encoding="utf-8") as logf:
+        logf.write(
+            f"\n[{datetime.now():%F %T}] deploy.sh --deploy-only"
+            f"{' --with-git' if with_git else ''}"
+            f"{' --with-deploy' if with_deploy else ''}\n"
+            f"log: {started.get('log_path')}\n"
+        )
+
+    final = wait_for_deploy_job(started["job_id"], site_id=site_id)
+    final.setdefault("log_path", started.get("log_path"))
+    return final
 
 
 def run_pipeline(site_id: str) -> dict[str, Any]:
@@ -714,6 +790,72 @@ def _int_env(env: dict[str, str], key: str, default: int) -> int:
         return default
 
 
+def _bounded_limit(
+    env: dict[str, str],
+    key: str,
+    *,
+    default: int,
+    ceiling: int,
+) -> int:
+    """Per-run limit for hub pipelines; 0 or negative → default (never unlimited)."""
+    n = _int_env(env, key, default)
+    if n <= 0:
+        n = default
+    return min(n, ceiling)
+
+
+def _guide_cli_limit(env: dict[str, str], site_id: str) -> str:
+    """CLI limit for guide scripts (okonsen counts files, not topics)."""
+    topics = _bounded_limit(
+        env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
+    )
+    if site_id == "okonsen":
+        return str(topics * 2)
+    return str(topics)
+
+
+def _guide_generator_argv(env: dict[str, str], site_id: str) -> list[str]:
+    glimit = _guide_cli_limit(env, site_id)
+    if site_id == "okramen":
+        return ["python3", "script/guide_generator.py", "--new-topics", glimit]
+    return ["python3", "script/guide_generator.py", glimit]
+
+
+def _sanitize_pipeline_limits(env: dict[str, str]) -> None:
+    env["CONTENT_LIMIT"] = str(
+        _bounded_limit(
+            env,
+            "CONTENT_LIMIT",
+            default=DEFAULT_CONTENT_LIMIT,
+            ceiling=MAX_CONTENT_LIMIT,
+        )
+    )
+    env["GUIDE_LIMIT"] = str(
+        _bounded_limit(
+            env,
+            "GUIDE_LIMIT",
+            default=DEFAULT_GUIDE_LIMIT,
+            ceiling=MAX_GUIDE_LIMIT,
+        )
+    )
+    env["HATENA_MAX_POSTS"] = str(
+        _bounded_limit(
+            env,
+            "HATENA_MAX_POSTS",
+            default=DEFAULT_HATENA_MAX_POSTS,
+            ceiling=MAX_HATENA_MAX_POSTS,
+        )
+    )
+    env["KOREAN_LIMIT"] = str(
+        _bounded_limit(
+            env,
+            "KOREAN_LIMIT",
+            default=DEFAULT_KOREAN_LIMIT,
+            ceiling=MAX_KOREAN_LIMIT,
+        )
+    )
+
+
 def pipeline_env_for_site(site_id: str) -> dict[str, str]:
     if not work_root_available():
         return {}
@@ -729,9 +871,18 @@ def pipeline_env_for_site(site_id: str) -> dict[str, str]:
 def pipeline_run_caps(site_id: str) -> dict[str, Any]:
     """Per-run caps shown in Work Hub (only missing MD/posts are actually created)."""
     env = pipeline_env_for_site(site_id)
-    item_n = _int_env(env, "CONTENT_LIMIT", 10)
-    guide_n = _int_env(env, "GUIDE_LIMIT", 3)
-    hatena_n = _int_env(env, "HATENA_MAX_POSTS", 5)
+    item_n = _bounded_limit(
+        env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
+    )
+    guide_n = _bounded_limit(
+        env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
+    )
+    hatena_n = _bounded_limit(
+        env, "HATENA_MAX_POSTS", default=DEFAULT_HATENA_MAX_POSTS, ceiling=MAX_HATENA_MAX_POSTS
+    )
+    korean_n = _bounded_limit(
+        env, "KOREAN_LIMIT", default=DEFAULT_KOREAN_LIMIT, ceiling=MAX_KOREAN_LIMIT
+    )
     parts: list[dict[str, str]] = []
 
     if site_id in ("okcafejp", "oksushi"):
@@ -747,6 +898,7 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
                 "note": "없는 en/ko만",
             },
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
+            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
         ]
         if site_id == "okcafejp" and env.get("GOOGLE_PLACES_API_KEY"):
             parts.insert(0, {"label": "Places", "cap": "items.csv 갱신", "note": "API 키 있을 때"})
@@ -756,23 +908,26 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
             {"label": kind, "cap": f"CSV {item_n}행 · 최대 {item_n * 2} MD", "note": "없는 MD만"},
             {"label": "가이드", "cap": f"토픽 {guide_n}개 · 최대 {guide_n * 2} MD", "note": "없는 en/ko만"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
+            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
         ]
     elif site_id == "starful.biz":
         parts = [
-            {"label": "가이드 MD", "cap": "positions.csv 기준", "note": "없는 MD만"},
+            {"label": "가이드 MD", "cap": f"최대 {item_n}건", "note": "없는 MD만"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
+            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
         ]
     elif site_id == "hatena":
         parts = [
             {"label": "Python", "cap": f"최대 {hatena_n}건", "note": "신규 포스트"},
-            {"label": "Cloud", "cap": f"최대 {hatena_n}건", "note": "신규 포스트"},
+            {"label": "Cloud", "cap": f"최대 {hatena_n}건", "note": f"합 {hatena_n * 2}건"},
         ]
     elif site_id == "jpcampus":
         parts = [
-            {"label": "가이드 AI", "cap": "토픽 배치", "note": "없는 가이드"},
-            {"label": "한국어", "cap": "배치", "note": ""},
-            {"label": "featured", "cap": "배치", "note": ""},
+            {"label": "가이드 AI", "cap": f"토픽 {guide_n}개", "note": "없는 가이드"},
+            {"label": "한국어", "cap": f"원본 {korean_n}건 · 최대 {korean_n} MD", "note": "없는 *_kr.md만"},
+            {"label": "featured", "cap": "토픽별 고정", "note": ""},
             {"label": "빌드", "cap": "build_data 1회", "note": "seo_guard 선택"},
+            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
         ]
 
     summary = " · ".join(f"{p['label']} {p['cap']}" for p in parts[:3])
@@ -796,6 +951,15 @@ def summarize_pipeline_status(status: dict[str, Any] | None, log_text: str = "")
             failed = status.get("failed_step") or status.get("error") or ""
             if failed:
                 lines.append(f"중단: {str(failed)[:120]}")
+
+        deploy = status.get("deploy") or {}
+        if deploy.get("skipped"):
+            lines.append("— deploy: Hatena (생략)")
+        elif deploy:
+            if deploy.get("ok") is True or deploy.get("state") == "success":
+                lines.append(f"✓ deploy · {deploy.get('message') or '완료'}")
+            else:
+                lines.append(f"✗ deploy · {deploy.get('message') or deploy.get('error') or '실패'}")
 
         for step in status.get("steps") or []:
             name = step.get("label") or step.get("step") or "?"

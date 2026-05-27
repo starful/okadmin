@@ -8,6 +8,7 @@ from flask import Blueprint, jsonify, request
 
 from auth import requires_auth
 from config import CONTENT_JOBS, get_service, repo_path, work_root_available
+from git_ops import deploy_job_status
 from content_csv import list_csv_files, load_csv, save_csv
 from content_pipeline import (
     CONTENT_PIPELINES,
@@ -17,6 +18,7 @@ from content_pipeline import (
     pipeline_run_caps,
     read_pipeline_status,
     run_pipeline,
+    run_post_pipeline_deploy,
     summarize_pipeline_status,
     tail_pipeline_log,
     write_pipeline_status,
@@ -26,6 +28,8 @@ content_bp = Blueprint("content", __name__, url_prefix="/api/content")
 
 _running: dict[str, subprocess.Popen] = {}
 _pipeline_running: dict[str, bool] = {}
+_pipeline_phase: dict[str, str] = {}  # generate | deploy
+_pipeline_deploy_job: dict[str, str] = {}  # site_id -> deploy job_id
 
 
 @content_bp.route("/jobs")
@@ -62,6 +66,7 @@ def list_pipelines():
                 "limits_summary": caps.get("summary", ""),
                 "available": bool(svc) and work_root_available(),
                 "running": _pipeline_running.get(site_id, False),
+                "phase": _pipeline_phase.get(site_id) if _pipeline_running.get(site_id) else None,
                 "last_ok": last_meta.get("last_run_ok"),
                 "last_run_at": last_meta.get("last_run_at"),
                 "last_run_display": last_meta.get("last_run_display"),
@@ -86,8 +91,21 @@ def pipeline_run():
 
     def worker():
         _pipeline_running[site_id] = True
+        _pipeline_phase[site_id] = "generate"
         try:
             result = run_pipeline(site_id)
+            if result.get("ok"):
+                _pipeline_phase[site_id] = "deploy"
+
+                def _on_deploy_started(job_id: str, _info: dict) -> None:
+                    _pipeline_deploy_job[site_id] = job_id
+
+                deploy = run_post_pipeline_deploy(site_id, on_job_started=_on_deploy_started)
+                result["deploy"] = deploy
+                deploy_ok = deploy.get("skipped") or deploy.get("state") == "success"
+                if not deploy_ok:
+                    result["ok"] = False
+                    result["error"] = deploy.get("error") or deploy.get("message") or "deploy failed"
             write_pipeline_status(site_id, result)
         except Exception as exc:
             write_pipeline_status(
@@ -96,6 +114,8 @@ def pipeline_run():
             )
         finally:
             _pipeline_running[site_id] = False
+            _pipeline_phase.pop(site_id, None)
+            _pipeline_deploy_job.pop(site_id, None)
 
     threading.Thread(target=worker, daemon=True).start()
     return jsonify(
@@ -130,25 +150,57 @@ def pipeline_result():
     status = read_pipeline_status(site_id) or {}
     text = tail_pipeline_log(site_id)
     running = _pipeline_running.get(site_id, False)
+    phase = _pipeline_phase.get(site_id, "generate") if running else None
+    deploy_live: dict = {}
+    job_id = _pipeline_deploy_job.get(site_id, "")
+    if running and phase == "deploy" and job_id:
+        deploy_live = deploy_job_status(job_id, site_id=site_id)
+
     if running:
+        if phase == "deploy":
+            deploy_msg = deploy_live.get("message") or "git push · Cloud Build"
+            deploy_state = deploy_live.get("state") or "running"
+            lines = [
+                "② 배포 단계 (deploy.sh)",
+                f"   상태: {deploy_msg}",
+                f"   PID: {deploy_live.get('pid') or '—'}",
+            ]
+            if deploy_live.get("log_path"):
+                lines.append(f"   로그: {deploy_live['log_path']}")
+            title = "배포 중" if deploy_state == "running" else "실행 중"
+            log_snippet = (deploy_live.get("log_tail") or "").strip() or _log_snippet(
+                text[-12000:] if text else ""
+            )
+        else:
+            title = "생성 중"
+            lines = [
+                "① 콘텐츠 생성 · build_data",
+                "   (완료 후 ② 배포가 자동으로 시작됩니다)",
+            ]
+            log_snippet = _log_snippet(text[-12000:] if text else "")
         summary = {
-            "title": "실행 중",
+            "title": title,
             "ok": None,
-            "lines": ["생성 스크립트 실행 중…"],
-            "log_snippet": _log_snippet(text[-12000:] if text else ""),
+            "lines": lines,
+            "log_snippet": log_snippet,
         }
     else:
         summary = summarize_pipeline_status(status, text)
+
     last_meta = pipeline_last_run(site_id)
     return jsonify(
         {
             "running": running,
+            "phase": phase,
+            "deploy": deploy_live if deploy_live else status.get("deploy"),
+            "deploy_job_id": job_id or None,
             "ok": status.get("ok") if not running else None,
             "error": status.get("error") or status.get("failed_step"),
             "steps": status.get("steps"),
             "message": status.get("message"),
             "summary": summary,
             "log_tail": text[-6000:] if text else "",
+            "deploy_log_tail": (deploy_live.get("log_tail") or "") if deploy_live else "",
             "last_run_at": last_meta.get("last_run_at"),
             "last_run_display": last_meta.get("last_run_display"),
             "last_run_ok": last_meta.get("last_run_ok"),

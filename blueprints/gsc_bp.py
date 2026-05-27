@@ -8,6 +8,7 @@ from auth import requires_auth
 from config import COL_GSC_ACTIONS, COL_OPS_EVENTS, list_services, repo_path, work_root_available
 from git_ops import deploy_script_path
 from firestore_db import doc_to_dict, firestore_unavailable_message, get_db
+from gsc_run_store import gsc_last_runs, write_gsc_seo_run
 from gsc_seo_worker import load_dashboard, run_seo_jobs
 from gsc_service import indexing_export_lines, low_ctr_high_impression, priority_snippet
 
@@ -30,16 +31,26 @@ def gsc_sites():
             continue
         ac = site_analytics_config(svc["id"])
         root = repo_path(svc) if work_root_available() else None
+        sid = svc["id"]
+        last = gsc_last_runs(sid)
         items.append(
             {
-                "id": svc["id"],
-                "label": svc.get("label", svc["id"]),
+                "id": sid,
+                "label": svc.get("label", sid),
                 "links": svc.get("links") or {},
                 "analytics": ac,
                 "git": bool(svc.get("git", True)),
                 "has_deploy": bool(
                     root and svc.get("git", True) and deploy_script_path(root)
                 ),
+                "last_run_at": last.get("last_run_at"),
+                "last_run_display": last.get("last_run_display"),
+                "last_run_ok": last.get("last_run_ok"),
+                "last_run_kind": last.get("last_run_kind"),
+                "last_dashboard_display": last.get("last_dashboard_display"),
+                "last_dashboard_ok": last.get("last_dashboard_ok"),
+                "last_seo_display": last.get("last_seo_display"),
+                "last_seo_ok": last.get("last_seo_ok"),
             }
         )
     return jsonify(items)
@@ -69,6 +80,13 @@ def gsc_run_seo():
         return jsonify({"error": "urls required — 표에서 URL을 선택하세요"}), 400
     apply_files = bool(body.get("apply", True))
     result = run_seo_jobs(site_id, urls=urls, apply_files=apply_files)
+    results = result.get("results") or []
+    seo_ok = bool(results) and any(
+        r.get("status") in ("applied", "suggested", "suggested_no_file", "no_changes")
+        for r in results
+    )
+    write_gsc_seo_run(site_id, result, ok=seo_ok)
+    result["last_runs"] = gsc_last_runs(site_id)
     if result.get("error") and not result.get("results"):
         return jsonify(result), 400
     return jsonify(result)

@@ -119,6 +119,8 @@ def start_deploy(
     *,
     site_id: str,
     mode: str = "deploy-only",
+    with_git: bool = False,
+    with_deploy: bool = False,
 ) -> dict:
     script = deploy_script_path(repo_path)
     if not script:
@@ -132,6 +134,10 @@ def start_deploy(
     log_path = DEPLOY_LOG_DIR / f"deploy-{site_id}-{ts}.log"
 
     cmd = ["bash", str(script), flag]
+    if with_git:
+        cmd.append("--with-git")
+    if with_deploy:
+        cmd.append("--with-deploy")
     try:
         log_f = open(log_path, "w", encoding="utf-8")
         proc = subprocess.Popen(
@@ -151,6 +157,8 @@ def start_deploy(
         "site_id": site_id,
         "started_at": ts,
         "mode": mode,
+        "with_git": with_git,
+        "with_deploy": with_deploy,
     }
     _prune_deploy_jobs()
 
@@ -268,3 +276,34 @@ def deploy_job_status(job_id: str, *, site_id: str | None = None) -> dict[str, A
         "log_path": str(log_path),
         "mode": job.get("mode"),
     }
+
+
+def wait_for_deploy_job(
+    job_id: str,
+    *,
+    site_id: str | None = None,
+    timeout: int = 3600,
+) -> dict[str, Any]:
+    """Block until deploy job finishes; returns deploy_job_status-shaped dict."""
+    job = _DEPLOY_JOBS.get(job_id)
+    if not job:
+        return {"ok": False, "error": "deploy job not found"}
+    proc = job["proc"]
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return {
+            "ok": False,
+            "state": "failed",
+            "error": f"deploy timeout after {timeout}s",
+            "job_id": job_id,
+            "log_path": str(job["log_path"]),
+        }
+    final = deploy_job_status(job_id, site_id=site_id)
+    final["job_id"] = job_id
+    if final.get("state") == "success":
+        final["ok"] = True
+    elif final.get("state") == "failed":
+        final["ok"] = False
+    return final

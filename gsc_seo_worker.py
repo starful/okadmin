@@ -353,14 +353,27 @@ def run_seo_jobs(
     }
 
 
+def _dashboard_fetch_ok(out: dict[str, Any]) -> bool:
+    ga4 = out.get("ga4") or {}
+    gsc = out.get("gsc") or {}
+    ga4_err = ga4.get("error")
+    if ga4_err and ga4_err != "ga4_property_id not set":
+        return False
+    if gsc.get("error"):
+        return False
+    return True
+
+
 def load_dashboard(site_id: str) -> dict[str, Any]:
     from config_gemini import ensure_gemini_api_key
+    from gsc_run_store import gsc_last_runs, write_gsc_dashboard_run
 
     ac = site_analytics_config(site_id)
     out: dict[str, Any] = {
         "site_id": site_id,
         "analytics": ac,
         "gemini_configured": ensure_gemini_api_key(),
+        "last_runs": gsc_last_runs(site_id),
     }
 
     ga4_id = ac.get("ga4_property_id")
@@ -393,4 +406,8 @@ def load_dashboard(site_id: str) -> dict[str, Any]:
     else:
         out["gsc"] = {"error": "gsc_site_url not set"}
 
+    ok = _dashboard_fetch_ok(out)
+    write_gsc_dashboard_run(site_id, out, ok=ok)
+    out["last_runs"] = gsc_last_runs(site_id)
+    out["dashboard_ok"] = ok
     return out

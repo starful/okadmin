@@ -60,7 +60,7 @@ _auto_register_err_trap() {
 trap '_auto_register_err_trap' ERR
 
 # Default generation policy: content 10 / guide 3
-export CONTENT_LIMIT="${CONTENT_LIMIT:-10}"
+export CONTENT_LIMIT="${CONTENT_LIMIT:-6}"
 export GUIDE_LIMIT="${GUIDE_LIMIT:-3}"
 
 # Deployment policy
@@ -98,8 +98,8 @@ run_deploy() {
 }
 
 # 일요일: 하테나 2종(클라우드 비교 + Python 라이브러리). 건수는 환경변수로 조절 가능.
-HATENA_MAX_CLOUD="${HATENA_MAX_CLOUD:-5}"
-HATENA_MAX_PY="${HATENA_MAX_PY:-5}"
+HATENA_MAX_CLOUD="${HATENA_MAX_CLOUD:-6}"
+HATENA_MAX_PY="${HATENA_MAX_PY:-6}"
 
 run_hatena_task() {
     local task="$1"

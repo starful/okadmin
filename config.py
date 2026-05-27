@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -129,11 +128,20 @@ def image_site_key(site_id: str) -> str:
     return site_id
 
 
-@lru_cache(maxsize=1)
+_registry_cache: tuple[float, dict[str, Any]] | None = None
+
+
 def load_registry() -> dict[str, Any]:
+    """Load sites.yaml; reload when the file mtime changes (no server restart needed)."""
+    global _registry_cache
+    mtime = SITES_YAML.stat().st_mtime if SITES_YAML.is_file() else 0.0
+    if _registry_cache is not None and _registry_cache[0] == mtime:
+        return _registry_cache[1]
     if not SITES_YAML.is_file():
-        return {"work_root": str(WORK_ROOT), "services": []}
-    data = yaml.safe_load(SITES_YAML.read_text(encoding="utf-8")) or {}
+        data: dict[str, Any] = {"work_root": str(WORK_ROOT), "services": []}
+    else:
+        data = yaml.safe_load(SITES_YAML.read_text(encoding="utf-8")) or {}
+    _registry_cache = (mtime, data)
     return data
 
 

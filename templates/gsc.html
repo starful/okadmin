@@ -36,6 +36,9 @@
         background: #000; border: 1px solid var(--border); border-radius: 8px;
         font-family: 'DM Mono'; font-size: 10px;
     }
+  .site-last-run { font-family: 'DM Mono'; font-size: 10px; color: #555; margin: 10px 0 0; line-height: 1.5; }
+  .site-last-run.ok { color: #6a8; }
+  .site-last-run.err { color: #a66; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 {% endblock %}
@@ -51,6 +54,7 @@
     <div class="card">
         <label>사이트</label>
         <select id="site-id" onchange="onSiteChange()" aria-label="사이트"></select>
+        <p class="site-last-run" id="site-last-run">마지막 실행: —</p>
         <p class="meta" id="selected-count" style="margin-top:12px">선택 0건 (최대 20)</p>
         <label class="mono" style="display:flex;align-items:center;gap:6px;margin:12px 0">
             <input type="checkbox" id="apply-files" checked> MD 파일에 반영 (가능한 경우)
@@ -114,11 +118,57 @@ let selectedUrls = new Set();
 const GSC_RESULTS_KEY = 'okadmin_gsc_last_results';
 const MAX_SELECT = 20;
 
+function mergeLastRuns(site, runs) {
+    if (!site || !runs) return;
+    Object.assign(site, {
+        last_run_at: runs.last_run_at,
+        last_run_display: runs.last_run_display,
+        last_run_ok: runs.last_run_ok,
+        last_run_kind: runs.last_run_kind,
+        last_dashboard_display: runs.last_dashboard_display,
+        last_dashboard_ok: runs.last_dashboard_ok,
+        last_seo_display: runs.last_seo_display,
+        last_seo_ok: runs.last_seo_ok,
+    });
+}
+
+function renderSiteLastRun() {
+    const s = currentSiteMeta();
+    const el = document.getElementById('site-last-run');
+    if (!el) return;
+    if (!s.last_run_display) {
+        el.textContent = '마지막 실행: —';
+        el.className = 'site-last-run';
+        return;
+    }
+    const st = s.last_run_ok === true ? '완료' : (s.last_run_ok === false ? '실패' : '');
+    const kind = s.last_run_kind === 'seo' ? 'SEO' : (s.last_run_kind === 'dashboard' ? '분석' : '');
+    el.textContent = `마지막 ${kind ? kind + ' ' : ''}${s.last_run_display}${st ? ' · ' + st : ''}`;
+    el.className = 'site-last-run' + (s.last_run_ok === true ? ' ok' : (s.last_run_ok === false ? ' err' : ''));
+    const parts = [];
+    if (s.last_dashboard_display) {
+        const dSt = s.last_dashboard_ok === true ? '완료' : (s.last_dashboard_ok === false ? '실패' : '');
+        parts.push(`분석 ${s.last_dashboard_display}${dSt ? ' ' + dSt : ''}`);
+    }
+    if (s.last_seo_display) {
+        const sSt = s.last_seo_ok === true ? '완료' : (s.last_seo_ok === false ? '실패' : '');
+        parts.push(`SEO ${s.last_seo_display}${sSt ? ' ' + sSt : ''}`);
+    }
+    if (parts.length > 1) {
+        el.textContent = parts.join(' · ');
+    }
+}
+
 async function loadSites() {
     const res = await fetch('/api/gsc/sites');
     sites = await res.json();
     const sel = document.getElementById('site-id');
-    sel.innerHTML = sites.map(s => `<option value="${s.id}">${s.label}</option>`).join('');
+    sel.innerHTML = sites.map(s => {
+        const label = s.label || s.id;
+        const id = s.id || '';
+        const text = id && label !== id ? `${label} (${id})` : label;
+        return `<option value="${escapeHtml(id)}">${escapeHtml(text)}</option>`;
+    }).join('');
     const saved = sessionStorage.getItem('okadmin_gsc_site');
     if (saved && sites.some(s => s.id === saved)) sel.value = saved;
     sessionStorage.removeItem('okadmin_gsc_site');
@@ -169,6 +219,9 @@ async function loadDashboard(clearResults) {
         gh.style.color = dashboard.gemini_configured ? '#6a6' : '#c66';
         renderGa4(dashboard.ga4 || {});
         renderGsc(dashboard.gsc || {});
+        const idx = sites.findIndex(x => x.id === site_id);
+        if (idx >= 0) mergeLastRuns(sites[idx], dashboard.last_runs);
+        renderSiteLastRun();
     } catch (e) {
         showToast('로드 실패');
     } finally {
@@ -185,6 +238,7 @@ function onSiteChange() {
     const s = sites.find(x => x.id === site_id);
     document.getElementById('api-hint').textContent =
         `GSC: ${s?.analytics?.gsc_site_url || '—'} · GA4: ${s?.analytics?.ga4_property_id || '(미설정)'}`;
+    renderSiteLastRun();
     if (!seoInFlight) {
         document.getElementById('results').innerHTML = '';
         document.getElementById('results-meta').textContent = 'SEO 작업 실행 후 표시';
@@ -576,6 +630,9 @@ async function runSeo() {
             return showToast(d.error);
         }
         renderResults(d);
+        const idx = sites.findIndex(x => x.id === site_id);
+        if (idx >= 0) mergeLastRuns(sites[idx], d.last_runs);
+        renderSiteLastRun();
         const n = (d.results || []).length;
         if (n > 0) {
             showToast('완료 · ' + n + '건 · 작업 결과 확인');
