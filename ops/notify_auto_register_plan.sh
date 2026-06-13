@@ -10,7 +10,7 @@ day_projects() {
         1) echo "okramen" ;;      # Mon
         2) echo "okonsen" ;;      # Tue
         3) echo "okcaddie" ;;     # Wed
-        4) echo "oksushi" ;;      # Thu
+        4) echo "okstats" ;;      # Thu
         5) echo "starful.biz" ;;  # Fri
         6) echo "jpcampus" ;;     # Sat
         7) echo "hatena (cloud + py)" ;; # Sun

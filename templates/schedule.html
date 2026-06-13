@@ -43,7 +43,6 @@
     {% endfor %}
 </div>
 <div class="toolbar">
-    <button class="btn" type="button" onclick="seedAutoRegister()">Auto Register 이력·예정 가져오기</button>
     <button class="btn btn-ghost" type="button" onclick="reloadCalendar()">새로고침</button>
 </div>
 <p class="range-hint" id="range-hint"></p>
@@ -162,16 +161,6 @@ async function deleteEvent() {
     if (!editCalId || !confirm('삭제?')) return;
     await fetch('/api/calendar/events/' + encodeURIComponent(editCalId), { method: 'DELETE' });
     closeEvModal(); reloadCalendar();
-}
-
-async function seedAutoRegister() {
-    if (!confirm('2026-04-27 ~ 오늘+90일 Auto Register 일정을 추가합니다.\n(이미 있는 날짜는 건너뜀)')) return;
-    const res = await fetch('/api/calendar/seed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
-    const d = await res.json();
-    if (d.ok) {
-        showToast(`추가 ${d.created}건 · 스킵 ${d.skipped}건`);
-        reloadCalendar();
-    } else showToast('시드 실패');
 }
 
 function itemToFcEvent(it) {

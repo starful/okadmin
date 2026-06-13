@@ -9,7 +9,7 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from config import get_service, repo_path, work_root_available
 
@@ -94,6 +94,30 @@ DEFAULT_ITEM_SEEDS: list[dict[str, str]] = [
     },
 ]
 
+# Weekly expansion: new Lat/Lng seeds for Places → item_generator (deduped by coordinates).
+OKCAFE_EXPAND_SEEDS: list[dict[str, str]] = [
+    {"Name": "Yokohama Minato Mirai Cafe", "Lat": "35.4564", "Lng": "139.6340", "Address": "Kanagawa, Yokohama", "Features": "Waterfront | Wi-Fi", "Agoda": ""},
+    {"Name": "Kamakura Komachi Drip", "Lat": "35.3192", "Lng": "139.5503", "Address": "Kanagawa, Kamakura", "Features": "Historic street | Matcha", "Agoda": ""},
+    {"Name": "Nagoya Sakae Espresso", "Lat": "35.1709", "Lng": "136.9066", "Address": "Aichi, Nagoya", "Features": "City center | House roast", "Agoda": ""},
+    {"Name": "Kanazawa Higashi Chaya Cafe", "Lat": "36.5713", "Lng": "136.6622", "Address": "Ishikawa, Kanazawa", "Features": "Traditional district", "Agoda": ""},
+    {"Name": "Hiroshima Peace Park Cafe", "Lat": "34.3955", "Lng": "132.4536", "Address": "Hiroshima", "Features": "Tourist area | Calm", "Agoda": ""},
+    {"Name": "Sendai Ichibancho Latte", "Lat": "38.2606", "Lng": "140.8829", "Address": "Miyagi, Sendai", "Features": "Shopping street", "Agoda": ""},
+    {"Name": "Naha Kokusai Street Coffee", "Lat": "26.2140", "Lng": "127.6889", "Address": "Okinawa, Naha", "Features": "Island blend | AC", "Agoda": ""},
+    {"Name": "Hakodate Morning Market Cafe", "Lat": "41.7687", "Lng": "140.7290", "Address": "Hokkaido, Hakodate", "Features": "Morning set", "Agoda": ""},
+    {"Name": "Asahikawa Winter Roast", "Lat": "43.7706", "Lng": "142.3650", "Address": "Hokkaido, Asahikawa", "Features": "Warm interior", "Agoda": ""},
+    {"Name": "Nara Parkside Kissaten", "Lat": "34.6851", "Lng": "135.8050", "Address": "Nara", "Features": "Deer area nearby", "Agoda": ""},
+    {"Name": "Kobe Harborland Cafe", "Lat": "34.6795", "Lng": "135.1830", "Address": "Hyogo, Kobe", "Features": "Harbor view", "Agoda": ""},
+    {"Name": "Matsuyama Dogo Onsen Cafe", "Lat": "33.8518", "Lng": "132.7860", "Address": "Ehime, Matsuyama", "Features": "Onsen town", "Agoda": ""},
+    {"Name": "Takamatsu Ritsurin Garden Cafe", "Lat": "34.3299", "Lng": "134.0445", "Address": "Kagawa, Takamatsu", "Features": "Garden district", "Agoda": ""},
+    {"Name": "Kumamoto Castle Town Cafe", "Lat": "32.8062", "Lng": "130.7059", "Address": "Kumamoto", "Features": "Castle area", "Agoda": ""},
+    {"Name": "Otaru Canal Coffee", "Lat": "43.1967", "Lng": "141.0014", "Address": "Hokkaido, Otaru", "Features": "Canal view", "Agoda": ""},
+    {"Name": "Miyazaki Phoenix Cafe", "Lat": "31.9077", "Lng": "131.4202", "Address": "Miyazaki", "Features": "Coastal city", "Agoda": ""},
+    {"Name": "Niigata Bandai Brew", "Lat": "37.9161", "Lng": "139.0364", "Address": "Niigata", "Features": "Rice country roast", "Agoda": ""},
+    {"Name": "Matsumoto Castle Cafe", "Lat": "36.2380", "Lng": "137.9690", "Address": "Nagano, Matsumoto", "Features": "Castle town", "Agoda": ""},
+    {"Name": "Okayama Korakuen Cafe", "Lat": "34.6650", "Lng": "133.9355", "Address": "Okayama", "Features": "Garden area", "Agoda": ""},
+    {"Name": "Shizuoka Station Espresso", "Lat": "34.9717", "Lng": "138.3890", "Address": "Shizuoka", "Features": "Tea country | Wi-Fi", "Agoda": ""},
+]
+
 DEFAULT_GUIDE_SEEDS: list[dict[str, str]] = [
     {
         "id": "guide_seed_001",
@@ -117,6 +141,162 @@ DEFAULT_GUIDE_SEEDS: list[dict[str, str]] = [
 
 ITEM_HEADERS = ["Name", "Lat", "Lng", "Address", "Features", "Agoda"]
 GUIDE_HEADERS = ["id", "topic_en", "topic_ko", "keywords"]
+KRCAMPUS_GUIDE_HEADERS = ["id", "topic_en", "topic_ja", "keywords"]
+KRCAMPUS_GUIDE_SEEDS: list[dict[str, str]] = [
+    {
+        "id": "guide_visa",
+        "topic_en": "Student Visa Guide for Korea (D-2 and D-4)",
+        "topic_ja": "韓国留学ビザ完全ガイド（D-2・D-4）",
+        "keywords": "korea student visa d-2 d-4",
+    },
+    {
+        "id": "guide_cost",
+        "topic_en": "1-Year Study Cost in Seoul: Realistic Budget",
+        "topic_ja": "ソウル留学1年間の費用シミュレーション",
+        "keywords": "study in korea cost budget seoul",
+    },
+    {
+        "id": "guide_housing",
+        "topic_en": "Student Housing in Korea: Dorm Goshiwon vs Apartment",
+        "topic_ja": "韓国留学の住まい比較（学生寮・ゴシウォン・マンション）",
+        "keywords": "korea student housing goshiwon dorm",
+    },
+]
+KRCAMPUS_EXPAND_GUIDES: list[dict[str, str]] = [
+    {
+        "id": "guide_scholarship",
+        "topic_en": "Scholarships for International Students in Korea",
+        "topic_ja": "韓国留学の奨学金ガイド",
+        "keywords": "korea scholarship international student",
+    },
+    {
+        "id": "guide_topik",
+        "topic_en": "TOPIK Exam Guide: Levels Schedule and Study Tips",
+        "topic_ja": "TOPIK試験ガイド（レベル・日程・対策）",
+        "keywords": "topik exam korea study tips",
+    },
+    {
+        "id": "guide_seoul",
+        "topic_en": "Studying in Seoul vs Busan: Which City Fits You?",
+        "topic_ja": "ソウル留学 vs 釜山留学 徹底比較",
+        "keywords": "seoul vs busan study abroad korea",
+    },
+]
+
+# Weekly guide topic pool (deduped by id) for dual-csv sites.
+EXPAND_GUIDE_SEEDS: list[dict[str, str]] = [
+    {
+        "id": "guide_expand_001",
+        "topic_en": "How to read a Japanese menu at cafes and restaurants",
+        "topic_ko": "일본 식당·카페 메뉴 읽는 법",
+        "keywords": "japanese menu reading",
+    },
+    {
+        "id": "guide_expand_002",
+        "topic_en": "Cashless payment and IC cards for travelers in Japan",
+        "topic_ko": "일본 여행 결제·교통카드 가이드",
+        "keywords": "japan suica paypay cashless",
+    },
+    {
+        "id": "guide_expand_003",
+        "topic_en": "Seasonal travel tips for Japan (spring to winter)",
+        "topic_ko": "일본 계절별 여행 팁",
+        "keywords": "japan seasonal travel",
+    },
+    {
+        "id": "guide_expand_004",
+        "topic_en": "Etiquette at shrines and temples in Japan",
+        "topic_ko": "일본 신사·절 예절",
+        "keywords": "japan shrine etiquette",
+    },
+    {
+        "id": "guide_expand_005",
+        "topic_en": "Using Google Maps and transit apps in Tokyo",
+        "topic_ko": "도쿄 지도·교통 앱 활용",
+        "keywords": "tokyo maps transit apps",
+    },
+    {
+        "id": "guide_expand_006",
+        "topic_en": "Allergies and dietary restrictions when dining in Japan",
+        "topic_ko": "일본 식사 알레르기·식단 제한",
+        "keywords": "japan food allergy halal vegan",
+    },
+]
+
+STARFUL_EXPAND_POSITIONS = [
+    "Site Reliability Engineer",
+    "MLOps Engineer",
+    "Platform Engineer",
+    "Security Engineer",
+    "Technical Program Manager",
+    "Solutions Architect",
+    "Mobile Engineer",
+    "iOS Engineer",
+    "Android Engineer",
+    "Game Developer",
+]
+
+JPCAMPUS_EXPAND_GUIDES = [
+    {
+        "slug": "parttime-seed",
+        "category": "Work",
+        "title": "Part-time jobs for international students",
+        "description": "Work rules overview",
+        "prompt": "Explain part-time work rules and popular jobs for students in Japan.",
+    },
+    {
+        "slug": "healthcare-seed",
+        "category": "Life",
+        "title": "Healthcare for students in Japan",
+        "description": "Clinics and insurance",
+        "prompt": "Guide to student health insurance and visiting clinics in Japan.",
+    },
+    {
+        "slug": "bank-seed",
+        "category": "Life",
+        "title": "Opening a bank account as a student",
+        "description": "Bank account steps",
+        "prompt": "Step-by-step bank account opening for international students.",
+    },
+]
+
+SITE_GCS_BUCKETS: dict[str, str] = {
+    "okramen": "gs://ok-project-assets/okramen",
+    "okonsen": "gs://ok-project-assets/okonsen",
+    "okcaddie": "gs://ok-project-assets/okcaddie",
+    "okstats": "gs://ok-project-assets/statfacts",
+    "krcampus": "gs://ok-project-assets/krcampus",
+    "starful.biz": "gs://starful-biz-assets",
+}
+
+SITE_GCS_IMAGE_DIRS: dict[str, str] = {
+    "starful.biz": "app/static/img",
+}
+
+_CONTENT_ZERO_PATTERNS = (
+    "no new guides to generate",
+    "no missing en/ko",
+    "no guide orphans",
+    "no new items",
+    "생성할 새",
+    "모든 가이드가 이미",
+    "모든 코스 콘텐츠가 이미",
+    "모든 파일이 생성済",
+    "すべてのファイルが生成済",
+    "새로 생성할 컨텐츠가 없",
+    "pending: 0",
+)
+_CONTENT_GEN_PATTERNS = (
+    r"starting generation for (\d+)",
+    r"generating (\d+) missing",
+    r"🔔 (\d+) topic",
+    r"🔔 (\d+)개",
+    r"✅ \[done\]",
+    r"✅ \[완료\]",
+    r"✅ success:",
+    r"✅ 完了:",
+    r"✅ 생성 완료 \(\d+\)",
+)
 
 
 def _log_dir() -> Path:
@@ -229,13 +409,119 @@ def _count_csv_rows(path: Path, *, required_col: str | None = None) -> int:
     return n
 
 
+def _normalize_csv_row(raw: dict[str, Any], headers: list[str]) -> dict[str, str]:
+    """Merge DictReader restkey (None) into the last column — fixes unquoted commas in CSV."""
+    row = {h: (raw.get(h) or "").strip() for h in headers}
+    extra = raw.get(None)
+    if extra is not None:
+        extras = extra if isinstance(extra, list) else [str(extra)]
+        tail = headers[-1] if headers else ""
+        if tail:
+            parts = [row.get(tail, "")] + [str(x).strip() for x in extras if str(x).strip()]
+            row[tail] = ",".join(p for p in parts if p)
+    return row
+
+
+def _read_csv_dicts(path: Path, headers: list[str]) -> list[dict[str, str]]:
+    if not path.is_file() or not path.read_text(encoding="utf-8-sig").strip():
+        return []
+    with path.open(encoding="utf-8-sig") as f:
+        return [_normalize_csv_row(r, headers) for r in csv.DictReader(f)]
+
+
+def _write_csv_dicts(path: Path, headers: list[str], rows: list[dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=headers, lineterminator="\n", extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows({h: (r.get(h) or "") for h in headers} for r in rows)
+    path.write_text(buf.getvalue(), encoding="utf-8-sig")
+
+
+def _csv_coord_keys(path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    keys: set[str] = set()
+    with path.open(encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            lat = (row.get("Lat") or row.get("lat") or "").strip()
+            lng = (row.get("Lng") or row.get("lng") or "").strip()
+            if not lat or not lng:
+                continue
+            try:
+                keys.add(f"{float(lat):.4f},{float(lng):.4f}")
+            except ValueError:
+                continue
+    return keys
+
+
+def _append_csv_rows_by_coord(
+    path: Path,
+    headers: list[str],
+    rows: list[dict[str, str]],
+    *,
+    max_add: int,
+) -> int:
+    if max_add <= 0:
+        return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _read_csv_dicts(path, headers)
+    coord_keys = _csv_coord_keys(path)
+    added = 0
+    for row in rows:
+        if added >= max_add:
+            break
+        lat = (row.get("Lat") or "").strip()
+        lng = (row.get("Lng") or "").strip()
+        if not lat or not lng:
+            continue
+        try:
+            key = f"{float(lat):.4f},{float(lng):.4f}"
+        except ValueError:
+            continue
+        if key in coord_keys:
+            continue
+        existing.append({h: row.get(h, "") for h in headers})
+        coord_keys.add(key)
+        added += 1
+    if not added:
+        return 0
+    _write_csv_dicts(path, headers, existing)
+    return added
+
+
+def _append_csv_rows_limited(
+    path: Path,
+    headers: list[str],
+    rows: list[dict[str, str]],
+    *,
+    key_col: str,
+    max_add: int,
+) -> int:
+    if max_add <= 0:
+        return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _read_csv_dicts(path, headers)
+    keys = {(r.get(key_col) or "").strip().lower() for r in existing}
+    added = 0
+    for row in rows:
+        if added >= max_add:
+            break
+        key = (row.get(key_col) or "").strip().lower()
+        if key and key in keys:
+            continue
+        existing.append({h: row.get(h, "") for h in headers})
+        keys.add(key)
+        added += 1
+    if not added:
+        return 0
+    _write_csv_dicts(path, headers, existing)
+    return added
+
+
 def _append_csv_rows(path: Path, headers: list[str], rows: list[dict[str, str]]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing: list[dict[str, str]] = []
-    if path.is_file() and path.read_text(encoding="utf-8-sig").strip():
-        existing = []
-        with path.open(encoding="utf-8-sig") as f:
-            existing = list(csv.DictReader(f))
+    existing = _read_csv_dicts(path, headers)
     names = {(r.get(headers[0]) or "").strip().lower() for r in existing}
     added = 0
     for row in rows:
@@ -245,19 +531,15 @@ def _append_csv_rows(path: Path, headers: list[str], rows: list[dict[str, str]])
         existing.append({h: row.get(h, "") for h in headers})
         names.add(key)
         added += 1
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=headers, lineterminator="\n")
-    writer.writeheader()
-    writer.writerows(existing)
-    path.write_text(buf.getvalue(), encoding="utf-8-sig")
+    _write_csv_dicts(path, headers, existing)
     return added
 
 
 def ensure_okcafejp_csv(repo: Path, logf) -> dict[str, Any]:
-    """Add CSV rows when items/guides are insufficient."""
+    """Add CSV rows when items/guides are insufficient; weekly Lat/Lng expansion."""
     items_path = repo / "script/csv/items.csv"
     guides_path = repo / "script/csv/guides.csv"
-    out: dict[str, Any] = {"seeded_items": 0, "seeded_guides": 0, "messages": []}
+    out: dict[str, Any] = {"seeded_items": 0, "seeded_guides": 0, "expanded_items": 0, "messages": []}
 
     n_items = _count_csv_rows(items_path, required_col="Name")
     if n_items < MIN_ITEM_ROWS:
@@ -269,6 +551,20 @@ def ensure_okcafejp_csv(repo: Path, logf) -> dict[str, Any]:
     else:
         logf.write(f"items.csv: {n_items}행 (시드 생략)\n")
 
+    expand_limit = _bounded_limit(
+        os.environ,
+        "CONTENT_LIMIT",
+        default=DEFAULT_CONTENT_LIMIT,
+        ceiling=MAX_CONTENT_LIMIT,
+    )
+    pool = DEFAULT_ITEM_SEEDS + OKCAFE_EXPAND_SEEDS
+    expanded = _append_csv_rows_by_coord(items_path, ITEM_HEADERS, pool, max_add=expand_limit)
+    out["expanded_items"] = expanded
+    if expanded:
+        msg = f"items.csv: 주간 확장 +{expanded}행 (좌표 시드, Places 후 생성)"
+        out["messages"].append(msg)
+        logf.write(msg + "\n")
+
     n_guides = _count_csv_rows(guides_path, required_col="topic_en")
     if n_guides < MIN_GUIDE_ROWS:
         added = _append_csv_rows(guides_path, GUIDE_HEADERS, DEFAULT_GUIDE_SEEDS)
@@ -278,6 +574,20 @@ def ensure_okcafejp_csv(repo: Path, logf) -> dict[str, Any]:
         logf.write(msg + "\n")
     else:
         logf.write(f"guides.csv: {n_guides}행 (시드 생략)\n")
+
+    guide_expand_limit = _bounded_limit(
+        os.environ,
+        "GUIDE_LIMIT",
+        default=DEFAULT_GUIDE_LIMIT,
+        ceiling=MAX_GUIDE_LIMIT,
+    )
+    g_added = _append_csv_rows_limited(
+        guides_path, GUIDE_HEADERS, EXPAND_GUIDE_SEEDS, key_col="id", max_add=guide_expand_limit
+    )
+    if g_added:
+        msg = f"guides.csv: 주간 가이드 토픽 +{g_added}행"
+        out["messages"].append(msg)
+        logf.write(msg + "\n")
 
     out["item_rows"] = _count_csv_rows(items_path, required_col="Name")
     out["guide_rows"] = _count_csv_rows(guides_path, required_col="topic_en")
@@ -324,11 +634,13 @@ def _run_step(
         combined = (proc.stderr or "") + "\n" + (proc.stdout or "")
         lines = [ln for ln in combined.splitlines() if ln.strip()]
         err_tail = "\n".join(lines[-12:])
+    combined_out = (proc.stdout or "") + (proc.stderr or "")
     return {
         "ok": ok,
         "label": label,
         "exit_code": proc.returncode,
         "error": err_tail if not ok else "",
+        "output": combined_out[-8000:],
     }
 
 
@@ -342,6 +654,7 @@ def _merge_pipeline_env(repo: Path) -> dict[str, str]:
         "GEMINI_API_KEY",
         "GEMINI_MODEL",
         "GOOGLE_PLACES_API_KEY",
+        "KRCAMPUS_GOOGLE_MAPS_API_KEY",
     ):
         if key not in env:
             if key == "CONTENT_LIMIT":
@@ -372,6 +685,7 @@ def _merge_pipeline_env(repo: Path) -> dict[str, str]:
                     "GEMINI_API_KEY",
                     "GEMINI_MODEL",
                     "GOOGLE_PLACES_API_KEY",
+                    "KRCAMPUS_GOOGLE_MAPS_API_KEY",
                     "HATENA_USERNAME",
                     "HATENA_PYTHON_BLOG_ID",
                     "HATENA_PYTHON_API_KEY",
@@ -395,10 +709,11 @@ def ensure_dual_csv(
     guide_seeds: list[dict[str, str]],
     item_col: str = "Name",
     guide_col: str = "topic_en",
+    expand_coords: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     items_path = repo / items_rel
     guides_path = repo / guides_rel
-    out: dict[str, Any] = {"messages": []}
+    out: dict[str, Any] = {"messages": [], "expanded_items": 0, "expanded_guides": 0}
     n_items = _count_csv_rows(items_path, required_col=item_col)
     if n_items < MIN_ITEM_ROWS:
         added = _append_csv_rows(items_path, item_headers, item_seeds)
@@ -407,7 +722,23 @@ def ensure_dual_csv(
         out["messages"].append(msg)
         logf.write(msg + "\n")
     else:
-        logf.write(f"{items_rel}: {n_items}행 OK\n")
+        logf.write(f"{items_rel}: {n_items}행 (시드 생략)\n")
+
+    if expand_coords and "Lat" in item_headers:
+        expand_limit = _bounded_limit(
+            os.environ,
+            "CONTENT_LIMIT",
+            default=DEFAULT_CONTENT_LIMIT,
+            ceiling=MAX_CONTENT_LIMIT,
+        )
+        pool = list(item_seeds) + list(expand_coords)
+        expanded = _append_csv_rows_by_coord(items_path, item_headers, pool, max_add=expand_limit)
+        out["expanded_items"] = expanded
+        if expanded:
+            msg = f"{items_rel}: 주간 확장 +{expanded}행"
+            out["messages"].append(msg)
+            logf.write(msg + "\n")
+
     n_guides = _count_csv_rows(guides_path, required_col=guide_col)
     if n_guides < MIN_GUIDE_ROWS:
         added = _append_csv_rows(guides_path, guide_headers, guide_seeds)
@@ -416,7 +747,29 @@ def ensure_dual_csv(
         out["messages"].append(msg)
         logf.write(msg + "\n")
     else:
-        logf.write(f"{guides_rel}: {n_guides}행 OK\n")
+        logf.write(f"{guides_rel}: {n_guides}행 (시드 생략)\n")
+
+    guide_expand_limit = _bounded_limit(
+        os.environ,
+        "GUIDE_LIMIT",
+        default=DEFAULT_GUIDE_LIMIT,
+        ceiling=MAX_GUIDE_LIMIT,
+    )
+    g_added = _append_csv_rows_limited(
+        guides_path,
+        guide_headers,
+        EXPAND_GUIDE_SEEDS,
+        key_col="id",
+        max_add=guide_expand_limit,
+    )
+    out["expanded_guides"] = g_added
+    if g_added:
+        msg = f"{guides_rel}: 주간 가이드 토픽 +{g_added}행"
+        out["messages"].append(msg)
+        logf.write(msg + "\n")
+
+    out["item_rows"] = _count_csv_rows(items_path, required_col=item_col)
+    out["guide_rows"] = _count_csv_rows(guides_path, required_col=guide_col)
     return out
 
 
@@ -425,13 +778,29 @@ def ensure_starful_csv(repo: Path, logf) -> dict[str, Any]:
     headers = ["position_name"]
     seeds = [{"position_name": t} for t in ("AI Engineer", "Product Manager", "Data Analyst", "DevOps Engineer", "UX Designer", "Backend Developer", "Cloud Architect", "Security Engineer", "Technical Writer", "QA Engineer")]
     n = _count_csv_rows(path, required_col="position_name")
-    out: dict[str, Any] = {"messages": []}
+    out: dict[str, Any] = {"messages": [], "expanded": 0}
     if n < 15:
         added = _append_csv_rows(path, headers, seeds)
         out["seeded"] = added
         logf.write(f"positions.csv: {n}행 → +{added}행\n")
     else:
-        logf.write(f"positions.csv: {n}행 OK\n")
+        logf.write(f"positions.csv: {n}행 (시드 생략)\n")
+    expand_limit = _bounded_limit(
+        os.environ,
+        "CONTENT_LIMIT",
+        default=DEFAULT_CONTENT_LIMIT,
+        ceiling=MAX_CONTENT_LIMIT,
+    )
+    expanded = _append_csv_rows_limited(
+        path,
+        headers,
+        [{"position_name": t} for t in STARFUL_EXPAND_POSITIONS],
+        key_col="position_name",
+        max_add=expand_limit,
+    )
+    out["expanded"] = expanded
+    if expanded:
+        logf.write(f"positions.csv: 주간 확장 +{expanded}행\n")
     return out
 
 
@@ -470,12 +839,77 @@ def ensure_jpcampus_csv(repo: Path, logf) -> dict[str, Any]:
         {"slug": "housing-seed", "category": "Housing", "title": "Student Housing Options", "description": "Housing compare", "prompt": "Compare dorm, share house, and apartment for students."},
     ]
     n = _count_csv_rows(path, required_col="slug")
+    out: dict[str, Any] = {"expanded": 0}
     if n < MIN_GUIDE_ROWS:
         added = _append_csv_rows(path, headers, seeds)
         logf.write(f"guide_topics.csv: {n}행 → +{added}행\n")
-        return {"seeded": added}
-    logf.write(f"guide_topics.csv: {n}행 OK\n")
-    return {}
+        out["seeded"] = added
+    else:
+        logf.write(f"guide_topics.csv: {n}행 (시드 생략)\n")
+    expand_limit = _bounded_limit(
+        os.environ,
+        "GUIDE_LIMIT",
+        default=DEFAULT_GUIDE_LIMIT,
+        ceiling=MAX_GUIDE_LIMIT,
+    )
+    expanded = _append_csv_rows_limited(
+        path, headers, JPCAMPUS_EXPAND_GUIDES, key_col="slug", max_add=expand_limit
+    )
+    out["expanded"] = expanded
+    if expanded:
+        logf.write(f"guide_topics.csv: 주간 확장 +{expanded}행\n")
+    return out
+
+
+def ensure_krcampus_csv(repo: Path, logf) -> dict[str, Any]:
+    """Ensure guide_topics + language_schools + universities CSV seeds."""
+    guides_path = repo / "data/guide_topics.csv"
+    schools_path = repo / "data/language_schools.csv"
+    univ_path = repo / "data/universities.csv"
+    out: dict[str, Any] = {"expanded": 0}
+
+    guide_headers = ["slug", "category", "title", "description", "prompt"]
+    guide_seeds = [
+        {
+            "slug": "visa",
+            "category": "Visa",
+            "title": "Student Visa Guide for Korea (D-2 and D-4)",
+            "description": "Step-by-step visa guide.",
+            "prompt": "Write a Korea student visa guide for D-2 and D-4.",
+        },
+    ]
+    n = _count_csv_rows(guides_path, required_col="slug")
+    if n < MIN_GUIDE_ROWS:
+        added = _append_csv_rows(guides_path, guide_headers, guide_seeds)
+        logf.write(f"guide_topics.csv: +{added}행\n")
+        out["seeded_guides"] = added
+
+    school_headers = ["name_ko", "name_en", "region", "city"]
+    school_seeds = [
+        {
+            "name_ko": "연세대학교 한국어학당",
+            "name_en": "Yonsei Korean Language Institute",
+            "region": "Seoul",
+            "city": "Seoul",
+        },
+    ]
+    sn = _count_csv_rows(schools_path, required_col="name_ko")
+    if sn < 1:
+        added = _append_csv_rows(schools_path, school_headers, school_seeds)
+        logf.write(f"language_schools.csv: +{added}행\n")
+        out["seeded_schools"] = added
+
+    univ_headers = ["name_ko", "name_en", "region"]
+    univ_seeds = [
+        {"name_ko": "서울대학교", "name_en": "Seoul National University", "region": "Seoul"},
+    ]
+    un = _count_csv_rows(univ_path, required_col="name_ko")
+    if un < 1:
+        added = _append_csv_rows(univ_path, univ_headers, univ_seeds)
+        logf.write(f"universities.csv: +{added}행\n")
+        out["seeded_univs"] = added
+
+    return out
 
 
 def _execute_pipeline(
@@ -487,11 +921,13 @@ def _execute_pipeline(
     env: dict[str, str],
     optional_steps: list[tuple[str, str, list[str], int]] | None = None,
     extra_steps: list[tuple[str, str, list[str], int]] | None = None,
+    post_steps: list[tuple[str, Callable[[Path, Any], dict[str, Any]]]] | None = None,
 ) -> dict[str, Any]:
     log_path = pipeline_log_path(site_id)
     steps_out: list[dict[str, Any]] = []
     optional_steps = optional_steps or []
     extra_steps = extra_steps or []
+    post_steps = post_steps or []
 
     with open(log_path, "a", encoding="utf-8") as logf:
         logf.write(f"\n\n{'#' * 60}\n# {site_id} pipeline {datetime.now():%F %T}\n")
@@ -517,16 +953,204 @@ def _execute_pipeline(
             if not r["ok"]:
                 logf.write(f"⚠ optional step failed (continuing): {label}\n")
 
+        for step_id, fn in post_steps:
+            r = fn(repo, logf)
+            steps_out.append({"step": step_id, **r, "optional": True})
+            if not r.get("ok"):
+                logf.write(f"⚠ post step failed (continuing): {r.get('label') or step_id}\n")
+
         logf.write(f"\n[{datetime.now():%F %T}] Pipeline OK\n")
 
-    return _stamp_pipeline_result(
-        {
-            "ok": True,
-            "site_id": site_id,
-            "steps": steps_out,
-            "log_path": str(log_path),
-            "message": f"{site_id} 콘텐츠 파이프라인 완료",
-        }
+    payload: dict[str, Any] = {
+        "ok": True,
+        "site_id": site_id,
+        "steps": steps_out,
+        "log_path": str(log_path),
+        "message": f"{site_id} 콘텐츠 파이프라인 완료",
+    }
+    warn = _content_generation_warning(steps_out)
+    if warn:
+        payload["content_warning"] = warn
+        payload["message"] = f"{site_id} 완료 — {warn}"
+        logf.write(f"⚠ content: {warn}\n")
+    return _stamp_pipeline_result(payload)
+
+
+def _content_generation_warning(steps: list[dict[str, Any]]) -> str | None:
+    """True when generate steps ran OK but logs suggest zero new MD/posts."""
+    gen_ids = {
+        "guides",
+        "items",
+        "guides_md",
+        "py",
+        "cloud",
+        "korean",
+    }
+    gen_steps = [s for s in steps if s.get("step") in gen_ids and s.get("ok")]
+    if not gen_steps:
+        return None
+    saw_zero = False
+    saw_gen = False
+    for step in gen_steps:
+        text = (step.get("output") or "").lower()
+        if not text:
+            continue
+        if any(p in text for p in _CONTENT_ZERO_PATTERNS):
+            saw_zero = True
+        if any(re.search(p, text) for p in _CONTENT_GEN_PATTERNS):
+            saw_gen = True
+    if saw_zero and not saw_gen:
+        return "이번 실행에서 신규 콘텐츠 0건 (백로그 없음 또는 이미 완료)"
+    return None
+
+
+def _gcs_images_dir(repo: Path, site_id: str) -> Path:
+    rel = SITE_GCS_IMAGE_DIRS.get(site_id, "app/static/images")
+    return repo / rel
+
+
+def _starful_gcs_normalize(repo: Path, logf) -> dict[str, Any]:
+    """GCS rsync 전 legacy hyphen blob 정리."""
+    script = repo / "scripts/normalize_image_names.py"
+    logf.write(f"\n[{datetime.now():%F %T}] starful GCS image name normalize\n")
+    if not script.is_file():
+        return {"ok": False, "label": "GCS normalize", "error": "normalize_image_names.py missing"}
+    try:
+        proc = subprocess.run(
+            ["python3", str(script), "--gcs"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "label": "GCS normalize", "error": "timeout"}
+    if proc.stdout:
+        logf.write(proc.stdout)
+    if proc.stderr:
+        logf.write(proc.stderr)
+    logf.flush()
+    ok = proc.returncode == 0
+    return {
+        "ok": ok,
+        "label": "GCS normalize",
+        "exit_code": proc.returncode,
+        "error": "" if ok else (proc.stderr or proc.stdout or "normalize failed")[-500:],
+    }
+
+
+def _gcs_image_sync(repo: Path, logf, site_id: str) -> dict[str, Any]:
+    """Upload site image dir to GCS; never overwrite newer GCS blobs (admin uploads)."""
+    images_dir = _gcs_images_dir(repo, site_id)
+    env_key = f"{site_id.upper().replace('.', '_')}_GCS_BUCKET"
+    bucket = os.environ.get(env_key) or SITE_GCS_BUCKETS.get(site_id, "")
+    logf.write(f"\n{'=' * 50}\n[{datetime.now():%F %T}] GCS image sync\n")
+    logf.flush()
+    if not bucket:
+        return {"ok": False, "label": "GCS images", "error": f"no GCS bucket for {site_id}"}
+    if not images_dir.is_dir():
+        return {"ok": False, "label": "GCS images", "error": "images dir missing"}
+
+    rsync_flags = ["--recursive", "--checksums-only", "--skip-if-dest-has-newer-mtime"]
+
+    # starful: pull newer GCS → local first (admin upload → repo stays current)
+    if site_id == "starful.biz":
+        logf.write(f"gcloud storage rsync {bucket} {images_dir} (pull newer)\n")
+        logf.flush()
+        try:
+            pull = subprocess.run(
+                ["gcloud", "storage", "rsync", bucket, str(images_dir), *rsync_flags],
+                capture_output=True,
+                text=True,
+                timeout=900,
+                check=False,
+            )
+            if pull.stdout:
+                logf.write(pull.stdout)
+            if pull.stderr:
+                logf.write(pull.stderr)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "label": "GCS images", "error": "pull timeout"}
+
+    logf.write(f"gcloud storage rsync {images_dir} {bucket} (push, skip newer dest)\n")
+    logf.flush()
+    try:
+        proc = subprocess.run(
+            ["gcloud", "storage", "rsync", str(images_dir), bucket, *rsync_flags],
+            capture_output=True,
+            text=True,
+            timeout=900,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "label": "GCS images", "error": "timeout"}
+    if proc.stdout:
+        logf.write(proc.stdout)
+    if proc.stderr:
+        logf.write(proc.stderr)
+    logf.flush()
+    ok = proc.returncode == 0
+    return {
+        "ok": ok,
+        "label": "GCS images",
+        "exit_code": proc.returncode,
+        "error": "" if ok else (proc.stderr or proc.stdout or "gcloud rsync failed")[-500:],
+    }
+
+
+def _item_incomplete_argv(env: dict[str, str]) -> list[str]:
+    return [
+        "python3",
+        "script/item_generator.py",
+        "--limit",
+        env["CONTENT_LIMIT"],
+        "--incomplete-only",
+    ]
+
+
+def _ok_series_content_steps(
+    env: dict[str, str],
+    site_id: str,
+    *,
+    item_step: tuple[str, str, list[str], int],
+    guide_first: bool = True,
+) -> list[tuple[str, str, list[str], int]]:
+    guide_step = ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600)
+    if guide_first:
+        head: list[tuple[str, str, list[str], int]] = [guide_step, item_step]
+    else:
+        head = [item_step, guide_step]
+    return head + [
+        ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
+        ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
+        ("build", "build_data", ["python3", "script/build_data.py"], 600),
+    ]
+
+
+def _pipeline_post_steps(site_id: str) -> list[tuple[str, Callable[[Path, Any], dict[str, Any]]]]:
+    if site_id in SITE_GCS_BUCKETS:
+        return [("gcs_images", lambda repo, logf, sid=site_id: _gcs_image_sync(repo, logf, sid))]
+    return []
+
+
+def _run_ok_site_pipeline(
+    site_id: str,
+    repo: Path,
+    env: dict[str, str],
+    *,
+    ensure_fn,
+    steps: list[tuple[str, str, list[str], int]],
+    extra_steps: list[tuple[str, str, list[str], int]] | None = None,
+) -> dict[str, Any]:
+    return _execute_pipeline(
+        site_id,
+        repo,
+        ensure_fn=ensure_fn,
+        steps=steps,
+        env=env,
+        extra_steps=extra_steps or [],
+        post_steps=_pipeline_post_steps(site_id),
     )
 
 
@@ -537,8 +1161,6 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
     steps: list[tuple[str, str, list[str], int]] = []
 
     if site_id == "okcafejp":
-        item_limit = env["CONTENT_LIMIT"]
-
         def ensure(repo_p: Path, logf):
             return ensure_okcafejp_csv(repo_p, logf)
 
@@ -551,16 +1173,14 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                     600,
                 )
             )
-        steps = [
-            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
-            ("items", "item_generator", ["python3", "script/item_generator.py", "--limit", item_limit], 3600),
-            ("build", "build_data", ["python3", "script/build_data.py"], 600),
-        ]
-        return _execute_pipeline(site_id, repo, ensure_fn=ensure, steps=steps, env=env, extra_steps=extra)
+        steps = _ok_series_content_steps(
+            env,
+            site_id,
+            item_step=("items", "item_generator", _item_incomplete_argv(env), 3600),
+        )
+        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps, extra_steps=extra)
 
     if site_id in ("oksushi",):
-        item_limit = env["CONTENT_LIMIT"]
-
         def ensure(repo_p: Path, logf):
             return ensure_dual_csv(
                 repo_p,
@@ -571,14 +1191,15 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                 guide_headers=GUIDE_HEADERS,
                 item_seeds=DEFAULT_ITEM_SEEDS,
                 guide_seeds=DEFAULT_GUIDE_SEEDS,
+                expand_coords=OKCAFE_EXPAND_SEEDS,
             )
 
-        steps = [
-            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
-            ("items", "item_generator", ["python3", "script/item_generator.py", "--limit", item_limit], 3600),
-            ("build", "build_data", ["python3", "script/build_data.py"], 600),
-        ]
-        return _execute_pipeline(site_id, repo, ensure_fn=ensure, steps=steps, env=env)
+        steps = _ok_series_content_steps(
+            env,
+            site_id,
+            item_step=("items", "item_generator", _item_incomplete_argv(env), 3600),
+        )
+        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okramen":
         ramen_seeds = [
@@ -597,15 +1218,17 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                 guide_headers=GUIDE_HEADERS,
                 item_seeds=ramen_seeds,
                 guide_seeds=DEFAULT_GUIDE_SEEDS,
+                expand_coords=OKCAFE_EXPAND_SEEDS,
             )
 
         limit = env["CONTENT_LIMIT"]
-        steps = [
-            ("items", "ramen_generator", ["python3", "script/ramen_generator.py", limit], 3600),
-            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
-            ("build", "build_data", ["python3", "script/build_data.py"], 600),
-        ]
-        return _execute_pipeline(site_id, repo, ensure_fn=ensure, steps=steps, env=env)
+        steps = _ok_series_content_steps(
+            env,
+            site_id,
+            item_step=("items", "ramen_generator", ["python3", "script/ramen_generator.py", limit], 3600),
+            guide_first=False,
+        )
+        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okonsen":
         onsen_headers = ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"]
@@ -624,15 +1247,17 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                 guide_headers=GUIDE_HEADERS,
                 item_seeds=onsen_seeds,
                 guide_seeds=DEFAULT_GUIDE_SEEDS,
+                expand_coords=OKCAFE_EXPAND_SEEDS,
             )
 
         limit = env["CONTENT_LIMIT"]
-        steps = [
-            ("items", "onsen_generator", ["python3", "script/onsen_generator.py", limit], 3600),
-            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
-            ("build", "build_data", ["python3", "script/build_data.py"], 600),
-        ]
-        return _execute_pipeline(site_id, repo, ensure_fn=ensure, steps=steps, env=env)
+        steps = _ok_series_content_steps(
+            env,
+            site_id,
+            item_step=("items", "onsen_generator", ["python3", "script/onsen_generator.py", limit], 3600),
+            guide_first=False,
+        )
+        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okcaddie":
         course_headers = ["Name", "Lat", "Lng", "Address", "Features", "Booking"]
@@ -651,22 +1276,71 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                 item_seeds=course_seeds,
                 guide_seeds=DEFAULT_GUIDE_SEEDS,
                 item_col="Name",
+                expand_coords=OKCAFE_EXPAND_SEEDS,
             )
 
         limit = env["CONTENT_LIMIT"]
+        steps = _ok_series_content_steps(
+            env,
+            site_id,
+            item_step=("items", "course_generator", ["python3", "script/course_generator.py", limit], 3600),
+            guide_first=False,
+        )
+        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
+
+    if site_id == "okstats":
+        insight_headers = [
+            "id",
+            "topic",
+            "intervention",
+            "outcome",
+            "effect_min",
+            "effect_max",
+            "effect_unit",
+            "categories",
+            "confidence",
+            "keywords",
+        ]
+
+        def ensure(repo_p: Path, logf):
+            return ensure_dual_csv(
+                repo_p,
+                logf,
+                items_rel="script/csv/insights.csv",
+                guides_rel="script/csv/guides.csv",
+                item_headers=insight_headers,
+                guide_headers=GUIDE_HEADERS,
+                item_seeds=[],
+                guide_seeds=DEFAULT_GUIDE_SEEDS,
+                item_col="id",
+                expand_coords=[],
+            )
+
         steps = [
-            ("items", "course_generator", ["python3", "script/course_generator.py", limit], 3600),
             ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
+            ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
+            ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
             ("build", "build_data", ["python3", "script/build_data.py"], 600),
         ]
-        return _execute_pipeline(site_id, repo, ensure_fn=ensure, steps=steps, env=env)
+        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "starful.biz":
         steps = [
             ("guides", "generate_md_guides", ["python3", "scripts/generate_md_guides.py"], 3600),
+            ("images", "generate_images", ["python3", "scripts/generate_images.py"], 600),
+            ("images_opt", "resize_images", ["python3", "scripts/resize_images.py"], 900),
+            ("img_names", "normalize_image_names", ["python3", "scripts/normalize_image_names.py"], 300),
             ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
         ]
-        return _execute_pipeline(site_id, repo, ensure_fn=ensure_starful_csv, steps=steps, env=env)
+        return _execute_pipeline(
+            site_id,
+            repo,
+            ensure_fn=ensure_starful_csv,
+            steps=steps,
+            env=env,
+            post_steps=[("gcs_normalize", lambda repo, logf: _starful_gcs_normalize(repo, logf))]
+            + _pipeline_post_steps(site_id),
+        )
 
     if site_id == "hatena":
         max_posts = env["HATENA_MAX_POSTS"]
@@ -687,6 +1361,30 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
             ("seo", "seo_guard", ["python3", "scripts/seo_guard.py"], 300),
         ]
         return _execute_pipeline(site_id, repo, ensure_fn=ensure_jpcampus_csv, steps=steps, env=env, optional_steps=optional)
+
+    if site_id == "krcampus":
+        steps = [
+            ("guides", "AI guides", ["python3", "scripts/2.generate_ai_guides.py"], 3600),
+            ("schools", "language schools", ["python3", "scripts/1.collect_language_schools.py"], 3600),
+            ("universities", "universities", ["python3", "scripts/1.collect_universities.py"], 3600),
+            ("japanese", "Japanese content", ["python3", "scripts/3.create_japanese_content.py"], 3600),
+            ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
+            ("images", "fetch_images", ["python3", "scripts/fetch_images.py"], 2400),
+            ("images_opt", "optimize_images", ["python3", "scripts/optimize_images.py"], 900),
+            ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
+        ]
+        optional = [
+            ("seo", "seo_guard", ["python3", "scripts/seo_guard.py"], 300),
+        ]
+        return _execute_pipeline(
+            site_id,
+            repo,
+            ensure_fn=ensure_krcampus_csv,
+            steps=steps,
+            env=env,
+            optional_steps=optional,
+            post_steps=_pipeline_post_steps("krcampus"),
+        )
 
     return {"ok": False, "error": f"no pipeline definition for {site_id}"}
 
@@ -817,7 +1515,7 @@ def _guide_cli_limit(env: dict[str, str], site_id: str) -> str:
 def _guide_generator_argv(env: dict[str, str], site_id: str) -> list[str]:
     glimit = _guide_cli_limit(env, site_id)
     if site_id == "okramen":
-        return ["python3", "script/guide_generator.py", "--new-topics", glimit]
+        return ["python3", "script/guide_generator.py", "--batch-missing", glimit]
     return ["python3", "script/guide_generator.py", glimit]
 
 
@@ -885,7 +1583,8 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
     )
     parts: list[dict[str, str]] = []
 
-    if site_id in ("okcafejp", "oksushi"):
+    if site_id in ("okramen", "okonsen", "okcaddie"):
+        item_label = {"okramen": "라멘", "okonsen": "온천", "okcaddie": "코스"}.get(site_id, "아이템")
         parts = [
             {
                 "label": "가이드",
@@ -893,27 +1592,20 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
                 "note": "없는 en/ko만",
             },
             {
-                "label": "아이템",
+                "label": item_label,
                 "cap": f"CSV {item_n}행 · 최대 {item_n * 2} MD",
                 "note": "없는 en/ko만",
             },
+            {"label": "이미지", "cap": "Imagen + optimize", "note": "신규 MD만"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
-            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
-        ]
-        if site_id == "okcafejp" and env.get("GOOGLE_PLACES_API_KEY"):
-            parts.insert(0, {"label": "Places", "cap": "items.csv 갱신", "note": "API 키 있을 때"})
-    elif site_id in ("okramen", "okonsen", "okcaddie"):
-        kind = {"okramen": "라멘", "okonsen": "온천", "okcaddie": "코스"}[site_id]
-        parts = [
-            {"label": kind, "cap": f"CSV {item_n}행 · 최대 {item_n * 2} MD", "note": "없는 MD만"},
-            {"label": "가이드", "cap": f"토픽 {guide_n}개 · 최대 {guide_n * 2} MD", "note": "없는 en/ko만"},
-            {"label": "빌드", "cap": "build_data 1회", "note": ""},
-            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
+            {"label": "배포", "cap": "git + GCS + Cloud Build", "note": "생성 성공 후"},
         ]
     elif site_id == "starful.biz":
         parts = [
             {"label": "가이드 MD", "cap": f"최대 {item_n}건", "note": "없는 MD만"},
+            {"label": "이미지", "cap": "default 복사 + resize + 이름 정규화", "note": "snake_case"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
+            {"label": "GCS", "cap": "img → starful-biz-assets", "note": "생성 후"},
             {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
         ]
     elif site_id == "hatena":
@@ -928,6 +1620,14 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
             {"label": "featured", "cap": "토픽별 고정", "note": ""},
             {"label": "빌드", "cap": "build_data 1회", "note": "seo_guard 선택"},
             {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
+        ]
+    elif site_id == "krcampus":
+        parts = [
+            {"label": "가이드 AI", "cap": f"토픽 {guide_n}개", "note": "guide_topics.csv"},
+            {"label": "어학원", "cap": "language_schools.csv", "note": "AI school_*.md"},
+            {"label": "대학", "cap": "universities.csv", "note": "AI univ_*.md"},
+            {"label": "日本語", "cap": f"최대 {korean_n} MD", "note": "없는 *_ja.md"},
+            {"label": "빌드", "cap": "build_data", "note": ""},
         ]
 
     summary = " · ".join(f"{p['label']} {p['cap']}" for p in parts[:3])
@@ -946,12 +1646,16 @@ def summarize_pipeline_status(status: dict[str, Any] | None, log_text: str = "")
         ok = status.get("ok")
         if ok is True:
             title = "완료"
+            if status.get("content_warning"):
+                title = "완료 (0건)"
         elif ok is False:
             title = "실패"
             failed = status.get("failed_step") or status.get("error") or ""
             if failed:
                 lines.append(f"중단: {str(failed)[:120]}")
 
+        if status.get("content_warning"):
+            lines.append(f"⚠ {status['content_warning']}")
         deploy = status.get("deploy") or {}
         if deploy.get("skipped"):
             lines.append("— deploy: Hatena (생략)")
@@ -1027,13 +1731,132 @@ def _log_snippet(log_text: str, *, max_lines: int = 14) -> str:
     return "\n".join(picked[-max_lines:])
 
 
+def run_csv_expand(site_id: str) -> dict[str, Any]:
+    """Run ensure_* CSV seed/expansion only (no content generation)."""
+    if not work_root_available():
+        return {"ok": False, "error": "WORK_ROOT not available"}
+    svc = get_service(site_id)
+    if not svc:
+        return {"ok": False, "error": f"{site_id} not in sites.yaml"}
+    if site_id not in CONTENT_PIPELINES:
+        return {"ok": False, "error": "unknown pipeline"}
+    repo = repo_path(svc)
+    if not repo.is_dir():
+        return {"ok": False, "error": f"missing repo {repo}"}
+
+    log_path = pipeline_log_path(site_id)
+    messages: list[str] = []
+
+    class _Log:
+        def write(self, s: str) -> None:
+            if s.strip():
+                messages.append(s.rstrip())
+
+        def flush(self) -> None:
+            pass
+
+    logf = _Log()
+
+    if site_id == "okcafejp":
+        info = ensure_okcafejp_csv(repo, logf)
+    elif site_id == "oksushi":
+        info = ensure_dual_csv(
+            repo,
+            logf,
+            items_rel="script/csv/items.csv",
+            guides_rel="script/csv/guides.csv",
+            item_headers=ITEM_HEADERS,
+            guide_headers=GUIDE_HEADERS,
+            item_seeds=DEFAULT_ITEM_SEEDS,
+            guide_seeds=DEFAULT_GUIDE_SEEDS,
+            expand_coords=OKCAFE_EXPAND_SEEDS,
+        )
+    elif site_id == "okramen":
+        ramen_headers = ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"]
+        ramen_seeds = [
+            {"Name": "Ichiran Shinjuku", "Lat": "35.6909", "Lng": "139.7018", "Address": "Tokyo, Shinjuku", "Thumbnail": "", "Features": "Tonkotsu", "Agoda": ""},
+            {"Name": "Ippudo Ginza", "Lat": "35.6711", "Lng": "139.7662", "Address": "Tokyo, Chuo", "Thumbnail": "", "Features": "Tonkotsu", "Agoda": ""},
+        ]
+        info = ensure_dual_csv(
+            repo, logf,
+            items_rel="script/csv/ramens.csv", guides_rel="script/csv/guides.csv",
+            item_headers=ramen_headers, guide_headers=GUIDE_HEADERS,
+            item_seeds=ramen_seeds, guide_seeds=DEFAULT_GUIDE_SEEDS,
+            expand_coords=OKCAFE_EXPAND_SEEDS,
+        )
+    elif site_id == "okonsen":
+        onsen_headers = ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"]
+        onsen_seeds = [
+            {"Name": "Hakone Ten-yu", "Lat": "35.2393", "Lng": "139.0456", "Address": "Hakone", "Thumbnail": "", "Features": "Family bath", "Agoda": ""},
+        ]
+        info = ensure_dual_csv(
+            repo, logf,
+            items_rel="script/csv/onsens.csv", guides_rel="script/csv/guides.csv",
+            item_headers=onsen_headers, guide_headers=GUIDE_HEADERS,
+            item_seeds=onsen_seeds, guide_seeds=DEFAULT_GUIDE_SEEDS,
+            expand_coords=OKCAFE_EXPAND_SEEDS,
+        )
+    elif site_id == "okcaddie":
+        course_headers = ["Name", "Lat", "Lng", "Address", "Features", "Booking"]
+        course_seeds = [{"Name": "Sample Golf Club", "Lat": "35.0", "Lng": "135.0", "Address": "Hyogo", "Features": "Public", "Booking": ""}]
+        info = ensure_dual_csv(
+            repo, logf,
+            items_rel="script/csv/courses.csv", guides_rel="script/csv/guides.csv",
+            item_headers=course_headers, guide_headers=GUIDE_HEADERS,
+            item_seeds=course_seeds, guide_seeds=DEFAULT_GUIDE_SEEDS,
+            item_col="Name", expand_coords=OKCAFE_EXPAND_SEEDS,
+        )
+    elif site_id == "starful.biz":
+        info = ensure_starful_csv(repo, logf)
+    elif site_id == "jpcampus":
+        info = ensure_jpcampus_csv(repo, logf)
+    elif site_id == "krcampus":
+        info = ensure_krcampus_csv(repo, logf)
+    elif site_id == "hatena":
+        info = ensure_hatena_csv(repo, logf)
+    elif site_id == "okstats":
+        insight_headers = [
+            "id",
+            "topic",
+            "intervention",
+            "outcome",
+            "effect_min",
+            "effect_max",
+            "effect_unit",
+            "categories",
+            "confidence",
+            "keywords",
+        ]
+        info = ensure_dual_csv(
+            repo,
+            logf,
+            items_rel="script/csv/insights.csv",
+            guides_rel="script/csv/guides.csv",
+            item_headers=insight_headers,
+            guide_headers=GUIDE_HEADERS,
+            item_seeds=[],
+            guide_seeds=DEFAULT_GUIDE_SEEDS,
+            item_col="id",
+            expand_coords=[],
+        )
+    else:
+        return {"ok": False, "error": f"no CSV expand for {site_id}"}
+
+    with open(log_path, "a", encoding="utf-8") as lf:
+        lf.write(f"\n[{datetime.now():%F %T}] CSV expand (manual)\n")
+        for line in messages:
+            lf.write(line + "\n")
+
+    return {"ok": True, "site_id": site_id, "messages": messages, **info}
+
+
 CONTENT_PIPELINES: dict[str, dict[str, str]] = {
-    "okcafejp": {"label": "OK Cafe JP", "description": "카페 · 가이드 AI + build"},
-    "oksushi": {"label": "OK Sushi", "description": "스시 · 가이드 AI + build"},
     "okramen": {"label": "OK Ramen", "description": "라멘 · 가이드 AI + build"},
     "okonsen": {"label": "OK Onsen", "description": "온천 · 가이드 AI + build"},
     "okcaddie": {"label": "OK Caddie", "description": "골프 · 가이드 AI + build"},
-    "starful.biz": {"label": "Starful Biz", "description": "포지션 가이드 MD + build"},
+    "okstats": {"label": "StatFacts", "description": "인사이트 · 가이드 AI + 이미지 · build · GCS"},
+    "starful.biz": {"label": "Starful Biz", "description": "포지션 가이드 · 이미지 · build · GCS"},
     "hatena": {"label": "Hatena · okpy", "description": "Python / Cloud 포스트"},
     "jpcampus": {"label": "JP Campus", "description": "가이드 · 한국어 · featured · build"},
+    "krcampus": {"label": "KR Campus", "description": "韓国留学 · 가이드 · 어학원/대학 · EN/JA · build"},
 }

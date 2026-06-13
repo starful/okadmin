@@ -2,12 +2,14 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
+    <meta name="color-scheme" content="dark">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Work Hub{% endblock %} · OK Admin</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400&family=Syne:wght@700;800&display=swap');
         :root { --bg: #0a0a0a; --surf: #121212; --border: #222; --accent: #e8ff47; --text: #eee; --muted: #777; }
+        html, body { background: #0a0a0a; color: #eee; }
         * { box-sizing: border-box; }
-        body { background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
         nav { width: 220px; border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
         .logo-area { font-size: 18px; font-weight: 800; margin-bottom: 20px; }
         .logo-area span { color: var(--accent); font-size: 9px; border: 1px solid var(--accent); padding: 2px 5px; margin-left: 8px; }
@@ -24,7 +26,7 @@
         .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
         .btn-danger { background: #c44; color: #fff; }
         .card { background: var(--surf); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
-        .mono { font-family: 'DM Mono', monospace; font-size: 11px; }
+        .mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; }
         input, select, textarea { background: #000; border: 1px solid var(--border); color: #fff; padding: 9px 12px; border-radius: 8px; width: 100%; font-size: 13px; }
         label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; }
         .form-row { margin-bottom: 12px; }
@@ -42,9 +44,8 @@
         <div class="logo-area">OK Admin <span>WORK HUB</span></div>
         <div class="nav-section">HUB</div>
         <a href="{{ url_for('pages.dashboard') }}" class="{% if active == 'dashboard' %}active{% endif %}">대시보드</a>
+        <a href="{{ url_for('pages.analytics_page') }}" class="{% if active == 'analytics' %}active{% endif %}">분석</a>
         <a href="{{ url_for('pages.schedule_page') }}" class="{% if active == 'schedule' %}active{% endif %}">달력</a>
-        <a href="{{ url_for('pages.ops_page') }}" class="{% if active == 'ops' %}active{% endif %}">운영 · 콘텐츠</a>
-        <a href="{{ url_for('pages.oktemplate_page') }}" class="{% if active == 'oktemplate' %}active{% endif %}">새 OK 사이트</a>
         <a href="{{ url_for('pages.gsc_page') }}" class="{% if active == 'gsc' %}active{% endif %}">GSC</a>
         <div class="nav-section">ASSETS</div>
         <a href="{{ url_for('pages.images_page') }}" class="{% if active == 'images' %}active{% endif %}">GCS 이미지</a>

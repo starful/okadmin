@@ -37,8 +37,17 @@
     .limits-table td:first-child { color: #888; width: 52px; }
     .limits-table td:nth-child(2) { color: var(--accent); }
     .limits-table td:nth-child(3) { color: #555; font-size: 9px; padding-left: 6px; }
+    .backlog-box {
+        font-family: 'DM Mono'; font-size: 10px; color: #aaa; margin: 0;
+        padding: 8px 0 4px; border-top: 1px solid var(--border); line-height: 1.5;
+    }
+    .backlog-box .summary { color: var(--accent); margin: 0; }
+    .backlog-box .meta { color: #555; font-size: 9px; margin: 0; }
+    .ops-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+    .card-actions-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .card-actions-row .btn { flex: 1; min-width: 88px; font-size: 10px; padding: 6px 8px; }
     .pipeline-card .actions { margin-top: auto; }
-    .pipeline-card .btn { width: 100%; }
+    .pipeline-card .actions .btn-primary { width: 100%; }
     .result-panel { margin-top: 24px; }
     .result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
     .result-head h2 { margin: 0; font-size: 15px; }
@@ -77,9 +86,8 @@
 {% block content %}
 <h1>운영 · 콘텐츠</h1>
 <p class="ops-intro">
-    사이트별 원클릭 생성입니다. 기본 상한: <strong>가이드 3토픽(최대 6 MD)</strong> · <strong>아이템 6건( en+ko 최대 12 MD)</strong>.
-    이미 있는 MD/포스트는 건너뜁니다. 생성·빌드 성공 후 <strong>deploy.sh</strong>로 git push + Cloud Build까지 실행합니다 (Hatena 제외).
-    <code>CONTENT_PIPELINE_WITH_DEPLOY=0</code>이면 배포만 생략합니다.
+    사이트별 원클릭 생성입니다. <strong>건수 새로고침</strong>으로 CSV 대비 남은 MD·이미지 건수를 확인합니다.
+    기본 상한: <strong>가이드 3토픽</strong> · <strong>아이템 6쌍</strong>. 생성·빌드 성공 후 deploy.sh로 배포합니다 (Hatena 제외).
 </p>
 {% if not work_root_ok %}
 <div class="warn">WORK_ROOT(/opt/work) 없음 — 로컬 Mac에서만 실행 가능합니다.</div>
@@ -98,9 +106,12 @@
             </tr>
             {% endfor %}
         </table>
-        <p class="hint" style="margin-top:10px;margin-bottom:0">okcafejp 등은 수동 · 원클릭 생성</p>
+        <p class="hint" style="margin-top:10px;margin-bottom:0">deploy.sh 없는 사이트는 수동 · 원클릭 생성</p>
     </aside>
     <div class="ops-main">
+        <div class="ops-toolbar">
+            <button type="button" class="btn btn-ghost" id="btn-refresh-all-backlog" onclick="refreshBacklog()">전체 건수 새로고침</button>
+        </div>
         <div id="pipeline-grid" class="pipeline-grid"></div>
     </div>
 </div>
@@ -129,6 +140,7 @@
 <script>
 let activePipelineSite = '';
 let pipelinePoll = null;
+let backlogBootstrapDone = false;
 
 function esc(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
@@ -153,6 +165,38 @@ function limitsHtml(parts) {
         </tr>`).join('') + '</tbody></table>';
 }
 
+function remainingText(b) {
+    const bl = b.backlog || {};
+    const bits = [];
+    if (bl.items_pairs) bits.push(`아이템 ${bl.items_pairs}`);
+    if (bl.guides_topics) bits.push(`가이드 ${bl.guides_topics}`);
+    if (bl.guides_md) bits.push(`가이드 ${bl.guides_md}`);
+    if (bl.korean_files) bits.push(`한국어 ${bl.korean_files}`);
+    if (bl.images) bits.push(`이미지 ${bl.images}`);
+    return bits.length ? bits.join(' · ') : '없음';
+}
+
+function backlogHtml(p) {
+    const b = p.backlog;
+    const actions = (refreshBtn, expandBtn) => `<div class="card-actions-row">${refreshBtn}${expandBtn || ''}</div>`;
+    const refreshBtn = (siteId, disabled) =>
+        `<button type="button" class="btn btn-ghost" onclick="refreshBacklog('${esc(siteId)}')" ${disabled ? 'disabled' : ''}>건수 새로고침</button>`;
+    if (!b) {
+        return `<div class="backlog-box">
+            <p class="summary">남은 건수: —</p>
+            ${actions(refreshBtn(p.site_id, false), '')}
+        </div>`;
+    }
+    const exp = b.csv_expand || {};
+    const expandBtn = (exp.items_expandable || exp.guides_expandable)
+        ? `<button type="button" class="btn btn-ghost" onclick="expandCsv('${esc(p.site_id)}')" ${p.running ? 'disabled' : ''}>CSV 추가</button>`
+        : '';
+    return `<div class="backlog-box">
+        <p class="summary">남은 건수: ${esc(remainingText(b))}</p>
+        ${actions(refreshBtn(p.site_id, p.running), expandBtn)}
+    </div>`;
+}
+
 function cardClass(p) {
     if (p.running) return 'running';
     if (activePipelineSite === p.site_id && p.last_ok === true) return 'done-ok';
@@ -163,14 +207,19 @@ function cardClass(p) {
 async function loadPipelines() {
     const res = await fetch('/api/content/pipelines');
     const items = await res.json();
+    if (!backlogBootstrapDone && items.some(p => !p.backlog)) {
+        backlogBootstrapDone = true;
+        bootstrapBacklog();
+    }
     document.getElementById('pipeline-grid').innerHTML = items.map(p => `
         <article class="pipeline-card ${cardClass(p)}" data-site="${esc(p.site_id)}">
             <h3>${esc(p.label)}</h3>
             <p class="tagline">${esc(p.description || '')}</p>
             ${limitsHtml(p.limits)}
+            ${backlogHtml(p)}
             ${lastRunHtml(p)}
             <div class="actions">
-                <button type="button" class="btn" ${p.available && !p.running ? '' : 'disabled'}
+                <button type="button" class="btn btn-primary" ${p.available && !p.running ? '' : 'disabled'}
                     onclick="runPipeline('${esc(p.site_id)}', '${esc(p.label)}')">
                     ${p.running ? (p.phase === 'deploy' ? '② 배포 중…' : '① 생성 중…') : '콘텐츠 생성'}
                 </button>
@@ -316,6 +365,45 @@ async function pollActivePipeline() {
 
     if (d.ok) showToast(siteId + ' 완료');
     else if (d.ok === false) showToast(siteId + ' 실패');
+}
+
+async function refreshBacklog(siteId, { silent = false } = {}) {
+    const btn = document.getElementById('btn-refresh-all-backlog');
+    if (!siteId && btn) btn.disabled = true;
+    const res = await fetch('/api/content/pipeline/backlog/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(siteId ? { site_id: siteId } : {}),
+    });
+    const d = await res.json();
+    if (!siteId && btn) btn.disabled = false;
+    if (!res.ok) {
+        if (!silent) showToast(d.error || '건수 새로고침 실패');
+        return false;
+    }
+    if (!silent) showToast(siteId ? '건수 갱신됨' : '전체 건수 갱신됨');
+    await loadPipelines();
+    return true;
+}
+
+async function bootstrapBacklog() {
+    await refreshBacklog(null, { silent: true });
+}
+
+async function expandCsv(siteId) {
+    if (!confirm('CSV에 시드/확장 행을 추가합니다. 계속할까요?')) return;
+    const res = await fetch('/api/content/pipeline/csv-expand', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ site_id: siteId }),
+    });
+    const d = await res.json();
+    if (!res.ok) {
+        showToast(d.error || 'CSV 갱신 실패');
+        return;
+    }
+    showToast('CSV 추가 완료');
+    loadPipelines();
 }
 
 loadPipelines();

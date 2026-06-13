@@ -66,7 +66,7 @@ AUTO_REGISTER_BY_WEEKDAY: dict[int, tuple[str, str]] = {
     0: ("okramen", "okramen"),
     1: ("okonsen", "okonsen"),
     2: ("okcaddie", "okcaddie"),
-    3: ("oksushi", "oksushi"),
+    3: ("okstats", "StatFacts"),
     4: ("starful.biz", "starful.biz"),
     5: ("jpcampus", "jpcampus"),
     6: ("hatena", "hatena"),
@@ -146,6 +146,10 @@ def seed_auto_register_range(
                 data = doc.to_dict() or {}
                 if data.get("seed_key") == seed_key:
                     doc.reference.delete()
+
+        if d.weekday() not in AUTO_REGISTER_BY_WEEKDAY:
+            d += timedelta(days=1)
+            continue
 
         site_id, _label = AUTO_REGISTER_BY_WEEKDAY[d.weekday()]
         run = log_status.get(iso_day, "planned")

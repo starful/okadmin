@@ -40,7 +40,7 @@ AUTO_REGISTER_SCHEDULE = [
     ("Mon", "okramen"),
     ("Tue", "okonsen"),
     ("Wed", "okcaddie"),
-    ("Thu", "oksushi"),
+    ("Thu", "StatFacts"),
     ("Fri", "starful.biz"),
     ("Sat", "jpcampus"),
     ("Sun", "hatena · okpy.net"),
@@ -51,7 +51,7 @@ def _schedule_project_id(proj: str) -> str:
 
 
 def auto_register_projects() -> list[dict[str, str]]:
-    """Selectable services: weekday schedule + git sites with deploy.sh (e.g. okcafejp)."""
+    """Selectable services: weekday schedule + git sites with deploy.sh."""
     items: list[dict[str, str]] = []
     seen: set[str] = set()
     for day, proj in AUTO_REGISTER_SCHEDULE:
@@ -80,16 +80,14 @@ def auto_register_project_ids() -> list[str]:
 # 예전 GCal 서브캘린더 색과 동일 계열
 SITE_COLORS: dict[str, str] = {
     "jpcampus": "#33b679",
+    "krcampus": "#c8102e",
     "hatena": "#f4511e",
     "okadmin": "#9e9e9e",
     "okcaddie": "#039be5",
-    "okcafejp": "#8e24aa",
     "okonsen": "#e67c73",
     "okramen": "#f6bf26",
-    "oksushi": "#0b8043",
-    "oktemplate": "#3f51b5",
     "starful.biz": "#7986cb",
-    "starful.net": "#d50000",
+    "okstats": "#2563eb",
 }
 
 EVENT_KINDS = ["todo", "auto_register", "git_push", "gsc", "manual", "deploy", "content", "other"]
@@ -115,8 +113,7 @@ GCS_IMAGE_SITE_ORDER = (
     "okonsen",
     "okramen",
     "okcaddie",
-    "oksushi",
-    "okcafejp",
+    "okstats",
     "starful_biz",
 )
 DEFAULT_GCS_IMAGE_SITE = "okonsen"
@@ -246,20 +243,6 @@ CONTENT_JOBS: dict[str, list[dict[str, str]]] = {
 
 # CSV 편집 (콘텐츠 페이지) — repo 상대 경로
 CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
-    "okcafejp": [
-        {
-            "id": "items",
-            "label": "items.csv · 카페 시드",
-            "rel_path": "script/csv/items.csv",
-            "headers": ["Name", "Lat", "Lng", "Address", "Features", "Agoda"],
-        },
-        {
-            "id": "guides",
-            "label": "guides.csv · 가이드 토픽",
-            "rel_path": "script/csv/guides.csv",
-            "headers": ["id", "topic_en", "topic_ko", "keywords"],
-        },
-    ],
     "hatena": [
         {
             "id": "python",
@@ -322,20 +305,6 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
             "headers": ["id", "topic_en", "topic_ko", "keywords"],
         },
     ],
-    "oksushi": [
-        {
-            "id": "items",
-            "label": "items.csv",
-            "rel_path": "script/csv/items.csv",
-            "headers": ["Name", "Lat", "Lng", "Address", "Features", "Agoda"],
-        },
-        {
-            "id": "guides",
-            "label": "guides.csv",
-            "rel_path": "script/csv/guides.csv",
-            "headers": ["id", "topic_en", "topic_ko", "keywords"],
-        },
-    ],
     "starful.biz": [
         {
             "id": "positions",
@@ -350,6 +319,51 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
             "label": "guide_topics.csv",
             "rel_path": "data/guide_topics.csv",
             "headers": ["slug", "category", "title", "description", "prompt"],
+        },
+    ],
+    "krcampus": [
+        {
+            "id": "guide_topics",
+            "label": "guide_topics.csv",
+            "rel_path": "data/guide_topics.csv",
+            "headers": ["slug", "category", "title", "description", "prompt"],
+        },
+        {
+            "id": "language_schools",
+            "label": "language_schools.csv",
+            "rel_path": "data/language_schools.csv",
+            "headers": ["name_ko", "name_en", "region", "city"],
+        },
+        {
+            "id": "universities",
+            "label": "universities.csv",
+            "rel_path": "data/universities.csv",
+            "headers": ["name_ko", "name_en", "region"],
+        },
+    ],
+    "okstats": [
+        {
+            "id": "insights",
+            "label": "insights.csv",
+            "rel_path": "script/csv/insights.csv",
+            "headers": [
+                "id",
+                "topic",
+                "intervention",
+                "outcome",
+                "effect_min",
+                "effect_max",
+                "effect_unit",
+                "categories",
+                "confidence",
+                "keywords",
+            ],
+        },
+        {
+            "id": "guides",
+            "label": "guides.csv",
+            "rel_path": "script/csv/guides.csv",
+            "headers": ["id", "topic_en", "topic_ko", "keywords"],
         },
     ],
 }

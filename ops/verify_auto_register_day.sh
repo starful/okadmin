@@ -30,7 +30,7 @@ project_for_weekday() {
         1) echo "okramen" ;;
         2) echo "okonsen" ;;
         3) echo "okcaddie" ;;
-        4) echo "oksushi" ;;
+        4) echo "okstats" ;;
         5) echo "starful.biz" ;;
         6) echo "jpcampus" ;;
         7) echo "hatena (cloud + py)" ;;

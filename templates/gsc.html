@@ -2,7 +2,7 @@
 {% block title %}GSC{% endblock %}
 {% block head %}
 <style>
-    .two-col { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+    .two-col { display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: start; }
     table.gsc { width: 100%; border-collapse: collapse; font-family: 'DM Mono'; font-size: 11px; }
     table.gsc th, table.gsc td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
     table.gsc th { color: #888; }
@@ -21,16 +21,71 @@
     .badge-ok { color: #8f8; }
     .badge-warn { color: #fa0; }
     .badge-err { color: #f88; }
-    .loading { opacity: .5; pointer-events: none; }
+    .loading { opacity: .5; }
+    #gsc-panels.loading { pointer-events: none; }
+    .site-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .nav-form { display: inline; margin: 0; padding: 0; }
+    .site-btn {
+        display: inline-block; padding: 8px 14px; border-radius: 8px;
+        border: 1px solid var(--border); background: #000; color: #aaa;
+        font-weight: 700; font-size: 12px; cursor: pointer;
+        font-family: 'Syne', sans-serif;
+    }
+    .site-btn:hover { color: #fff; border-color: #444; }
+    .site-btn.active { color: #000; border-color: transparent; background: var(--accent); }
+    .current-pick { font-family: 'DM Mono'; font-size: 11px; color: var(--accent); margin: 0 0 12px; }
+    .gsc-load-bar .btn:disabled { opacity: .45; cursor: wait; }
+    #gsc-toolbar { position: relative; z-index: 50; margin-bottom: 20px; }
+    #apply-files-wrap input[type=checkbox] { width: auto; flex-shrink: 0; }
+    #apply-files-wrap > span { flex: 1; min-width: 0; line-height: 1.45; }
+    #apply-files-hint { word-break: keep-all; overflow-wrap: break-word; }
     .url-list-wrap { max-height: 420px; overflow: auto; margin-top: 8px; }
     .url-list-wrap a { color: var(--accent); text-decoration: none; }
     .url-list-wrap a:hover { text-decoration: underline; }
     .url-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
     .url-toolbar .btn { padding: 5px 10px; font-size: 10px; }
+    .pattern-block { margin-bottom: 20px; }
+    .pattern-block h4 { margin: 0 0 6px; font-size: 12px; color: var(--accent); }
+    .pattern-block .pattern-desc { font-family: 'DM Mono'; font-size: 10px; color: #666; margin: 0 0 8px; }
+    .pattern-block.pattern-dimmed { opacity: 0.4; }
+    .pattern-block.pattern-active { border-left: 2px solid var(--accent); padding-left: 10px; margin-left: -12px; }
+    tr.pattern-inactive { opacity: 0.35; }
+    .pattern-mode-bar {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
+        margin-bottom: 14px; padding: 10px 12px; background: #000;
+        border: 1px solid var(--border); border-radius: 8px;
+    }
+    .pattern-mode-opt {
+        font-family: 'DM Mono'; font-size: 11px; color: #aaa;
+        display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    }
+    .pattern-mode-opt input { width: auto; accent-color: var(--accent); }
+    #gsc-ui-version { font-size: 9px; color: #444; margin-left: auto; }
     table.gsc input[type=checkbox] { width: auto; accent-color: var(--accent); }
-    .hub-git-actions { display: flex; gap: 8px; margin-top: 12px; }
-    .hub-git-actions .btn { flex: 1; padding: 8px 10px; font-size: 11px; }
-    .hub-git-actions .btn:disabled { opacity: .4; }
+    .badge-deleted { color: #f88; font-weight: 700; }
+    .gsc-action-bar {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 12px;
+        margin: 0 0 14px;
+        padding: 12px 14px;
+        background: var(--surf);
+        border: 1px solid var(--accent);
+        border-radius: 10px;
+        box-shadow: 0 4px 24px rgba(0,0,0,.45);
+    }
+    .gsc-action-bar .btn { padding: 8px 14px; font-size: 11px; }
+    .gsc-action-bar .btn-danger { background: #522; border-color: #a44; color: #faa; }
+    .gsc-action-bar .btn-danger:hover { background: #733; color: #fff; }
+    .gsc-action-bar .action-meta { font-family: 'DM Mono'; font-size: 10px; color: #888; flex: 1; min-width: 140px; }
+    .gsc-action-bar .hub-git-actions { margin: 0; flex: 0 0 auto; }
+    .gsc-action-bar .hub-git-actions .btn { min-width: 64px; }
+    tr.row-deleted { opacity: 0.55; }
+    tr.row-deleted td { color: #888; }
     #gsc-ops-status {
         display: none; margin-top: 10px; padding: 10px;
         background: #000; border: 1px solid var(--border); border-radius: 8px;
@@ -43,37 +98,48 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 {% endblock %}
 {% block content %}
-<!-- gsc-ui-v5: GA4/GSC 수동 불러오기 · 표 체크 URL만 SEO -->
+<!-- gsc-ui-v12: URL history, file delete, action bar on URL panel -->
 <h1>GSC 분석</h1>
-<p class="sub">사이트 선택 → 분석 불러오기 → URL 체크 → SEO 작업 · Push/Deploy는 수동</p>
-<div class="card gsc-load-bar" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
-    <span class="mono" style="color:#888;font-size:11px">선택한 사이트의 GA4·GSC·저CTR URL (API 호출 · 수십 초 소요 가능)</span>
-    <button type="button" class="btn" id="btn-load-gsc-dashboard">GSC 분석 불러오기</button>
+<p class="sub">사이트 선택 → 분석 불러오기 → URL 선택 → SEO 또는 파일 삭제 · Push/Deploy는 수동</p>
+
+<div id="gsc-toolbar">
+    <p class="current-pick">선택: <strong>{{ current_site_label or '—' }}</strong></p>
+    <div class="site-bar">
+        {% if gsc_sites %}
+            {% for s in gsc_sites %}
+            <form class="nav-form" method="get" action="{{ url_for('pages.gsc_page') }}">
+                <input type="hidden" name="site" value="{{ s.id }}">
+                <button type="submit"
+                    class="site-btn{% if s.id == current_site %} active{% endif %}"
+                    {% if s.id == current_site and site_colors.get(s.id) %}style="background:{{ site_colors[s.id] }};border-color:transparent;color:#000"{% endif %}>
+                    {{ s.label }}
+                </button>
+            </form>
+            {% endfor %}
+        {% else %}
+            <span class="mono" style="color:#f88">sites.yaml에 사이트 없음</span>
+        {% endif %}
+    </div>
+    <div class="card gsc-load-bar" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:12px 0 0">
+        <span class="mono" style="color:#888;font-size:11px">선택한 사이트의 GA4·GSC·패턴별 URL (API 호출 · 수십 초 소요 가능)</span>
+        <button type="button" class="btn" id="btn-load-gsc-dashboard">GSC 분석 불러오기</button>
+    </div>
+    <p class="mono" style="color:#666;font-size:10px;margin:8px 0 0">GSC: {{ gsc_hint }} · GA4: {{ ga4_hint }}</p>
 </div>
+
 <div class="two-col" id="gsc-root">
     <div class="card">
-        <label>사이트</label>
-        <select id="site-id" onchange="onSiteChange()" aria-label="사이트"></select>
         <p class="site-last-run" id="site-last-run">마지막 실행: —</p>
-        <p class="meta" id="selected-count" style="margin-top:12px">선택 0건 (최대 20)</p>
-        <label class="mono" style="display:flex;align-items:center;gap:6px;margin:12px 0">
-            <input type="checkbox" id="apply-files" checked> MD 파일에 반영 (가능한 경우)
-        </label>
-        <button class="btn" type="button" style="width:100%" id="run-btn" onclick="runSeo()">SEO 작업 실행 (선택 URL)</button>
-        <div class="hub-git-actions">
-            <button type="button" class="btn" id="gsc-push-btn" disabled title="Git push">Push</button>
-            <button type="button" class="btn btn-ghost" id="gsc-deploy-btn" disabled title="deploy.sh">Deploy</button>
-        </div>
-        <p class="mono" style="color:#666;font-size:10px;margin-top:6px">Push/Deploy는 수동 · 아래에 성공/실패 표시</p>
-        <div id="gsc-ops-status"></div>
         <p class="meta" id="gsc-count" style="margin-top:12px">—</p>
         <p class="mono" id="api-hint" style="color:#666;margin-top:8px"></p>
         <p class="mono" id="gemini-hint" style="margin-top:6px"></p>
+        <p class="meta" id="push-commit-hint" style="display:none;margin:8px 0 0;color:#888"></p>
+        <div id="gsc-ops-status"></div>
         <p class="mono" style="margin-top:8px">
             <a href="/oauth/gsc/setup" style="color:var(--accent)">API 설정</a>
         </p>
     </div>
-    <div>
+    <div id="gsc-panels">
         <div class="analytics-grid">
             <div class="card" id="panel-ga4">
                 <h3 style="margin-top:0">GA4 · 28일</h3>
@@ -98,9 +164,57 @@
             </div>
         </div>
         <div class="card" id="panel-urls">
-            <h3 style="margin-top:0">GSC · 저CTR · 고노출 URL</h3>
-            <p class="meta" id="url-list-meta">분석 불러오기 후 표시 (노출≥10, CTR≤3%)</p>
-            <div class="url-list-wrap" id="low-ctr-list"><p class="mono" style="color:#666">분석 불러오기 후 표시</p></div>
+            <h3 style="margin-top:0">GSC · 패턴별 URL</h3>
+            <p class="meta" id="url-patterns-summary">분석 불러오기 후 표시 · 한 번에 한 패턴만 선택</p>
+            <div class="gsc-action-bar" id="gsc-action-bar">
+                <span class="action-meta" id="selected-count">선택 0건 (최대 20)</span>
+                <label class="mono" id="apply-files-wrap" style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:10px;color:#aaa">
+                    <input type="checkbox" id="apply-files" checked disabled>
+                    <span id="apply-files-label">MD 반영</span>
+                </label>
+                <button class="btn" type="button" id="run-btn" onclick="runSeo()">SEO 실행</button>
+                <button class="btn btn-danger" type="button" id="delete-files-btn" onclick="deleteSelectedFiles()">파일 삭제</button>
+                <div class="hub-git-actions">
+                    <button type="button" class="btn" id="gsc-push-btn" disabled title="Git push">Push</button>
+                    <button type="button" class="btn btn-ghost" id="gsc-deploy-btn" disabled title="deploy.sh">Deploy</button>
+                </div>
+            </div>
+            <div class="pattern-mode-bar" id="pattern-mode-bar" style="display:none">
+                <span class="mono" style="color:#888;font-size:10px">SEO 대상 패턴</span>
+                <label class="pattern-mode-opt">
+                    <input type="radio" name="pattern-mode" value="low_ctr" checked> 저CTR · 고노출
+                </label>
+                <label class="pattern-mode-opt">
+                    <input type="radio" name="pattern-mode" value="low_impression"> 저노출 · 상향
+                </label>
+                <span id="gsc-ui-version" class="mono">UI v12</span>
+            </div>
+            <div class="pattern-block" id="block-low-ctr" data-pattern="low_ctr">
+                <h4>저CTR · 고노출</h4>
+                <p class="pattern-desc">노출≥10 · CTR≤3% · 클릭률 개선</p>
+                <p class="meta" id="url-list-meta-low-ctr">—</p>
+                <div class="url-toolbar">
+                    <button type="button" class="btn btn-ghost btn-pattern-select" data-pattern="low_ctr" data-limit="5">상위 5개</button>
+                    <button type="button" class="btn btn-ghost btn-pattern-select" data-pattern="low_ctr" data-limit="20">최대 20개</button>
+                </div>
+                <div class="url-list-wrap" id="low-ctr-list"><p class="mono" style="color:#666">분석 불러오기 후 표시</p></div>
+            </div>
+            <div class="pattern-block" id="block-low-impression" data-pattern="low_impression">
+                <h4>저노출 · 상향</h4>
+                <p class="pattern-desc">노출 1~9 · 검색 노출·순위 개선</p>
+                <p class="meta" id="url-list-meta-low-impression">—</p>
+                <div class="url-toolbar">
+                    <button type="button" class="btn btn-ghost btn-pattern-select" data-pattern="low_impression" data-limit="5">상위 5개</button>
+                    <button type="button" class="btn btn-ghost btn-pattern-select" data-pattern="low_impression" data-limit="20">최대 20개</button>
+                </div>
+                <div class="url-list-wrap" id="low-impression-list"><p class="mono" style="color:#666">분석 불러오기 후 표시</p></div>
+            </div>
+            <div class="url-toolbar" style="margin-top:8px">
+                <label class="pattern-mode-opt">
+                    <input type="checkbox" id="filter-md-only" checked> MD 있는 URL만 표시
+                </label>
+                <button type="button" class="btn btn-ghost" id="clear-urls">선택 해제</button>
+            </div>
         </div>
         <div class="card" id="panel-results">
             <h3 style="margin-top:0">작업 결과</h3>
@@ -112,11 +226,45 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let sites = [], ga4Chart = null, gscChart = null, dashboard = null, currentLowCtr = [];
-let dashboardSeq = 0, seoInFlight = false;
+let sites = {{ gsc_sites | tojson }};
+let currentSiteId = {{ current_site | tojson }};
+let ga4Chart = null, gscChart = null, dashboard = null;
+let currentLowCtr = [], currentLowImpression = [];
 let selectedUrls = new Set();
+let dashboardSeq = 0, seoInFlight = false;
+let showMdOnly = true;
+let urlHistory = {};
 const GSC_RESULTS_KEY = 'okadmin_gsc_last_results';
 const MAX_SELECT = 20;
+
+function mergeUrlHistoryFromDashboard(d) {
+    urlHistory = (d && d.url_history) ? { ...d.url_history } : urlHistory;
+}
+
+function urlHistFor(url) {
+    return urlHistory[url] || {};
+}
+
+function historyCell(r) {
+    const url = r.label || r.page || '';
+    const h = r.url_history || urlHistFor(url);
+    if (h.is_deleted) {
+        const when = h.deleted_display || h.deleted_at || '';
+        return `<span class="badge-deleted">삭제됨</span>${when ? '<br><span style="color:#666;font-size:9px">' + escapeHtml(when) + '</span>' : ''}`;
+    }
+    const n = h.seo_count || 0;
+    if (!n) return '<span style="color:#555">—</span>';
+    const when = h.last_seo_display || '';
+    return `<span class="badge-ok">SEO ${n}회</span>${when ? '<br><span style="color:#666;font-size:9px">' + escapeHtml(when) + '</span>' : ''}`;
+}
+
+function statusCell(r) {
+    const url = r.label || r.page || '';
+    const h = r.url_history || urlHistFor(url);
+    if (h.is_deleted || r.is_deleted) return '<span class="badge-deleted">삭제됨</span>';
+    if (r.has_md) return '<span class="badge-ok">MD</span>';
+    return '<span class="badge-err">—</span>';
+}
 
 function mergeLastRuns(site, runs) {
     if (!site || !runs) return;
@@ -159,40 +307,33 @@ function renderSiteLastRun() {
     }
 }
 
-async function loadSites() {
-    const res = await fetch('/api/gsc/sites');
-    sites = await res.json();
-    const sel = document.getElementById('site-id');
-    sel.innerHTML = sites.map(s => {
-        const label = s.label || s.id;
-        const id = s.id || '';
-        const text = id && label !== id ? `${label} (${id})` : label;
-        return `<option value="${escapeHtml(id)}">${escapeHtml(text)}</option>`;
-    }).join('');
-    const saved = sessionStorage.getItem('okadmin_gsc_site');
-    if (saved && sites.some(s => s.id === saved)) sel.value = saved;
-    sessionStorage.removeItem('okadmin_gsc_site');
-    onSiteChange();
+function getSiteId() {
+    return currentSiteId;
 }
 
-function resetDashboardIdle() {
-    dashboard = null;
-    currentLowCtr = [];
-    document.getElementById('ga4-meta').textContent = '「GSC 분석 불러오기」 클릭';
-    document.getElementById('gsc-meta').textContent = '「GSC 분석 불러오기」 클릭';
-    document.getElementById('gsc-count').textContent = '—';
-    document.getElementById('low-ctr-list').innerHTML = '<p class="mono" style="color:#666">분석 불러오기 후 표시</p>';
-    document.getElementById('url-list-meta').textContent = '분석 불러오기 후 표시 (노출≥10, CTR≤3%)';
-    ['m-sessions', 'm-users', 'm-pageviews', 'g-clicks', 'g-impressions', 'g-ctr', 'g-position'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = '—';
-    });
-    if (ga4Chart) { ga4Chart.destroy(); ga4Chart = null; }
-    if (gscChart) { gscChart.destroy(); gscChart = null; }
+function initGscPage() {
+    const saved = sessionStorage.getItem('okadmin_gsc_site');
+    if (saved && sites.some(s => s.id === saved) && saved !== currentSiteId) {
+        sessionStorage.removeItem('okadmin_gsc_site');
+        window.location.href = {{ url_for('pages.gsc_page') | tojson }} + '?site=' + encodeURIComponent(saved);
+        return;
+    }
+    sessionStorage.removeItem('okadmin_gsc_site');
+    const s = currentSiteMeta();
+    document.getElementById('api-hint').textContent =
+        `GSC: ${s?.analytics?.gsc_site_url || '—'} · GA4: ${s?.analytics?.ga4_property_id || '(미설정)'}`;
+    renderSiteLastRun();
+    updateGitButtons();
+    resetDashboardIdle();
+    restoreLastResults();
 }
 
 async function loadDashboard(clearResults) {
-    const site_id = document.getElementById('site-id').value;
+    const site_id = getSiteId();
+    if (!site_id) {
+        showToast('사이트를 선택하세요');
+        return;
+    }
     const seq = ++dashboardSeq;
     const s = sites.find(x => x.id === site_id);
     document.getElementById('api-hint').textContent =
@@ -200,13 +341,15 @@ async function loadDashboard(clearResults) {
     if (clearResults && !seoInFlight) {
         document.getElementById('results').innerHTML = '';
         document.getElementById('results-meta').textContent = 'SEO 작업 실행 후 표시';
+        updatePushCommitHint(null);
         try { sessionStorage.removeItem(GSC_RESULTS_KEY); } catch (_) {}
     }
-    document.getElementById('gsc-root').classList.add('loading');
+    document.getElementById('gsc-panels').classList.add('loading');
     document.getElementById('ga4-meta').textContent = '로딩…';
     document.getElementById('gsc-meta').textContent = '로딩…';
     document.getElementById('gsc-count').textContent = '로딩…';
     document.getElementById('low-ctr-list').innerHTML = '<p class="mono" style="color:#666">로딩…</p>';
+    document.getElementById('low-impression-list').innerHTML = '<p class="mono" style="color:#666">로딩…</p>';
     try {
         const res = await fetch('/api/gsc/dashboard?site_id=' + encodeURIComponent(site_id));
         if (seq !== dashboardSeq) return;
@@ -219,37 +362,40 @@ async function loadDashboard(clearResults) {
         gh.style.color = dashboard.gemini_configured ? '#6a6' : '#c66';
         renderGa4(dashboard.ga4 || {});
         renderGsc(dashboard.gsc || {});
+        mergeUrlHistoryFromDashboard(dashboard);
         const idx = sites.findIndex(x => x.id === site_id);
         if (idx >= 0) mergeLastRuns(sites[idx], dashboard.last_runs);
         renderSiteLastRun();
     } catch (e) {
         showToast('로드 실패');
     } finally {
-        document.getElementById('gsc-root').classList.remove('loading');
+        document.getElementById('gsc-panels').classList.remove('loading');
     }
 }
 
-function onSiteChange() {
-    document.getElementById('gemini-hint').textContent = '';
-    selectedUrls = new Set();
-    updateSelectedCount();
-    updateGitButtons();
-    const site_id = document.getElementById('site-id').value;
-    const s = sites.find(x => x.id === site_id);
-    document.getElementById('api-hint').textContent =
-        `GSC: ${s?.analytics?.gsc_site_url || '—'} · GA4: ${s?.analytics?.ga4_property_id || '(미설정)'}`;
-    renderSiteLastRun();
-    if (!seoInFlight) {
-        document.getElementById('results').innerHTML = '';
-        document.getElementById('results-meta').textContent = 'SEO 작업 실행 후 표시';
-        try { sessionStorage.removeItem(GSC_RESULTS_KEY); } catch (_) {}
-    }
-    resetDashboardIdle();
+function resetDashboardIdle() {
+    dashboard = null;
+    currentLowCtr = [];
+    currentLowImpression = [];
+    document.getElementById('ga4-meta').textContent = '「GSC 분석 불러오기」 클릭';
+    document.getElementById('gsc-meta').textContent = '「GSC 분석 불러오기」 클릭';
+    document.getElementById('gsc-count').textContent = '—';
+    document.getElementById('pattern-mode-bar').style.display = 'none';
+    document.getElementById('url-patterns-summary').textContent = '분석 불러오기 후 표시 · 한 번에 한 패턴만 선택';
+    document.getElementById('low-ctr-list').innerHTML = '<p class="mono" style="color:#666">분석 불러오기 후 표시</p>';
+    document.getElementById('low-impression-list').innerHTML = '<p class="mono" style="color:#666">분석 불러오기 후 표시</p>';
+    document.getElementById('url-list-meta-low-ctr').textContent = '—';
+    document.getElementById('url-list-meta-low-impression').textContent = '—';
+    ['m-sessions', 'm-users', 'm-pageviews', 'g-clicks', 'g-impressions', 'g-ctr', 'g-position'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '—';
+    });
+    if (ga4Chart) { ga4Chart.destroy(); ga4Chart = null; }
+    if (gscChart) { gscChart.destroy(); gscChart = null; }
 }
 
 function currentSiteMeta() {
-    const site_id = document.getElementById('site-id').value;
-    return sites.find(x => x.id === site_id) || {};
+    return sites.find(x => x.id === getSiteId()) || {};
 }
 
 function updateGitButtons() {
@@ -263,17 +409,93 @@ function updateGitButtons() {
     deployBtn.title = s.has_deploy ? './deploy.sh --deploy-only' : 'deploy.sh 없음';
 }
 
+function getPatternMode() {
+    const el = document.querySelector('input[name="pattern-mode"]:checked');
+    return el ? el.value : 'low_ctr';
+}
+
 function updateSelectedCount() {
     const n = selectedUrls.size;
+    const pat = document.getElementById('pattern-mode-bar').style.display !== 'none'
+        ? ` · ${patternLabel(getPatternMode())}` : '';
     document.getElementById('selected-count').textContent =
-        `선택 ${n}건 (최대 ${MAX_SELECT})`;
+        `선택 ${n}건${pat} (최대 ${MAX_SELECT})`;
 }
 
 function getSelectedUrls() {
     return [...selectedUrls].slice(0, MAX_SELECT);
 }
 
-function toggleUrlSelection(url, checked) {
+function getSelectedPatterns() {
+    const pat = getPatternMode();
+    const out = {};
+    for (const url of selectedUrls) out[url] = pat;
+    return out;
+}
+
+function rowsForPattern(pattern) {
+    return pattern === 'low_impression' ? currentLowImpression : currentLowCtr;
+}
+
+function setPatternMode(pat) {
+    const radio = document.querySelector(`input[name="pattern-mode"][value="${pat}"]`);
+    if (radio) radio.checked = true;
+}
+
+function syncPatternPickers() {
+    const mode = getPatternMode();
+    document.querySelectorAll('.pattern-block[data-pattern]').forEach(block => {
+        const pat = block.dataset.pattern;
+        const isActive = pat === mode;
+        block.classList.toggle('pattern-dimmed', !isActive);
+        block.classList.toggle('pattern-active', isActive);
+    });
+    document.querySelectorAll('.url-pick').forEach(cb => {
+        const pat = cb.dataset.pattern;
+        const inactive = pat !== mode;
+        cb.disabled = inactive;
+        cb.checked = !inactive && selectedUrls.has(cb.value);
+        const tr = cb.closest('tr');
+        if (tr) tr.classList.toggle('pattern-inactive', inactive);
+    });
+    document.querySelectorAll('.btn-pattern-select').forEach(btn => {
+        btn.disabled = btn.dataset.pattern !== mode;
+    });
+}
+
+function onPatternModeChange() {
+    clearUrlSelection(false);
+    syncPatternPickers();
+    updateSelectedCount();
+    showToast(`SEO 대상: ${patternLabel(getPatternMode())}`);
+}
+
+function updatePushCommitHint(data) {
+    const el = document.getElementById('push-commit-hint');
+    if (!el) return;
+    const msg = data?.suggested_commit_message;
+    if (msg) {
+        el.style.display = 'block';
+        el.textContent = 'Push 커밋 초안: ' + msg;
+    } else {
+        el.style.display = 'none';
+        el.textContent = '';
+    }
+}
+
+function toggleUrlSelection(url, pattern, checked, hasMd = true, isDeleted = false) {
+    if (isDeleted) {
+        showToast('이미 삭제된 URL입니다');
+        return false;
+    }
+    if (pattern !== getPatternMode()) {
+        showToast('위에서 SEO 대상 패턴을 먼저 선택하세요');
+        return false;
+    }
+    if (checked && !hasMd) {
+        showToast('MD 없는 URL은 SEO 불가 (GSC에만 남은 예전 URL)');
+        return false;
+    }
     if (checked) {
         if (selectedUrls.size >= MAX_SELECT) {
             showToast(`최대 ${MAX_SELECT}개까지 선택`);
@@ -283,43 +505,64 @@ function toggleUrlSelection(url, checked) {
     } else {
         selectedUrls.delete(url);
     }
+    syncPatternPickers();
     updateSelectedCount();
     return true;
 }
 
-function selectAllUrls(limit) {
+function selectAllUrls(limit, pattern) {
+    const pat = pattern || getPatternMode();
+    setPatternMode(pat);
+    const rows = rowsForPattern(pat);
+    if (!rows.length) {
+        showToast('해당 패턴에 URL이 없습니다');
+        return;
+    }
     selectedUrls = new Set();
-    const rows = currentLowCtr.slice(0, limit || MAX_SELECT);
-    rows.forEach(r => {
+    const cap = Math.min(limit || MAX_SELECT, MAX_SELECT);
+    for (const r of rows) {
+        if (selectedUrls.size >= cap) break;
+        if (!r.has_md) continue;
         const u = r.label || r.page;
-        if (u) selectedUrls.add(u);
-    });
-    document.querySelectorAll('.url-pick').forEach(cb => {
-        cb.checked = selectedUrls.has(cb.value);
-    });
+        if (!u || urlHistFor(u).is_deleted) continue;
+        selectedUrls.add(u);
+    }
+    syncPatternPickers();
     updateSelectedCount();
 }
 
-function clearUrlSelection() {
+function clearUrlSelection(syncUi = true) {
     selectedUrls = new Set();
-    document.querySelectorAll('.url-pick').forEach(cb => { cb.checked = false; });
+    if (syncUi) syncPatternPickers();
     updateSelectedCount();
 }
 
 async function gscSiteAction(action) {
-    const site_id = document.getElementById('site-id').value;
+    const site_id = getSiteId();
     const btn = document.getElementById(action === 'push' ? 'gsc-push-btn' : 'gsc-deploy-btn');
     const statusEl = document.getElementById('gsc-ops-status');
     const label = btn.textContent;
     btn.disabled = true;
     btn.textContent = action === 'push' ? '푸시…' : '배포…';
     renderOpsStatus(statusEl, 'running', action === 'push' ? 'Push 진행 중…' : 'Deploy 시작 중…', '', '');
+    let body = {};
+    if (action === 'deploy') {
+        body = { mode: 'deploy-only' };
+    } else if (action === 'push') {
+        try {
+            const raw = sessionStorage.getItem(GSC_RESULTS_KEY);
+            const data = raw ? JSON.parse(raw) : null;
+            if (data?.suggested_commit_message) {
+                body = { message: data.suggested_commit_message };
+            }
+        } catch (_) {}
+    }
     try {
         const res = await fetch(`/api/sites/${encodeURIComponent(site_id)}/${action}`, {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(action === 'deploy' ? { mode: 'deploy-only' } : {}),
+            body: JSON.stringify(body),
         });
         const d = await res.json();
         if (!res.ok || d.error) {
@@ -381,33 +624,39 @@ function renderGa4(d) {
     });
 }
 
-function renderLowCtrList(rows) {
-    currentLowCtr = rows || [];
-    const el = document.getElementById('low-ctr-list');
-    const meta = document.getElementById('url-list-meta');
-    if (!rows?.length) {
+function renderUrlPatternList(listId, metaId, rows, pattern) {
+    const el = document.getElementById(listId);
+    const meta = document.getElementById(metaId);
+    const all = rows || [];
+    if (!all.length) {
         el.innerHTML = '<p class="mono" style="color:#666">해당 조건 URL 없음</p>';
-        meta.textContent = '분석 불러오기 후 표시 (노출≥10, CTR≤3%)';
-        selectedUrls = new Set();
-        updateSelectedCount();
+        meta.textContent = '0건';
         return;
     }
-    const show = rows.slice(0, 100);
-    meta.textContent = `총 ${rows.length}건 · 표시 ${show.length}건 · 체크한 URL만 SEO 작업`;
-    el.innerHTML = `<div class="url-toolbar">
-        <button type="button" class="btn btn-ghost" id="select-top5">상위 5개 선택</button>
-        <button type="button" class="btn btn-ghost" id="select-all-urls">최대 20개 선택</button>
-        <button type="button" class="btn btn-ghost" id="clear-urls">선택 해제</button>
-    </div>
-    <table class="gsc"><thead><tr>
-        <th></th><th>#</th><th>URL</th><th>노출</th><th>클릭</th><th>CTR</th><th>순위</th>
+    const missing = all.filter(r => !r.has_md).length;
+    const visible = showMdOnly ? all.filter(r => r.has_md) : all;
+    const show = visible.slice(0, 100);
+    const missNote = missing ? ` · MD 없음 ${missing}건(선택 불가)` : '';
+    meta.textContent = `총 ${all.length}건 · 표시 ${show.length}건${missNote}`;
+    if (!show.length) {
+        el.innerHTML = '<p class="mono" style="color:#666">MD 매칭 URL 없음 — 「MD 있는 URL만 표시」 해제 시 GSC 잔여 URL 확인</p>';
+        return;
+    }
+    el.innerHTML = `<table class="gsc"><thead><tr>
+        <th></th><th>#</th><th>상태</th><th>대응</th><th>URL</th><th>노출</th><th>클릭</th><th>CTR</th><th>순위</th>
     </tr></thead><tbody>` +
         show.map((r, i) => {
             const url = r.label || r.page || '';
+            const isDeleted = !!(r.is_deleted || (r.url_history || urlHistFor(url)).is_deleted);
+            const hasMd = !!r.has_md && !isDeleted;
             const checked = selectedUrls.has(url) ? 'checked' : '';
-            return `<tr>
-            <td><input type="checkbox" class="url-pick" value="${escapeHtml(url)}" ${checked}></td>
+            const dis = (hasMd && !isDeleted) ? '' : 'disabled';
+            const rowCls = isDeleted ? 'row-deleted' : (hasMd ? '' : 'pattern-inactive');
+            return `<tr class="${rowCls}">
+            <td><input type="checkbox" class="url-pick" data-pattern="${pattern}" data-has-md="${hasMd ? '1' : '0'}" data-deleted="${isDeleted ? '1' : '0'}" value="${escapeHtml(url)}" ${checked} ${dis}></td>
             <td>${i + 1}</td>
+            <td>${statusCell(r)}</td>
+            <td>${historyCell(r)}</td>
             <td><a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a></td>
             <td>${(r.impressions ?? 0).toLocaleString()}</td>
             <td>${r.clicks ?? 0}</td>
@@ -415,23 +664,42 @@ function renderLowCtrList(rows) {
             <td>${r.position != null ? Number(r.position).toFixed(1) : '—'}</td>
         </tr>`;
         }).join('') + '</tbody></table>';
-
-    document.getElementById('select-top5').onclick = () => selectAllUrls(5);
-    document.getElementById('select-all-urls').onclick = () => selectAllUrls(MAX_SELECT);
-    document.getElementById('clear-urls').onclick = () => clearUrlSelection();
     el.querySelectorAll('.url-pick').forEach(cb => {
         cb.addEventListener('change', () => {
-            if (!toggleUrlSelection(cb.value, cb.checked)) cb.checked = false;
+            const pat = cb.dataset.pattern || pattern;
+            const hasMd = cb.dataset.hasMd === '1';
+            const isDeleted = cb.dataset.deleted === '1';
+            if (!toggleUrlSelection(cb.value, pat, cb.checked, hasMd, isDeleted)) cb.checked = false;
         });
     });
+    syncPatternPickers();
+}
+
+function renderPatternUrlLists(lowCtr, lowImp) {
+    currentLowCtr = lowCtr || [];
+    currentLowImpression = lowImp || [];
+    document.getElementById('pattern-mode-bar').style.display = 'flex';
+    if (!currentLowCtr.length && currentLowImpression.length) {
+        setPatternMode('low_impression');
+    } else if (currentLowCtr.length) {
+        setPatternMode('low_ctr');
+    }
+    renderUrlPatternList('low-ctr-list', 'url-list-meta-low-ctr', currentLowCtr, 'low_ctr');
+    renderUrlPatternList('low-impression-list', 'url-list-meta-low-impression', currentLowImpression, 'low_impression');
+    syncPatternPickers();
     updateSelectedCount();
+}
+
+function patternLabel(p) {
+    return p === 'low_impression' ? '저노출·상향' : '저CTR·고노출';
 }
 
 function renderGsc(d) {
     if (d.error) {
         document.getElementById('gsc-meta').textContent = d.error;
         document.getElementById('gsc-count').textContent = '—';
-        renderLowCtrList([]);
+        document.getElementById('url-patterns-summary').textContent = '—';
+        renderPatternUrlLists([], []);
         return;
     }
     const t = d.totals || {};
@@ -439,11 +707,17 @@ function renderGsc(d) {
     document.getElementById('g-impressions').textContent = (t.impressions ?? 0).toLocaleString();
     document.getElementById('g-ctr').textContent = ((t.ctr ?? 0) * 100).toFixed(2) + '%';
     document.getElementById('g-position').textContent = (t.position ?? 0).toFixed(1);
-    const n = d.low_ctr_count ?? (d.low_ctr || []).length;
+    const nCtr = d.low_ctr_count ?? (d.low_ctr || []).length;
+    const nImp = d.low_impression_count ?? (d.low_impression || []).length;
     document.getElementById('gsc-meta').textContent =
         `${d.start || ''} ~ ${d.end || ''} · 페이지 ${d.page_rows ?? '—'}개 분석`;
-    document.getElementById('gsc-count').textContent = `저CTR 후보 ${n}건`;
-    renderLowCtrList(d.low_ctr || []);
+    document.getElementById('gsc-count').textContent =
+        `저CTR ${nCtr}건 · 저노출 ${nImp}건 · MD 가능 ${d.md_actionable_count ?? '—'}건`;
+    document.getElementById('url-patterns-summary').textContent =
+        `28일 GSC · MD 가능 ${d.md_actionable_count ?? '—'}건`
+        + (d.md_missing_count ? ` · MD 없음 ${d.md_missing_count}건(GSC 잔여)` : '')
+        + ' · 한 패턴에서만 선택 후 SEO';
+    renderPatternUrlLists(d.low_ctr || [], d.low_impression || []);
 
     const rows = (d.daily || []).slice().sort((a, b) => a.date.localeCompare(b.date));
     const canvas = document.getElementById('gsc-chart');
@@ -483,7 +757,7 @@ function statusClass(s) {
 function statusLabel(s) {
     const m = {
         applied: 'MD 반영됨', suggested: '제안만 (미반영)', suggested_no_file: '제안 (파일 없음)',
-        no_changes: '변경 없음', fetch_failed: '페이지 로드 실패', ai_failed: 'AI 실패',
+        no_md_file: 'MD 없음', no_changes: '변경 없음', fetch_failed: '페이지 로드 실패', ai_failed: 'AI 실패',
     };
     return m[s] || s;
 }
@@ -502,19 +776,23 @@ function renderResults(data) {
     const el = document.getElementById('results');
     const panel = document.getElementById('panel-results');
     const items = Array.isArray(data?.results) ? data.results : [];
+    const ctrN = data.low_ctr_count ?? '—';
+    const impN = data.low_impression_count ?? '—';
     document.getElementById('results-meta').textContent =
-        `${items.length}건 처리 · 후보 ${data.candidates_total ?? '—'}건 중`;
+        `${items.length}건 처리 · 후보 저CTR ${ctrN} · 저노출 ${impN}`;
     el.innerHTML = '';
     panel.classList.toggle('has-results', items.length > 0);
+    updatePushCommitHint(items.length ? data : null);
     if (!items.length) {
         el.appendChild(Object.assign(document.createElement('p'), {
             className: 'mono',
             style: 'color:#666',
-            textContent: data?.error || '결과 없음 (저CTR 후보가 없거나 API 오류)',
+            textContent: data?.error || '결과 없음 (후보 없음 또는 API 오류)',
         }));
         return;
     }
     try { sessionStorage.setItem(GSC_RESULTS_KEY, JSON.stringify(data)); } catch (_) {}
+    updatePushCommitHint(data);
     for (const it of items) {
         const card = document.createElement('div');
         card.className = 'result-card';
@@ -527,8 +805,15 @@ function renderResults(data) {
         card.appendChild(h4);
         const meta = document.createElement('p');
         meta.className = 'meta';
-        meta.textContent = `노출 ${it.impressions ?? 0} · CTR ${fmtPct(it.ctr)} · 순위 ${fmtPos(it.position)}`;
+        meta.textContent = `[${patternLabel(it.pattern)}] 노출 ${it.impressions ?? 0} · CTR ${fmtPct(it.ctr)} · 순위 ${fmtPos(it.position)}`
+            + (it.page_source === 'md' ? ' · MD 기준' : '');
         card.appendChild(meta);
+        if (it.fetch_note) {
+            const fn = document.createElement('p');
+            fn.className = 'meta badge-warn';
+            fn.textContent = it.fetch_note;
+            card.appendChild(fn);
+        }
         if (it.error) {
             const err = document.createElement('p');
             err.className = 'meta badge-err';
@@ -576,23 +861,26 @@ function restoreLastResults() {
         const raw = sessionStorage.getItem(GSC_RESULTS_KEY);
         if (!raw) return;
         const data = JSON.parse(raw);
-        if (data?.results?.length) renderResults(data);
+        if (data?.results?.length) {
+            renderResults(data);
+            updatePushCommitHint(data);
+        }
     } catch (_) {}
 }
 
 async function runSeo() {
-    const site_id = document.getElementById('site-id').value;
+    const site_id = getSiteId();
     const urls = getSelectedUrls();
     if (!urls.length) {
-        showToast('표에서 URL을 1개 이상 선택하세요');
+        showToast('한 패턴 표에서 URL을 1개 이상 선택하세요');
         return;
     }
-    const apply = document.getElementById('apply-files').checked;
+    const apply = true;
     const btn = document.getElementById('run-btn');
     const panel = document.getElementById('panel-results');
     btn.disabled = true;
     seoInFlight = true;
-    document.getElementById('gsc-root').classList.add('loading');
+    document.getElementById('gsc-panels').classList.add('loading');
     document.getElementById('results-meta').textContent = `SEO 작업 중… (${urls.length}개, 1건당 ~10초)`;
     document.getElementById('results').innerHTML =
         '<p class="mono" style="color:#888">Gemini 분석 중입니다. 잠시만 기다려 주세요…</p>';
@@ -603,7 +891,7 @@ async function runSeo() {
             method: 'POST',
             credentials: 'same-origin',
             headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ site_id, urls, apply }),
+            body: JSON.stringify({ site_id, urls, apply, patterns: getSelectedPatterns() }),
         });
         const ct = (res.headers.get('content-type') || '').toLowerCase();
         if (!ct.includes('application/json')) {
@@ -630,12 +918,17 @@ async function runSeo() {
             return showToast(d.error);
         }
         renderResults(d);
+        if (d.url_history) {
+            mergeUrlHistoryFromDashboard({ url_history: d.url_history });
+            renderPatternUrlLists(currentLowCtr, currentLowImpression);
+        }
         const idx = sites.findIndex(x => x.id === site_id);
         if (idx >= 0) mergeLastRuns(sites[idx], d.last_runs);
         renderSiteLastRun();
         const n = (d.results || []).length;
         if (n > 0) {
-            showToast('완료 · ' + n + '건 · 작업 결과 확인');
+            const calNote = d.calendar_event ? ' · 달력 기록' : '';
+            showToast('완료 · ' + n + '건' + calNote + ' · 작업 결과 확인');
             panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
             showToast(d.error || '처리할 URL 없음');
@@ -648,7 +941,77 @@ async function runSeo() {
     } finally {
         seoInFlight = false;
         btn.disabled = false;
-        document.getElementById('gsc-root').classList.remove('loading');
+        document.getElementById('gsc-panels').classList.remove('loading');
+    }
+}
+
+async function deleteSelectedFiles() {
+    const site_id = getSiteId();
+    const urls = getSelectedUrls();
+    if (!urls.length) {
+        showToast('삭제할 URL을 선택하세요');
+        return;
+    }
+    const withMd = urls.filter(u => {
+        const rows = [...currentLowCtr, ...currentLowImpression];
+        const row = rows.find(r => (r.label || r.page) === u);
+        return row && row.has_md && !row.is_deleted;
+    });
+    if (!withMd.length) {
+        showToast('MD 있는 URL만 삭제할 수 있습니다');
+        return;
+    }
+    if (!confirm(`${withMd.length}개 URL의 콘텐츠 파일을 삭제할까요?\n(되돌리려면 Git에서 복구)`)) return;
+
+    const btn = document.getElementById('delete-files-btn');
+    const panel = document.getElementById('panel-results');
+    btn.disabled = true;
+    document.getElementById('gsc-panels').classList.add('loading');
+    document.getElementById('results-meta').textContent = `파일 삭제 중… (${withMd.length}개)`;
+    document.getElementById('results').innerHTML =
+        '<p class="mono" style="color:#888">콘텐츠 파일 삭제 중…</p>';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    try {
+        const res = await fetch('/api/gsc/delete-files', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ site_id, urls: withMd }),
+        });
+        const d = await res.json();
+        if (!res.ok && d.error && !d.results) {
+            showToast(d.error);
+            document.getElementById('results-meta').textContent = d.error;
+            return;
+        }
+        if (d.url_history) {
+            mergeUrlHistoryFromDashboard({ url_history: d.url_history });
+        }
+        clearUrlSelection();
+        if (dashboard && dashboard.gsc) {
+            const g = dashboard.gsc;
+            renderPatternUrlLists(g.low_ctr || [], g.low_impression || []);
+        } else {
+            renderPatternUrlLists(currentLowCtr, currentLowImpression);
+        }
+        const items = d.results || [];
+        document.getElementById('results-meta').textContent =
+            `파일 삭제 ${items.filter(x => x.status === 'deleted').length}건 완료`;
+        document.getElementById('results').innerHTML = items.map(it => {
+            const st = it.status === 'deleted' ? 'badge-deleted' : 'badge-err';
+            const label = it.status === 'deleted' ? '삭제됨' : (it.error || it.status);
+            const files = (it.deleted_files || []).join(', ');
+            return `<div class="result-card"><h4><span class="${st}">[${escapeHtml(label)}]</span> ${escapeHtml(it.url || '')}</h4>`
+                + (files ? `<p class="meta">파일: ${escapeHtml(files)}</p>` : '')
+                + '</div>';
+        }).join('') || '<p class="mono" style="color:#666">결과 없음</p>';
+        showToast('파일 삭제 완료 · Push/Deploy는 수동');
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+        showToast('삭제 요청 실패');
+    } finally {
+        btn.disabled = false;
+        document.getElementById('gsc-panels').classList.remove('loading');
     }
 }
 
@@ -668,11 +1031,25 @@ function escapeHtml(s) {
     });
 })();
 
-loadSites().then(() => {
-    updateGitButtons();
-    document.getElementById('gsc-push-btn').onclick = () => gscSiteAction('push');
-    document.getElementById('gsc-deploy-btn').onclick = () => gscSiteAction('deploy');
+initGscPage();
+document.getElementById('gsc-push-btn').onclick = () => gscSiteAction('push');
+document.getElementById('gsc-deploy-btn').onclick = () => gscSiteAction('deploy');
+document.getElementById('filter-md-only').addEventListener('change', e => {
+    showMdOnly = e.target.checked;
+    clearUrlSelection();
+    renderPatternUrlLists(currentLowCtr, currentLowImpression);
 });
-restoreLastResults();
+document.getElementById('clear-urls').onclick = () => clearUrlSelection();
+document.querySelectorAll('input[name="pattern-mode"]').forEach(r => {
+    r.addEventListener('change', onPatternModeChange);
+});
+document.getElementById('panel-urls').addEventListener('click', e => {
+    const btn = e.target.closest('.btn-pattern-select');
+    if (!btn || btn.disabled) return;
+    const pat = btn.dataset.pattern;
+    const limit = parseInt(btn.dataset.limit, 10) || MAX_SELECT;
+    setPatternMode(pat);
+    selectAllUrls(limit, pat);
+});
 </script>
 {% endblock %}

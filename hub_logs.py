@@ -7,6 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from config import LOG_DIR, OPS_ROOT, STATE_FILE, list_services, repo_path, work_root_available
+from content_pipeline import pipeline_last_run
+from dashboard_schedule import (
+    CONTENT_INTERVAL_DAYS,
+    GSC_INTERVAL_DAYS,
+    format_due_label,
+    work_due_schedule,
+)
+from gsc_run_store import gsc_last_runs
 from git_ops import DEPLOY_LOG_DIR, tail_deploy_log
 from git_util import git_summary
 
@@ -116,6 +124,33 @@ def site_activity(site_id: str, svc: dict[str, Any]) -> dict[str, Any]:
         activity["git_commits"] = list(gs.get("recent_commits") or [])[:5]
         activity["git_branch"] = gs.get("branch")
         activity["git_dirty"] = gs.get("dirty")
+
+    # Last GSC 대응 시각 (SEO 실행 우선, 없으면 dashboard/gsc 최신 실행)
+    gsc_meta = gsc_last_runs(site_id)
+    gsc_last_at = gsc_meta.get("last_seo_at") or gsc_meta.get("last_run_at")
+    activity["last_gsc_response_at"] = (
+        gsc_meta.get("last_seo_display") or gsc_meta.get("last_run_display")
+    )
+    activity["last_gsc_response_ok"] = (
+        gsc_meta.get("last_seo_ok")
+        if gsc_meta.get("last_seo_display")
+        else gsc_meta.get("last_run_ok")
+    )
+    gsc_sched = work_due_schedule(gsc_last_at, interval_days=GSC_INTERVAL_DAYS)
+    activity["gsc_schedule"] = gsc_sched
+    activity["gsc_due_label"] = format_due_label(gsc_sched)
+
+    # Last 콘텐츠 추가 시각 (운영·콘텐츠 pipeline 최신 실행)
+    content_meta = pipeline_last_run(site_id)
+    activity["last_content_added_at"] = content_meta.get("last_run_display")
+    activity["last_content_added_ok"] = content_meta.get("last_run_ok")
+    content_sched = work_due_schedule(
+        content_meta.get("last_run_at"),
+        interval_days=CONTENT_INTERVAL_DAYS,
+    )
+    activity["content_schedule"] = content_sched
+    activity["content_due_label"] = format_due_label(content_sched)
+
     activity["auto_register"] = _grep_auto_register_for_site(site_id)
     activity["deploy"] = deploy_logs_for_site(site_id)
     return activity

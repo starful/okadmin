@@ -49,6 +49,7 @@ def write_gsc_dashboard_run(site_id: str, payload: dict[str, Any], *, ok: bool) 
         "ga4_error": (payload.get("ga4") or {}).get("error"),
         "gsc_error": (payload.get("gsc") or {}).get("error"),
         "low_ctr_count": (payload.get("gsc") or {}).get("low_ctr_count"),
+        "low_impression_count": (payload.get("gsc") or {}).get("low_impression_count"),
     }
     _status_path(site_id).write_text(
         json.dumps(data, ensure_ascii=False, indent=2),

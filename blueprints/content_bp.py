@@ -17,12 +17,16 @@ from content_pipeline import (
     pipeline_log_path,
     pipeline_run_caps,
     read_pipeline_status,
+    run_csv_expand,
     run_pipeline,
     run_post_pipeline_deploy,
     summarize_pipeline_status,
     tail_pipeline_log,
     write_pipeline_status,
 )
+from pipeline_backlog import read_backlog_snapshot, refresh_backlog_snapshot, refresh_all_backlog_snapshots
+from firestore_db import get_db
+from ops_calendar import record_ops_calendar_event
 
 content_bp = Blueprint("content", __name__, url_prefix="/api/content")
 
@@ -30,6 +34,47 @@ _running: dict[str, subprocess.Popen] = {}
 _pipeline_running: dict[str, bool] = {}
 _pipeline_phase: dict[str, str] = {}  # generate | deploy
 _pipeline_deploy_job: dict[str, str] = {}  # site_id -> deploy job_id
+
+
+def _pipeline_calendar_notes(result: dict) -> str:
+    parts: list[str] = []
+    if result.get("error"):
+        parts.append(f"error: {str(result['error'])[:400]}")
+    for step in result.get("steps") or []:
+        name = step.get("label") or step.get("step") or "?"
+        mark = "ok" if step.get("ok") else "fail"
+        parts.append(f"{name}: {mark}")
+    deploy = result.get("deploy") or {}
+    if deploy.get("skipped"):
+        parts.append("deploy: skip")
+    elif deploy:
+        msg = deploy.get("message") or deploy.get("state") or deploy.get("error") or ""
+        parts.append(f"deploy: {msg}"[:200])
+    return "\n".join(parts)[:2000]
+
+
+def _record_pipeline_calendar(site_id: str, result: dict) -> dict | None:
+    svc = get_service(site_id)
+    label = (svc or {}).get("label", site_id)
+    ok = bool(result.get("ok"))
+    title = f"콘텐츠 · {label}" if ok else f"콘텐츠 실패 · {label}"
+    if ok:
+        title = f"✓ {title}"
+    ev = record_ops_calendar_event(
+        site_id=site_id,
+        kind="content",
+        title=title,
+        notes=_pipeline_calendar_notes(result),
+    )
+    deploy = result.get("deploy") or {}
+    if ok and deploy and not deploy.get("skipped") and deploy.get("state") == "success":
+        record_ops_calendar_event(
+            site_id=site_id,
+            kind="deploy",
+            title=f"✓ Deploy · {label}",
+            notes=(deploy.get("message") or "deploy.sh 완료")[:500],
+        )
+    return ev
 
 
 @content_bp.route("/jobs")
@@ -57,6 +102,7 @@ def list_pipelines():
         svc = get_service(site_id)
         caps = pipeline_run_caps(site_id)
         last_meta = pipeline_last_run(site_id)
+        backlog = read_backlog_snapshot(site_id)
         items.append(
             {
                 "site_id": site_id,
@@ -64,6 +110,7 @@ def list_pipelines():
                 "description": meta.get("description", ""),
                 "limits": caps.get("parts", []),
                 "limits_summary": caps.get("summary", ""),
+                "backlog": backlog,
                 "available": bool(svc) and work_root_available(),
                 "running": _pipeline_running.get(site_id, False),
                 "phase": _pipeline_phase.get(site_id) if _pipeline_running.get(site_id) else None,
@@ -73,6 +120,40 @@ def list_pipelines():
             }
         )
     return jsonify(items)
+
+
+@content_bp.route("/pipeline/backlog/refresh", methods=["POST"])
+@requires_auth
+def pipeline_backlog_refresh():
+    if not work_root_available():
+        return jsonify({"error": "WORK_ROOT not available"}), 503
+    data = request.get_json(silent=True) or {}
+    only = (data.get("site_id") or "").strip()
+    if only:
+        if only not in CONTENT_PIPELINES:
+            return jsonify({"error": "unknown pipeline"}), 400
+        result = refresh_backlog_snapshot(only)
+        return jsonify(result)
+    return jsonify(refresh_all_backlog_snapshots())
+
+
+@content_bp.route("/pipeline/csv-expand", methods=["POST"])
+@requires_auth
+def pipeline_csv_expand():
+    if not work_root_available():
+        return jsonify({"error": "WORK_ROOT not available"}), 503
+    data = request.get_json(silent=True) or {}
+    site_id = (data.get("site_id") or "").strip()
+    if site_id not in CONTENT_PIPELINES:
+        return jsonify({"error": "unknown pipeline"}), 400
+    if _pipeline_running.get(site_id):
+        return jsonify({"error": "pipeline already running"}), 409
+    expand = run_csv_expand(site_id)
+    if not expand.get("ok"):
+        return jsonify(expand), 400
+    backlog = refresh_backlog_snapshot(site_id)
+    expand["backlog"] = backlog
+    return jsonify(expand)
 
 
 @content_bp.route("/pipeline/run", methods=["POST"])
@@ -106,12 +187,16 @@ def pipeline_run():
                 if not deploy_ok:
                     result["ok"] = False
                     result["error"] = deploy.get("error") or deploy.get("message") or "deploy failed"
+            result["calendar_event"] = _record_pipeline_calendar(site_id, result)
             write_pipeline_status(site_id, result)
+            try:
+                refresh_backlog_snapshot(site_id)
+            except Exception:
+                pass
         except Exception as exc:
-            write_pipeline_status(
-                site_id,
-                {"ok": False, "error": str(exc), "site_id": site_id},
-            )
+            fail = {"ok": False, "error": str(exc), "site_id": site_id}
+            fail["calendar_event"] = _record_pipeline_calendar(site_id, fail)
+            write_pipeline_status(site_id, fail)
         finally:
             _pipeline_running[site_id] = False
             _pipeline_phase.pop(site_id, None)
@@ -125,6 +210,46 @@ def pipeline_run():
             "site_id": site_id,
             "log_path": str(pipeline_log_path(site_id)),
             "message": "파이프라인 시작 (로그에서 진행 상황 확인)",
+        }
+    )
+
+
+@content_bp.route("/pipeline/backfill-calendar", methods=["POST"])
+@requires_auth
+def pipeline_backfill_calendar():
+    """Record today's finished pipeline runs on the work calendar (one-off catch-up)."""
+    from datetime import date
+
+    today = date.today().isoformat()
+    data = request.get_json(silent=True) or {}
+    only = (data.get("site_id") or "").strip()
+    sites = [only] if only else list(CONTENT_PIPELINES.keys())
+    recorded: list[str] = []
+    skipped: list[str] = []
+
+    for site_id in sites:
+        if site_id not in CONTENT_PIPELINES:
+            skipped.append(site_id)
+            continue
+        status = read_pipeline_status(site_id)
+        if not status:
+            skipped.append(site_id)
+            continue
+        finished = str(status.get("finished_at") or status.get("last_run_at") or "")[:10]
+        if finished != today:
+            skipped.append(site_id)
+            continue
+        ev = _record_pipeline_calendar(site_id, status)
+        if ev:
+            recorded.append(site_id)
+
+    return jsonify(
+        {
+            "ok": True,
+            "date": today,
+            "recorded": recorded,
+            "skipped": skipped,
+            "calendar_skipped": not recorded and get_db() is None,
         }
     )
 

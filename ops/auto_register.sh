@@ -184,7 +184,7 @@ else
             run_deploy "okcaddie"
             ;;
         4) # Thu
-            run_deploy "oksushi"
+            run_deploy "okstats"
             ;;
         5) # Fri
             run_deploy "starful.biz"

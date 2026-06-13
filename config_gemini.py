@@ -35,8 +35,10 @@ def ensure_gemini_api_key() -> bool:
     candidates = [
         okadmin_root / ".env",
         WORK_ROOT / "jpcampus" / ".env",
+        WORK_ROOT / "krcampus" / ".env",
         WORK_ROOT / "starful.biz" / ".env",
         WORK_ROOT / "okramen" / ".env",
+        WORK_ROOT / "okstats" / ".env",
     ]
     for path in candidates:
         for key, val in _read_env_file(path).items():

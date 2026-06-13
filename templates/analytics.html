@@ -1,0 +1,364 @@
+{% extends "base.html" %}
+{% block title %}분석{% endblock %}
+{% block head %}
+<style>
+    #analytics-toolbar {
+        position: relative;
+        z-index: 50;
+        margin-bottom: 16px;
+    }
+    .site-bar, .period-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .nav-form { display: inline; margin: 0; padding: 0; }
+    .site-btn, .period-btn {
+        display: inline-block; padding: 8px 14px; border-radius: 8px;
+        border: 1px solid var(--border); background: #000; color: #aaa;
+        font-weight: 700; font-size: 12px; cursor: pointer;
+        font-family: 'Syne', sans-serif;
+    }
+    .period-btn { font-size: 11px; padding: 6px 12px; background: transparent; color: #888; }
+    .site-btn:hover, .period-btn:hover { color: #fff; border-color: #444; }
+    .site-btn.active, .period-btn.active { color: #000; border-color: transparent; background: var(--accent); }
+    .section-title { font-size: 13px; font-weight: 800; color: var(--accent); margin: 0 0 10px; letter-spacing: .5px; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px; }
+    .metric { background: #000; border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+    .metric .v { font-size: 18px; font-weight: 800; color: var(--accent); }
+    .metric .l { font-family: 'DM Mono'; font-size: 10px; color: #666; margin-top: 3px; }
+    .charts-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
+    .charts-row.two { grid-template-columns: repeat(2, 1fr); }
+    @media (max-width: 1200px) { .charts-row { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 760px) { .charts-row, .charts-row.two { grid-template-columns: 1fr; } }
+    .chart-card { background: var(--surf); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+    .chart-card h3 { margin: 0 0 6px; font-size: 12px; }
+    .chart-card .meta { font-family: 'DM Mono'; font-size: 10px; color: #666; margin-bottom: 8px; min-height: 14px; }
+    .chart-wrap { position: relative; height: 200px; overflow: hidden; }
+    .chart-wrap.tall { height: 240px; }
+    .chart-split { display: grid; grid-template-columns: 1fr 160px; gap: 10px; align-items: center; }
+    @media (max-width: 760px) { .chart-split { grid-template-columns: 1fr; } }
+    table.data { width: 100%; border-collapse: collapse; font-family: 'DM Mono'; font-size: 10px; }
+    table.data th, table.data td { border: 1px solid var(--border); padding: 5px 7px; text-align: left; }
+    table.data th { color: #888; }
+    .err { color: #f88; font-family: 'DM Mono'; font-size: 10px; }
+    .loading { opacity: .45; }
+    .hint { font-family: 'DM Mono'; font-size: 10px; color: #555; margin-bottom: 8px; }
+    .current-pick { font-family: 'DM Mono'; font-size: 11px; color: var(--accent); margin: 0 0 12px; }
+    .load-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .load-bar .btn:disabled { opacity: .45; cursor: wait; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% endblock %}
+{% block content %}
+<!-- analytics-ui-v7: GSC indexing summary (API only, no URL inspection) -->
+<h1>통합 분석</h1>
+<p class="sub">GA4 · GSC — 사이트·기간 선택 후 불러오기</p>
+
+<div id="analytics-toolbar">
+    <p class="current-pick">선택: <strong>{{ current_site_label or '—' }}</strong> · {{ current_days }}일</p>
+    <div class="site-bar">
+        {% if analytics_sites %}
+            {% for s in analytics_sites %}
+            <form class="nav-form" method="get" action="{{ url_for('pages.analytics_page') }}">
+                <input type="hidden" name="site" value="{{ s.id }}">
+                <input type="hidden" name="days" value="{{ current_days }}">
+                <button type="submit"
+                    class="site-btn{% if s.id == current_site %} active{% endif %}"
+                    {% if s.id == current_site and site_colors.get(s.id) %}style="background:{{ site_colors[s.id] }};border-color:transparent;color:#000"{% endif %}>
+                    {{ s.label }}
+                </button>
+            </form>
+            {% endfor %}
+        {% else %}
+            <span class="hint" style="color:#f88">sites.yaml에 사이트 없음</span>
+        {% endif %}
+    </div>
+    <div class="period-bar">
+        {% for d in [7, 28, 90] %}
+        <form class="nav-form" method="get" action="{{ url_for('pages.analytics_page') }}">
+            <input type="hidden" name="site" value="{{ current_site }}">
+            <input type="hidden" name="days" value="{{ d }}">
+            <button type="submit" class="period-btn{% if current_days == d %} active{% endif %}">{{ d }}일</button>
+        </form>
+        {% endfor %}
+    </div>
+    <div class="load-bar">
+        <span class="hint" style="margin:0">선택한 사이트·기간의 GA4·GSC (API 호출 · 수십 초 소요 가능)</span>
+        <button type="button" class="btn" id="btn-load-analytics">분석 불러오기</button>
+    </div>
+    <p class="hint">GSC: {{ gsc_hint }} · GA4: {{ ga4_hint }}</p>
+</div>
+
+<div id="analytics-panels">
+    <div class="section-title">GA4</div>
+    <div class="metrics">
+        <div class="metric"><div class="v" id="t-sessions">—</div><div class="l">세션</div></div>
+        <div class="metric"><div class="v" id="t-users">—</div><div class="l">활성 사용자</div></div>
+        <div class="metric"><div class="v" id="t-events">—</div><div class="l">이벤트</div></div>
+        <div class="metric"><div class="v" id="t-pageviews">—</div><div class="l">페이지뷰</div></div>
+    </div>
+    <div class="charts-row">
+        <div class="chart-card"><h3>세션</h3><p class="meta" id="meta-sessions">「분석 불러오기」 클릭</p><div class="chart-wrap"><canvas id="chart-sessions"></canvas></div></div>
+        <div class="chart-card"><h3>활성 사용자</h3><p class="meta" id="meta-users">「분석 불러오기」 클릭</p><div class="chart-wrap"><canvas id="chart-users"></canvas></div></div>
+        <div class="chart-card"><h3>이벤트 수</h3><p class="meta" id="meta-events">「분석 불러오기」 클릭</p><div class="chart-wrap"><canvas id="chart-events"></canvas></div></div>
+    </div>
+
+    <div class="section-title" style="margin-top:8px">Google Search Console</div>
+    <div class="metrics">
+        <div class="metric"><div class="v" id="t-clicks">—</div><div class="l">클릭</div></div>
+        <div class="metric"><div class="v" id="t-impressions">—</div><div class="l">노출</div></div>
+        <div class="metric"><div class="v" id="t-queries">—</div><div class="l">검색어(유니크)</div></div>
+        <div class="metric"><div class="v" id="t-indexed">—</div><div class="l">색인 생성됨</div></div>
+        <div class="metric"><div class="v" id="t-not-indexed">—</div><div class="l">색인 안 됨</div></div>
+        <div class="metric"><div class="v" id="t-sitemap">—</div><div class="l">사이트맵 제출</div></div>
+    </div>
+    <div class="charts-row two">
+        <div class="chart-card"><h3>검색 실적</h3><p class="meta" id="meta-gsc-perf">「분석 불러오기」 클릭</p><div class="chart-wrap tall"><canvas id="chart-gsc-perf"></canvas></div></div>
+        <div class="chart-card"><h3>일별 검색어 수</h3><p class="meta" id="meta-query-daily">「분석 불러오기」 클릭</p><div class="chart-wrap tall"><canvas id="chart-query-daily"></canvas></div></div>
+    </div>
+    <div class="charts-row two">
+        <div class="chart-card">
+            <h3>페이지 색인 생성</h3>
+            <p class="meta" id="meta-indexing">「분석 불러오기」 클릭 · 선택 기간 일별 추이 (추가 API 없음)</p>
+            <div class="chart-wrap tall"><canvas id="chart-index-history"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h3>상위 검색어</h3>
+            <p class="meta" id="meta-top-queries">「분석 불러오기」 클릭</p>
+            <div style="max-height:240px;overflow:auto">
+                <table class="data" id="table-queries">
+                    <thead><tr><th>#</th><th>검색어</th><th>노출</th><th>클릭</th><th>CTR</th></tr></thead>
+                    <tbody><tr><td colspan="5" class="hint">「분석 불러오기」 클릭</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function() {
+    var currentSite = {{ current_site | tojson }};
+    var currentDays = {{ current_days }};
+    var charts = {};
+
+    function n(v) { return v == null ? 0 : v; }
+    function esc(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    }
+    function setText(id, v) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = v;
+    }
+    function setMeta(id, msg, isErr) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = msg;
+        el.className = isErr ? 'meta err' : 'meta';
+    }
+    function fmtDate(d) { return d ? d.slice(5) : ''; }
+    function fmtNum(v) {
+        if (v == null || isNaN(v)) return '0';
+        return Number(v).toLocaleString();
+    }
+    function chartInteraction() {
+        return { mode: 'index', intersect: false };
+    }
+    function chartTooltip() {
+        return {
+            enabled: true,
+            backgroundColor: 'rgba(0,0,0,0.92)',
+            borderColor: '#444',
+            borderWidth: 1,
+            titleColor: '#e8ff47',
+            bodyColor: '#eee',
+            titleFont: { size: 11, family: "'DM Mono', monospace" },
+            bodyFont: { size: 11, family: "'DM Mono', monospace" },
+            padding: 10,
+            callbacks: {
+                label: function(ctx) {
+                    var name = ctx.dataset.label || ctx.label || '';
+                    var val = ctx.parsed.y != null ? ctx.parsed.y : ctx.parsed;
+                    if (val == null) val = ctx.raw;
+                    var text = fmtNum(val);
+                    return name ? (name + ': ' + text) : text;
+                }
+            }
+        };
+    }
+    function destroyChart(id) {
+        if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+    }
+    function lineChart(id, labels, data, label, color) {
+        if (typeof Chart === 'undefined' || !labels.length) return;
+        destroyChart(id);
+        var el = document.getElementById(id);
+        if (!el) return;
+        charts[id] = new Chart(el, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{ label: label, data: data, borderColor: color, backgroundColor: color + '22', fill: true, tension: 0.25, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: color, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 1 }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: chartInteraction(),
+                plugins: { legend: { display: false }, tooltip: chartTooltip() },
+                scales: {
+                    x: { ticks: { color: '#666', maxTicksLimit: 10 }, grid: { color: '#222' } },
+                    y: { ticks: { color: '#666' }, grid: { color: '#222' } }
+                }
+            }
+        });
+    }
+
+    function renderGa4(d) {
+        if (d.error) {
+            setMeta('meta-sessions', d.error, true);
+            return;
+        }
+        var t = d.totals || {};
+        setText('t-sessions', n(t.sessions).toLocaleString());
+        setText('t-users', n(t.users).toLocaleString());
+        setText('t-events', n(t.events).toLocaleString());
+        setText('t-pageviews', n(t.pageviews).toLocaleString());
+        var range = (d.start || '') + ' ~ ' + (d.end || '');
+        var rows = (d.rows || []).slice().sort(function(a, b) { return a.date.localeCompare(b.date); });
+        setMeta('meta-sessions', range, false);
+        setMeta('meta-users', range, false);
+        setMeta('meta-events', range, false);
+        lineChart('chart-sessions', rows.map(function(r) { return fmtDate(r.date); }), rows.map(function(r) { return r.sessions; }), '세션', '#e8ff47');
+        lineChart('chart-users', rows.map(function(r) { return fmtDate(r.date); }), rows.map(function(r) { return r.users; }), '활성 사용자', '#60a5fa');
+        lineChart('chart-events', rows.map(function(r) { return fmtDate(r.date); }), rows.map(function(r) { return n(r.events); }), '이벤트', '#f59e0b');
+    }
+
+    function renderGsc(daily, queries, queryDaily, indexing) {
+        if (daily.error) {
+            setMeta('meta-gsc-perf', daily.error, true);
+        } else {
+            var t = daily.totals || {};
+            setText('t-clicks', n(t.clicks).toLocaleString());
+            setText('t-impressions', n(t.impressions).toLocaleString());
+            setMeta('meta-gsc-perf', (daily.start || '') + ' ~ ' + (daily.end || ''), false);
+            var rows = (daily.rows || []).slice().sort(function(a, b) { return a.date.localeCompare(b.date); });
+            destroyChart('chart-gsc-perf');
+            var el = document.getElementById('chart-gsc-perf');
+            if (typeof Chart !== 'undefined' && el && rows.length) {
+                charts['chart-gsc-perf'] = new Chart(el, {
+                    type: 'line',
+                    data: {
+                        labels: rows.map(function(r) { return fmtDate(r.date); }),
+                        datasets: [
+                            { label: '클릭', data: rows.map(function(r) { return r.clicks; }), borderColor: '#e8ff47', tension: 0.25, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: '#e8ff47', yAxisID: 'y' },
+                            { label: '노출', data: rows.map(function(r) { return r.impressions; }), borderColor: '#a78bfa', tension: 0.25, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: '#a78bfa', yAxisID: 'y1' }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        interaction: chartInteraction(),
+                        plugins: { legend: { labels: { color: '#888', font: { size: 10 } } }, tooltip: chartTooltip() },
+                        scales: {
+                            x: { ticks: { color: '#666', maxTicksLimit: 10 }, grid: { color: '#222' } },
+                            y: { position: 'left', ticks: { color: '#888' }, grid: { color: '#222' } },
+                            y1: { position: 'right', ticks: { color: '#666' }, grid: { drawOnChartArea: false } }
+                        }
+                    }
+                });
+            }
+        }
+        if (queries.error) {
+            setMeta('meta-top-queries', queries.error, true);
+        } else {
+            setText('t-queries', n(queries.query_count).toLocaleString());
+            var qrows = (queries.rows || []).slice(0, 30);
+            var tbody = document.querySelector('#table-queries tbody');
+            if (tbody) {
+                tbody.innerHTML = qrows.length ? qrows.map(function(r, i) {
+                    return '<tr><td>' + (i+1) + '</td><td>' + esc(r.query) + '</td><td>' + r.impressions + '</td><td>' + r.clicks + '</td><td>' + (n(r.ctr)*100).toFixed(1) + '%</td></tr>';
+                }).join('') : '<tr><td colspan="5" class="hint">검색어 없음</td></tr>';
+            }
+        }
+        if (queryDaily.error) {
+            setMeta('meta-query-daily', queryDaily.error, true);
+        } else {
+            var qrows2 = (queryDaily.rows || []).slice().sort(function(a, b) { return a.date.localeCompare(b.date); });
+            lineChart('chart-query-daily', qrows2.map(function(r) { return fmtDate(r.date); }), qrows2.map(function(r) { return r.queries; }), '검색어 수', '#34d399');
+        }
+        if (indexing.error) {
+            setMeta('meta-indexing', indexing.error, true);
+        } else {
+            var tot = indexing.totals || {};
+            var indexed = n(tot.indexed);
+            var notIdx = n(tot.not_indexed);
+            var submitted = n(tot.sitemap_submitted);
+            var searchPages = n(tot.search_pages);
+            var src = tot.index_source || '';
+            setText('t-indexed', indexed.toLocaleString());
+            setText('t-not-indexed', notIdx.toLocaleString());
+            setText('t-sitemap', submitted.toLocaleString());
+            var srcNote = src === 'gsc_sitemap' ? 'GSC 사이트맵' : (src === 'search_estimate' ? '검색 노출 추정' : '검색만');
+            var metaEl = document.getElementById('meta-indexing');
+            if (metaEl) {
+                metaEl.className = 'meta';
+                var range = (indexing.start || '') + ' ~ ' + (indexing.end || '');
+                var metaText = (range ? range + ' · ' : '') + srcNote + ' · 검색 노출 ' + searchPages + ' · 사이트맵 ' + submitted;
+                if (indexing.gsc_link) {
+                    metaEl.innerHTML = metaText + ' · <a href="' + esc(indexing.gsc_link) + '" target="_blank" rel="noopener" style="color:var(--accent)">GSC 색인 상세</a>';
+                } else {
+                    metaEl.textContent = metaText;
+                }
+            }
+            var hist = (indexing.history || []).slice().sort(function(a, b) { return a.date.localeCompare(b.date); });
+            destroyChart('chart-index-history');
+            var histEl = document.getElementById('chart-index-history');
+            if (typeof Chart !== 'undefined' && histEl && hist.length) {
+                charts['chart-index-history'] = new Chart(histEl, {
+                    type: 'bar',
+                    data: {
+                        labels: hist.map(function(r) { return fmtDate(r.date); }),
+                        datasets: [
+                            { label: '색인 생성됨', data: hist.map(function(r) { return r.indexed; }), backgroundColor: '#34d399', stack: 's' },
+                            { label: '색인 안 됨', data: hist.map(function(r) { return r.not_indexed; }), backgroundColor: '#555', stack: 's' }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        interaction: chartInteraction(),
+                        plugins: { legend: { labels: { color: '#888', font: { size: 10 } } }, tooltip: chartTooltip() },
+                        scales: {
+                            x: { stacked: true, ticks: { color: '#666', maxTicksLimit: currentDays <= 14 ? 14 : (currentDays <= 28 ? 12 : 10) }, grid: { color: '#222' } },
+                            y: { stacked: true, ticks: { color: '#666' }, grid: { color: '#222' } }
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    function loadOverview() {
+        if (!currentSite) {
+            if (typeof showToast === 'function') showToast('사이트를 선택하세요');
+            return;
+        }
+        var btn = document.getElementById('btn-load-analytics');
+        var panels = document.getElementById('analytics-panels');
+        if (btn) { btn.disabled = true; btn.textContent = '불러오는 중…'; }
+        if (panels) panels.classList.add('loading');
+        var url = '/api/analytics/overview?site_id=' + encodeURIComponent(currentSite) + '&days=' + currentDays;
+        fetch(url).then(function(res) {
+            return res.json().then(function(data) {
+                if (!res.ok) throw new Error(data.error || '조회 실패');
+                renderGa4(data.ga4 || {});
+                renderGsc(data.gsc_daily || {}, data.gsc_queries || {}, data.gsc_query_daily || {}, data.gsc_indexing || {});
+            });
+        }).catch(function(e) {
+            if (typeof showToast === 'function') showToast(e.message || '로드 실패');
+        }).finally(function() {
+            if (btn) { btn.disabled = false; btn.textContent = '분석 불러오기'; }
+            if (panels) panels.classList.remove('loading');
+        });
+    }
+
+    var loadBtn = document.getElementById('btn-load-analytics');
+    if (loadBtn) loadBtn.onclick = loadOverview;
+})();
+</script>
+{% endblock %}

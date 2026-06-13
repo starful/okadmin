@@ -3,6 +3,17 @@ set -euo pipefail
 OKADMIN_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$OKADMIN_ROOT"
 
+# shellcheck source=scripts/okadmin_env.sh
+source "${OKADMIN_ROOT}/scripts/okadmin_env.sh"
+okadmin_env_init "${OKADMIN_ROOT}"
+
+OKADMIN_PYTHON="$(okadmin_resolve_python)"
+if ! "$OKADMIN_PYTHON" -c "import dotenv" 2>/dev/null; then
+  echo "❌ Python 패키지 없음 — 다음 실행 후 다시 시도:"
+  echo "   ${OKADMIN_PYTHON} -m pip install -r requirements.txt"
+  exit 1
+fi
+
 if [ ! -f .env ] || [ ! -f secrets/firebase-key.json ]; then
   if command -v gcloud >/dev/null 2>&1; then
     echo "Fetching secrets from GCP..."
@@ -49,4 +60,5 @@ if [ "${LOCAL_DEV_AUTH}" = "1" ]; then
   echo "🔓 LOCAL_DEV_AUTH=1 — Google 로그인 생략 (OAuth 쓰려면 LOCAL_DEV_AUTH=0 + GCP에 redirect URI 등록)"
 fi
 
-exec env LOCAL_DEV_AUTH="${LOCAL_DEV_AUTH}" DEV_LOGIN_EMAIL="${DEV_LOGIN_EMAIL}" python3 admin_server.py
+exec env LOCAL_DEV_AUTH="${LOCAL_DEV_AUTH}" DEV_LOGIN_EMAIL="${DEV_LOGIN_EMAIL}" \
+  "$OKADMIN_PYTHON" admin_server.py

@@ -18,6 +18,23 @@ chmod +x start.sh scripts/fetch_secrets.sh
 
 브라우저: **http://127.0.0.1:8090** (8080은 okcaddie 등 로컬 Flask와 겹치기 쉬움)
 
+### macOS — 앱처럼 더블클릭
+
+```bash
+/opt/homebrew/bin/python3 -m pip install pywebview pyobjc-framework-WebKit pyobjc-framework-Cocoa
+./scripts/build-macos-app.sh --install
+```
+
+| 앱 | 용도 |
+|----|------|
+| **OK Admin.app** | 네이티브 창 (사용) |
+| **OK Admin Dev.app** | 브라우저 (개발) |
+| **OK Admin Stop.app** | 서버 종료 |
+
+상세: [mac/README.md](mac/README.md)
+
+재기동: `./restart.sh`
+
 ## 메뉴
 
 | 메뉴 | 설명 |

@@ -5,12 +5,17 @@ from flask import Blueprint, jsonify, request
 
 from analytics_api import fetch_gsc_pages, fetch_ga4_summary, site_analytics_config
 from auth import requires_auth
-from config import COL_GSC_ACTIONS, COL_OPS_EVENTS, list_services, repo_path, work_root_available
+from config import COL_GSC_ACTIONS, COL_OPS_EVENTS, get_service, list_services, repo_path, work_root_available
 from git_ops import deploy_script_path
 from firestore_db import doc_to_dict, firestore_unavailable_message, get_db
+from gsc_hub_helpers import record_gsc_seo_calendar, seo_commit_message
 from gsc_run_store import gsc_last_runs, write_gsc_seo_run
-from gsc_seo_worker import load_dashboard, run_seo_jobs
-from gsc_service import indexing_export_lines, low_ctr_high_impression, priority_snippet
+from gsc_seo_worker import delete_url_content_files, load_dashboard, run_seo_jobs
+from gsc_service import (
+    analyze_gsc_page_patterns,
+    indexing_export_lines,
+    priority_snippet,
+)
 
 gsc_bp = Blueprint("gsc", __name__, url_prefix="/api/gsc")
 
@@ -78,18 +83,75 @@ def gsc_run_seo():
     urls = [str(u).strip() for u in raw_urls if u and str(u).strip()][:20]
     if not urls:
         return jsonify({"error": "urls required — 표에서 URL을 선택하세요"}), 400
-    apply_files = bool(body.get("apply", True))
-    result = run_seo_jobs(site_id, urls=urls, apply_files=apply_files)
+    apply_files = True
+    raw_patterns = body.get("patterns")
+    url_patterns: dict[str, str] = {}
+    if isinstance(raw_patterns, dict):
+        for k, v in raw_patterns.items():
+            uk = str(k).strip()
+            pv = str(v).strip()
+            if uk and pv in ("low_ctr", "low_impression"):
+                url_patterns[uk] = pv
+    if url_patterns:
+        distinct = {v for v in url_patterns.values() if v in ("low_ctr", "low_impression")}
+        if len(distinct) > 1:
+            return jsonify(
+                {"error": "한 패턴씩만 SEO 실행할 수 있습니다 (저CTR 또는 저노출 중 하나)"}
+            ), 400
+    result = run_seo_jobs(
+        site_id,
+        urls=urls,
+        apply_files=apply_files,
+        url_patterns=url_patterns or None,
+    )
     results = result.get("results") or []
     seo_ok = bool(results) and any(
-        r.get("status") in ("applied", "suggested", "suggested_no_file", "no_changes")
+        r.get("status") in ("applied", "no_changes")
         for r in results
     )
     write_gsc_seo_run(site_id, result, ok=seo_ok)
+    result["calendar_event"] = record_gsc_seo_calendar(site_id, result)
+    result["calendar_skipped"] = result["calendar_event"] is None
+    result["suggested_commit_message"] = seo_commit_message(site_id, result)
     result["last_runs"] = gsc_last_runs(site_id)
+    from gsc_url_store import url_history_meta
+
+    result["url_history"] = url_history_meta(site_id)
     if result.get("error") and not result.get("results"):
         return jsonify(result), 400
     return jsonify(result)
+
+
+@gsc_bp.route("/delete-files", methods=["POST"])
+@requires_auth
+def gsc_delete_files():
+    body = request.get_json(silent=True) or {}
+    site_id = (body.get("site_id") or "").strip()
+    if not site_id:
+        return jsonify({"error": "site_id required"}), 400
+    raw_urls = body.get("urls") or []
+    if isinstance(raw_urls, str):
+        raw_urls = [raw_urls]
+    urls = [str(u).strip() for u in raw_urls if u and str(u).strip()][:20]
+    if not urls:
+        return jsonify({"error": "urls required"}), 400
+    if not work_root_available():
+        return jsonify({"error": "WORK_ROOT not available"}), 503
+    result = delete_url_content_files(site_id, urls)
+    if result.get("error") and not result.get("results"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@gsc_bp.route("/url-history")
+@requires_auth
+def gsc_url_history():
+    from gsc_url_store import url_history_meta
+
+    site_id = (request.args.get("site_id") or "").strip()
+    if not site_id:
+        return jsonify({"error": "site_id required"}), 400
+    return jsonify({"site_id": site_id, "urls": url_history_meta(site_id)})
 
 
 @gsc_bp.route("/actions", methods=["GET"])
@@ -213,9 +275,7 @@ def gsc_api_fetch():
         return jsonify({"error": "gsc_site_url not configured in sites.yaml analytics"}), 400
     result = fetch_gsc_pages(gsc_url)
     if result and result.get("rows"):
-        result["analysis"] = {
-            "low_ctr": low_ctr_high_impression(result["rows"], key="page"),
-        }
+        result["analysis"] = analyze_gsc_page_patterns(result["rows"], key="page")
     return jsonify(result or {"error": "fetch failed"})
 
 

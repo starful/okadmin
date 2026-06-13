@@ -9,12 +9,12 @@ from flask import Flask, request, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from auth import auth_bp
+from blueprints.analytics_bp import analytics_bp
 from blueprints.calendar_api import calendar_bp
 from blueprints.content_bp import content_bp
 from blueprints.gsc_bp import gsc_bp
 from blueprints.hub import hub_bp
 from blueprints.images import images_bp
-from blueprints.oktemplate_bp import oktemplate_bp
 from blueprints.ops import ops_bp
 from blueprints.pages import pages_bp
 from blueprints.schedule import schedule_bp
@@ -64,8 +64,8 @@ def create_app() -> Flask:
     app.register_blueprint(schedule_bp)
     app.register_blueprint(ops_bp)
     app.register_blueprint(images_bp)
-    app.register_blueprint(oktemplate_bp)
     app.register_blueprint(gsc_bp)
+    app.register_blueprint(analytics_bp)
     app.register_blueprint(content_bp)
 
     return app

@@ -10,3 +10,6 @@ google-api-python-client
 google-analytics-data
 google-auth-oauthlib
 google-generativeai
+pywebview
+pyobjc-framework-WebKit
+pyobjc-framework-Cocoa

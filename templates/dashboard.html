@@ -2,47 +2,51 @@
 {% block title %}대시보드{% endblock %}
 {% block head %}
 <style>
-    .dash-metrics {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-top: 12px;
-    }
-    .dash-metric-box {
+    .dash-last-runs {
+        margin: 8px 0 10px;
+        padding: 8px;
         background: #000;
         border: 1px solid var(--border);
         border-radius: 8px;
-        padding: 10px;
         font-family: 'DM Mono', monospace;
         font-size: 10px;
     }
-    .dash-metric-box h4 {
-        margin: 0 0 8px;
+    .dash-last-runs .row { display: flex; justify-content: space-between; margin: 3px 0; color: #777; gap: 8px; }
+    .dash-last-runs .v { color: #bbb; }
+    .dash-last-runs .ok { color: #6a8; }
+    .dash-last-runs .err { color: #a66; }
+    .dash-last-runs .due {
         font-size: 10px;
-        color: #888;
         font-weight: 700;
-        letter-spacing: 0.5px;
+        text-align: right;
+        white-space: nowrap;
     }
-    .dash-metric-box .row { display: flex; justify-content: space-between; margin: 3px 0; color: #aaa; }
-    .dash-metric-box .row b { color: var(--accent); font-weight: 700; }
-    .dash-metric-box .err { color: #a66; font-size: 9px; line-height: 1.4; }
-    .dash-metric-box .period { color: #555; font-size: 9px; margin-top: 6px; }
-    .dash-gsc-link { display: inline-block; margin-top: 10px; font-size: 11px; color: var(--accent); text-decoration: none; font-weight: 700; }
-    .dash-gsc-link:hover { text-decoration: underline; }
+    .dash-last-runs .due.ok { color: #8a8; }
+    .dash-last-runs .due.soon { color: var(--accent); }
+    .dash-last-runs .due.today { color: #f90; }
+    .dash-last-runs .due.overdue { color: #f88; }
+    .dash-last-runs .due.never { color: #a88; }
+    .dash-last-runs .sub {
+        display: block;
+        font-size: 9px;
+        color: #555;
+        margin-top: 1px;
+        text-align: right;
+    }
     .dash-logs {
         margin-top: 12px;
-        padding: 10px;
+        padding: 8px;
         background: #000;
         border: 1px solid var(--border);
         border-radius: 8px;
         font-family: 'DM Mono', monospace;
-        font-size: 10px;
+        font-size: 9px;
     }
-    .dash-logs h4 { margin: 0 0 6px; font-size: 10px; color: #888; }
-    .dash-logs .line { color: #888; margin: 2px 0; word-break: break-all; }
+    .dash-logs h4 { margin: 0 0 4px; font-size: 9px; color: #888; }
+    .dash-logs .line { color: #888; margin: 1px 0; word-break: break-all; line-height: 1.35; }
     .dash-logs pre {
-        margin: 6px 0 0;
-        max-height: 100px;
+        margin: 4px 0 0;
+        max-height: 72px;
         overflow: auto;
         color: #8a8;
         white-space: pre-wrap;
@@ -51,70 +55,121 @@
     .dash-logs .tag-ok { color: #6a6; }
     .dash-logs .tag-err { color: #f88; }
     .dash-global-log pre { max-height: 200px; }
+    .dash-card { cursor: grab; }
+    .dash-card.dragging {
+        opacity: 0.5;
+        cursor: grabbing;
+    }
+    .dash-card.drop-target {
+        outline: 2px dashed var(--accent);
+        outline-offset: -4px;
+    }
+    .dash-card.pipe-running { border-color: #a80; box-shadow: 0 0 0 1px #a804; }
+    .dash-card.pipe-done-ok { border-color: #4a4; }
+    .dash-card.pipe-done-err { border-color: #a44; }
+    .dash-toolbar {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+    }
+    .dash-pipeline {
+        margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+        font-family: 'DM Mono', monospace; font-size: 10px;
+    }
+    .pipe-summary { color: var(--accent); margin: 0 0 8px; }
+    .pipe-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .btn-sm { font-size: 10px !important; padding: 5px 8px !important; flex: 1; min-width: 72px; }
+    .pipe-run { width: 100%; margin-top: 4px; }
+    .result-panel { margin-top: 28px; }
+    .result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+    .result-head h2 { margin: 0; font-size: 15px; }
+    .result-badge {
+        font-family: 'DM Mono'; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px;
+    }
+    .result-badge.ok { background: #1a2e1a; color: #8f8; }
+    .result-badge.err { background: #2e1a1a; color: #f88; }
+    .result-badge.run { background: #2e2a1a; color: #fa0; }
+    .result-badge.idle { background: #1a1a1a; color: #666; }
+    .phase-track { display: flex; gap: 8px; margin-bottom: 12px; font-family: 'DM Mono'; font-size: 10px; }
+    .phase-step {
+        flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+        background: #0a0a0a; color: #555; text-align: center;
+    }
+    .phase-step.active { border-color: #a80; color: #fa0; background: #1a1608; }
+    .phase-step.done { border-color: #4a4; color: #8c8; background: #0f1a0f; }
+    .summary-lines { list-style: none; margin: 0; padding: 0; font-family: 'DM Mono'; font-size: 11px; line-height: 1.6; }
+    .summary-lines li { padding: 2px 0; color: #ccc; }
+    .log-snippet {
+        margin-top: 12px; padding: 10px 12px; background: #000; border: 1px solid var(--border);
+        border-radius: 8px; font-family: 'DM Mono'; font-size: 10px; color: #8a8;
+        white-space: pre-wrap; max-height: 140px; overflow: auto;
+    }
+    .log-label { font-family: 'DM Mono'; font-size: 10px; color: #666; margin: 10px 0 4px; }
+    details.log-full summary { cursor: pointer; font-family: 'DM Mono'; font-size: 10px; color: #666; margin-top: 10px; }
+    details.log-full pre {
+        margin-top: 8px; padding: 10px; background: #000; border: 1px solid var(--border);
+        border-radius: 8px; font-size: 10px; color: #666; max-height: 220px; overflow: auto; white-space: pre-wrap;
+    }
+    .dash-git-row {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .dash-git-row .dash-git-push {
+        flex: 0 0 auto;
+        background: var(--accent) !important;
+        color: #000 !important;
+        border: none !important;
+        font-weight: 800;
+        padding: 5px 12px !important;
+        min-width: 0;
+        font-size: 11px !important;
+    }
+    .dash-git-row .dash-git-push:disabled { opacity: .45; }
 </style>
 {% endblock %}
 {% block content %}
 <h1>대시보드</h1>
-<p class="sub">sites.yaml · Git · 운영 로그 · Push/Deploy는 <a href="{{ url_for('pages.gsc_page') }}" style="color:var(--accent)">GSC</a></p>
-<div class="card dash-analytics-bar" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
-    <span class="mono" style="color:#888;font-size:11px">GA4/GSC 지표는 필요할 때만 불러옵니다 (전체 사이트 API 호출 · 1~2분 소요 가능)</span>
-    <button type="button" class="btn" id="btn-load-analytics">GA4/GSC 불러오기</button>
+<p class="sub">사이트 상태 · 남은 콘텐츠 · 원클릭 생성 · Git · GSC/SEO</p>
+{% if not work_root_ok %}
+<div class="warn">WORK_ROOT(/opt/work) 없음 — 콘텐츠 생성·Git 비활성</div>
+{% endif %}
+<div class="dash-toolbar">
+    <button type="button" class="btn btn-ghost" id="btn-refresh-all-backlog" onclick="refreshBacklog()">전체 건수 새로고침</button>
 </div>
 <div class="card dash-global-log" id="global-log-card" style="display:none">
     <h3 style="margin-top:0">Auto Register · 최근 로그</h3>
     <p class="mono" id="global-log-meta" style="color:#666;font-size:10px">—</p>
     <pre class="mono" id="global-log-tail" style="color:#8a8;white-space:pre-wrap;max-height:200px;overflow:auto;margin:8px 0">—</pre>
-    <a href="{{ url_for('pages.ops_page') }}" class="dash-gsc-link">운영 · 콘텐츠 →</a>
 </div>
 <div id="loading" class="mono">로딩 중…</div>
 <div id="sites-grid" class="grid-sites"></div>
+
+<div class="result-panel card" id="result-panel">
+    <div class="result-head">
+        <h2>콘텐츠 결과 <span class="mono" id="result-site" style="color:#666;font-size:11px;font-weight:400"></span></h2>
+        <span class="result-badge idle" id="result-badge">—</span>
+    </div>
+    <div class="phase-track" id="phase-track" style="display:none">
+        <div class="phase-step" id="phase-generate">① 생성·빌드</div>
+        <div class="phase-step" id="phase-deploy">② 배포</div>
+    </div>
+    <ul class="summary-lines" id="summary-lines">
+        <li style="color:#666">카드에서 「콘텐츠 생성」을 누르면 여기에 진행 상황이 표시됩니다.</li>
+    </ul>
+    <p class="log-label" id="log-label" style="display:none"></p>
+    <div class="log-snippet" id="log-snippet" style="display:none"></div>
+    <details class="log-full" id="log-full" style="display:none">
+        <summary>상세 로그 보기</summary>
+        <pre id="log-full-text"></pre>
+    </details>
+</div>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='pipeline.js') }}"></script>
 <script>
+const DASH_ORDER_KEY = 'okadmin_dashboard_site_order_v1';
+let dragSourceSiteId = '';
+
 function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-}
-
-function fmtNum(n) {
-    const x = Number(n);
-    return Number.isFinite(x) ? x.toLocaleString() : '—';
-}
-
-function fmtPct(ctr) {
-    const x = Number(ctr);
-    return Number.isFinite(x) ? (x * 100).toFixed(2) + '%' : '—';
-}
-
-function renderMetricBox(title, data) {
-    if (!data || data.error) {
-        return `<div class="dash-metric-box"><h4>${title}</h4><div class="err">${escapeHtml(data?.error || '—')}</div></div>`;
-    }
-    const period = (data.start && data.end) ? `${data.start} ~ ${data.end}` : '';
-    if (title === 'GA4') {
-        return `<div class="dash-metric-box"><h4>GA4 · 28일</h4>
-            <div class="row"><span>세션</span><b>${fmtNum(data.sessions)}</b></div>
-            <div class="row"><span>사용자</span><b>${fmtNum(data.users)}</b></div>
-            <div class="row"><span>페이지뷰</span><b>${fmtNum(data.pageviews)}</b></div>
-            ${period ? `<div class="period">${escapeHtml(period)}</div>` : ''}
-        </div>`;
-    }
-    return `<div class="dash-metric-box"><h4>GSC · 28일</h4>
-        <div class="row"><span>클릭</span><b>${fmtNum(data.clicks)}</b></div>
-        <div class="row"><span>노출</span><b>${fmtNum(data.impressions)}</b></div>
-        <div class="row"><span>CTR</span><b>${fmtPct(data.ctr)}</b></div>
-        <div class="row"><span>순위</span><b>${Number.isFinite(Number(data.position)) ? Number(data.position).toFixed(1) : '—'}</b></div>
-        ${period ? `<div class="period">${escapeHtml(period)}</div>` : ''}
-    </div>`;
-}
-
-function analyticsHtml(siteId, analytics) {
-    const a = analytics || {};
-    const hasAny = a.ga4 && !a.ga4.error || a.gsc && !a.gsc.error;
-    return `<div class="dash-metrics">
-        ${renderMetricBox('GA4', a.ga4)}
-        ${renderMetricBox('GSC', a.gsc)}
-    </div>
-    ${hasAny ? `<a class="dash-gsc-link" href="/gsc" onclick="sessionStorage.setItem('okadmin_gsc_site','${escapeHtml(siteId)}')">GSC 상세 · SEO →</a>` : ''}`;
 }
 
 function logsHtml(siteId, logs) {
@@ -122,18 +177,18 @@ function logsHtml(siteId, logs) {
     let html = '<div class="dash-logs">';
     if (logs.git_commits?.length) {
         html += '<h4>Git 최근 커밋</h4>';
-        logs.git_commits.forEach(c => {
+        logs.git_commits.slice(0, 3).forEach(c => {
             html += `<div class="line">${escapeHtml(c)}</div>`;
         });
     }
     if (logs.auto_register?.length) {
         html += '<h4 style="margin-top:8px">Auto Register (오늘 로그)</h4>';
-        logs.auto_register.forEach(l => {
+        logs.auto_register.slice(-4).forEach(l => {
             html += `<div class="line">${escapeHtml(l)}</div>`;
         });
     }
     if (logs.deploy?.length) {
-        logs.deploy.forEach(d => {
+        logs.deploy.slice(0, 1).forEach(d => {
             const cls = d.state === 'success' ? 'tag-ok' : d.state === 'failed' ? 'tag-err' : '';
             html += `<h4 style="margin-top:8px" class="${cls}">Deploy · ${escapeHtml(d.mtime)} · ${escapeHtml(d.state)}</h4>`;
             html += `<pre>${escapeHtml(d.tail || '')}</pre>`;
@@ -144,6 +199,32 @@ function logsHtml(siteId, logs) {
     }
     html += '</div>';
     return html;
+}
+
+function dueRow(label, lastAt, schedule, dueLabel, intervalDays) {
+    const st = (schedule && schedule.status) || 'never';
+    const dueCls = ['ok', 'soon', 'today', 'overdue', 'never'].includes(st) ? st : 'never';
+    const intervalHint = intervalDays ? ` · ${intervalDays}일 주기` : '';
+    const lastLine = lastAt && lastAt !== '—'
+        ? `<span class="sub">최근 ${escapeHtml(lastAt)}</span>`
+        : `<span class="sub">실행 기록 없음</span>`;
+    return `<div class="row">
+        <span>${escapeHtml(label)}${intervalHint}</span>
+        <span>
+            <span class="due ${dueCls}">${escapeHtml(dueLabel || '—')}</span>
+            ${lastLine}
+        </span>
+    </div>`;
+}
+
+function lastRunsHtml(logs) {
+    if (!logs) return '';
+    const gscAt = logs.last_gsc_response_at || '—';
+    const contentAt = logs.last_content_added_at || '—';
+    return `<div class="dash-last-runs">
+        ${dueRow('최종 GSC 대응', gscAt, logs.gsc_schedule, logs.gsc_due_label, 14)}
+        ${dueRow('최종 콘텐츠 추가', contentAt, logs.content_schedule, logs.content_due_label, 7)}
+    </div>`;
 }
 
 function renderGlobalLogs(global) {
@@ -158,10 +239,11 @@ function renderGlobalLogs(global) {
     document.getElementById('global-log-tail').textContent = global.log_tail || '(비어 있음)';
 }
 
-function renderSitesGrid(sites, analytics, logData) {
+function renderSitesGrid(sites, logData) {
     renderGlobalLogs(logData.global);
     const grid = document.getElementById('sites-grid');
-    grid.innerHTML = sites.map(s => {
+    const displaySites = sortSitesBySavedOrder(sites);
+    grid.innerHTML = displaySites.map(s => {
         if (s.id === 'okadmin') return '';
         const links = s.links || {};
         const git = s.git_summary;
@@ -170,7 +252,8 @@ function renderSitesGrid(sites, analytics, logData) {
         else if (git && git.error) gitHtml = `<span class="mono" style="color:#a66">${escapeHtml(git.error)}</span>`;
         else if (git) {
             const badge = git.dirty ? '<span class="badge badge-dirty">dirty</span>' : '<span class="badge badge-clean">clean</span>';
-            gitHtml = `${badge} <span class="mono">${escapeHtml(git.branch || '')}</span>`;
+            gitHtml = `<div class="dash-git-row">${badge}<span class="mono">${escapeHtml(git.branch || 'main')}</span>
+                <button type="button" class="btn btn-sm dash-git-push" data-site-id="${escapeHtml(s.id)}">Push</button></div>`;
         } else if (s.git) gitHtml = '<span class="mono" style="color:#666">(WORK_ROOT 없음)</span>';
 
         const linkBtns = [
@@ -179,25 +262,176 @@ function renderSitesGrid(sites, analytics, logData) {
             links.gsc && `<a href="${links.gsc}" target="_blank" rel="noreferrer" class="btn btn-ghost" style="display:inline-block;text-decoration:none;margin:2px">GSC</a>`,
         ].filter(Boolean).join('');
 
-        return `<div class="card">
+        return `<div class="card dash-card" draggable="true" data-site-id="${escapeHtml(s.id)}">
             <div style="font-weight:800;font-size:16px;margin-bottom:8px">${escapeHtml(s.label || s.id)}</div>
             <div class="mono" style="color:#555;margin-bottom:8px">${escapeHtml(s.id)}</div>
             <div style="margin-bottom:8px">${linkBtns || '<span class="mono">—</span>'}</div>
             <div style="margin-bottom:4px">${gitHtml}</div>
-            ${analyticsHtml(s.id, analytics[s.id])}
+            ${lastRunsHtml((logData.sites || {})[s.id])}
+            ${typeof pipelineActionsHtml === 'function' ? pipelineActionsHtml(pipelineForSite(s.id)) : ''}
             ${logsHtml(s.id, logData.sites[s.id])}
         </div>`;
     }).join('');
+    bindDashboardCardDnD();
+}
+
+function loadSavedSiteOrder() {
+    try {
+        const raw = localStorage.getItem(DASH_ORDER_KEY);
+        const arr = JSON.parse(raw || '[]');
+        return Array.isArray(arr) ? arr.map(String) : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function saveSiteOrderFromDom() {
+    const cards = Array.from(document.querySelectorAll('#sites-grid .dash-card[data-site-id]'));
+    const order = cards.map(c => c.dataset.siteId).filter(Boolean);
+    try { localStorage.setItem(DASH_ORDER_KEY, JSON.stringify(order)); } catch (_) {}
+}
+
+function sortSitesBySavedOrder(sites) {
+    const order = loadSavedSiteOrder();
+    if (!order.length) return sites;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return [...sites].sort((a, b) => {
+        const ra = rank.has(a.id) ? rank.get(a.id) : 9999;
+        const rb = rank.has(b.id) ? rank.get(b.id) : 9999;
+        if (ra !== rb) return ra - rb;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+    });
+}
+
+function bindDashboardCardDnD() {
+    const grid = document.getElementById('sites-grid');
+    const cards = Array.from(grid.querySelectorAll('.dash-card[data-site-id]'));
+    if (!cards.length) return;
+
+    const clearDropTargets = () => {
+        grid.querySelectorAll('.dash-card.drop-target').forEach(c => c.classList.remove('drop-target'));
+    };
+
+    const sourceEl = () => grid.querySelector('.dash-card.dragging');
+
+    const getDragAfterElement = (x, y) => {
+        const candidates = Array.from(grid.querySelectorAll('.dash-card[data-site-id]:not(.dragging)'));
+        if (!candidates.length) return null;
+        let nearest = null;
+        let minDist = Number.POSITIVE_INFINITY;
+        for (const el of candidates) {
+            const r = el.getBoundingClientRect();
+            const cx = r.left + r.width / 2;
+            const cy = r.top + r.height / 2;
+            const dist = Math.hypot(x - cx, y - cy);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = el;
+            }
+        }
+        if (!nearest) return null;
+        const r = nearest.getBoundingClientRect();
+        const before = (y < (r.top + r.bottom) / 2) || (Math.abs(y - (r.top + r.bottom) / 2) < 8 && x < (r.left + r.right) / 2);
+        return { el: nearest, before };
+    };
+
+    cards.forEach(card => {
+        card.addEventListener('dragstart', (e) => {
+            dragSourceSiteId = card.dataset.siteId || '';
+            card.classList.add('dragging');
+            if (e.dataTransfer) {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', dragSourceSiteId);
+            }
+        });
+        card.addEventListener('dragend', () => {
+            card.classList.remove('dragging');
+            clearDropTargets();
+            saveSiteOrderFromDom();
+        });
+    });
+
+    grid.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const src = sourceEl();
+        if (!src) return;
+        const pos = getDragAfterElement(e.clientX, e.clientY);
+        clearDropTargets();
+        if (!pos || !pos.el) return;
+        pos.el.classList.add('drop-target');
+        if (pos.before) {
+            pos.el.before(src);
+        } else {
+            pos.el.after(src);
+        }
+    });
+
+    grid.addEventListener('drop', (e) => {
+        e.preventDefault();
+        clearDropTargets();
+        saveSiteOrderFromDom();
+    });
+}
+
+async function dashSitePush(siteId, btn) {
+    if (!siteId) return;
+    const label = btn?.textContent || 'Push';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '푸시…';
+    }
+    try {
+        const res = await fetch(`/api/sites/${encodeURIComponent(siteId)}/push`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        });
+        const d = await res.json();
+        if (!res.ok || d.error) {
+            showToast(d.error || d.message || 'Push 실패');
+            return;
+        }
+        showToast(d.message || 'Push 완료');
+        const sitesRes = await fetch('/api/sites');
+        window.__dashSites = await sitesRes.json();
+        if (window.__dashSites) loadDashboardLogs(window.__dashSites);
+    } catch (_) {
+        showToast('Push 실패');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = label;
+        }
+    }
 }
 
 async function loadSites() {
     document.getElementById('loading').textContent = '사이트 목록 로딩…';
     const sitesRes = await fetch('/api/sites');
     const sites = await sitesRes.json();
+    window.__dashSites = sites;
     document.getElementById('loading').style.display = 'none';
-    renderSitesGrid(sites, {}, { global: {}, sites: {} });
-
+    renderSitesGrid(sites, { global: {}, sites: {} });
+    loadPipelines();
     loadDashboardLogs(sites);
+}
+
+window.rerenderDashboard = function rerenderDashboard() {
+    const sites = window.__dashSites;
+    if (!sites) return;
+    const logData = window.__dashLogData || { global: {}, sites: {} };
+    renderSitesGrid(sites, logData);
+    updatePipelineCardStates();
+};
+
+function fetchTimeout(ms) {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        return AbortSignal.timeout(ms);
+    }
+    const ctrl = new AbortController();
+    setTimeout(function() { ctrl.abort(); }, ms);
+    return ctrl.signal;
 }
 
 async function loadDashboardLogs(sites) {
@@ -206,41 +440,21 @@ async function loadDashboardLogs(sites) {
     loading.textContent = '운영 로그 로딩…';
     let logData = { global: {}, sites: {} };
     try {
-        const logsRes = await fetch('/api/dashboard/logs', { signal: AbortSignal.timeout(30000) });
+        const logsRes = await fetch('/api/dashboard/logs', { signal: fetchTimeout(30000) });
         try { logData = await logsRes.json(); } catch (_) {}
     } catch (_) {}
     loading.style.display = 'none';
     window.__dashLogData = logData;
-    const analytics = window.__dashAnalytics || {};
-    renderSitesGrid(sites, analytics, logData);
+    renderSitesGrid(sites, logData);
 }
 
-async function loadAnalyticsOnly(sites) {
-    const loading = document.getElementById('loading');
-    loading.style.display = 'block';
-    loading.textContent = 'GA4/GSC 로딩… (사이트마다 최대 ~20초)';
-    let analytics = {};
-    try {
-        const analyticsRes = await fetch('/api/sites/analytics-summary', { signal: AbortSignal.timeout(180000) });
-        try { analytics = await analyticsRes.json(); } catch (_) {}
-    } catch (_) {}
-    loading.style.display = 'none';
-    window.__dashAnalytics = analytics;
-    const logData = window.__dashLogData || { global: {}, sites: {} };
-    renderSitesGrid(sites, analytics, logData);
-}
-
-(function initAnalyticsButton() {
-    const btn = document.getElementById('btn-load-analytics');
-    if (!btn) return;
-    btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        btn.textContent = '불러오는 중…';
-        const sitesRes = await fetch('/api/sites');
-        const sites = await sitesRes.json();
-        await loadAnalyticsOnly(sites);
-        btn.disabled = false;
-        btn.textContent = 'GA4/GSC 불러오기';
+(function initDashGitPush() {
+    const grid = document.getElementById('sites-grid');
+    if (!grid) return;
+    grid.addEventListener('click', (e) => {
+        const btn = e.target.closest('.dash-git-push');
+        if (!btn || btn.disabled) return;
+        dashSitePush(btn.dataset.siteId, btn);
     });
 })();
 

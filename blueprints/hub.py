@@ -1,12 +1,8 @@
 """Dashboard API: sites registry + git summary + push/deploy."""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
-
 from flask import Blueprint, jsonify, request
 
-from analytics_api import site_analytics_compact
 from auth import requires_auth
 from hub_logs import dashboard_logs
 from config import get_service, list_services, repo_path, work_root_available
@@ -45,41 +41,6 @@ def api_sites():
 def api_dashboard_logs():
     """Auto-register / deploy / git commit snippets for dashboard."""
     return jsonify(dashboard_logs())
-
-
-@hub_bp.route("/sites/analytics-summary")
-@requires_auth
-def api_sites_analytics_summary():
-    """Per-site GA4 + GSC totals (28d) for dashboard."""
-    site_ids = [
-        svc.get("id") or ""
-        for svc in list_services()
-        if svc.get("id") not in ("okadmin",)
-    ]
-    items: dict[str, Any] = {}
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {
-            pool.submit(site_analytics_compact, sid): sid for sid in site_ids
-        }
-        for fut in as_completed(futures, timeout=120):
-            sid = futures[fut]
-            try:
-                items[sid] = fut.result(timeout=1)
-            except Exception as exc:
-                err = str(exc)[:120]
-                items[sid] = {
-                    "ga4": {"error": err},
-                    "gsc": {"error": err},
-                }
-    for sid in site_ids:
-        items.setdefault(
-            sid,
-            {
-                "ga4": {"error": "조회 시간 초과"},
-                "gsc": {"error": "조회 시간 초과"},
-            },
-        )
-    return jsonify(items)
 
 
 @hub_bp.route("/sites/<site_id>")

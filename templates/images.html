@@ -26,7 +26,7 @@
 {% endblock %}
 {% block content %}
 <h1>GCS 이미지</h1>
-<p class="sub">Places · 업로드 (기존 OK Admin)</p>
+<p class="sub">GCS 업로드 = 사이트 즉시 반영 (로컬 파일 무시)</p>
 <div class="site-tabs" id="site-tabs"></div>
 <input type="text" class="search-bar" placeholder="이미지 검색..." oninput="filterGrid(this.value)">
 <div id="grid-container"></div>
@@ -49,7 +49,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let currentSite = '', allData = [], selectedPhoto = '', currentSlug = '';
+let currentSite = '', allData = [], selectedPhoto = '', currentSlug = '', currentFilename = '';
 const sitesCfg = {{ sites | tojson }};
 const siteIds = Object.keys(sitesCfg);
 const tabs = document.getElementById('site-tabs');
@@ -92,7 +92,7 @@ function renderGrid(data) {
         const card = document.createElement('div');
         card.className = 'img-card';
         card.onclick = () => openModal(img);
-        card.innerHTML = `<img src="${img.url}?t=${Date.now()}" loading="lazy"><div class="card-body">${img.slug}<br>${img.size_kb} KB</div>`;
+        card.innerHTML = `<img src="${img.url}?t=${Date.now()}" loading="lazy"><div class="card-body">${img.display_filename || img.filename}<br>${img.size_kb} KB</div>`;
         currentGroup.appendChild(card);
     });
 }
@@ -100,9 +100,9 @@ function filterGrid(q) {
     renderGrid(allData.filter(d => d.slug.toLowerCase().includes(q.toLowerCase())));
 }
 async function openModal(img) {
-    currentSlug = img.slug; selectedPhoto = '';
-    document.getElementById('modal-title').innerText = img.slug;
-    document.getElementById('modal-img').src = img.url;
+    currentSlug = img.slug; currentFilename = img.display_filename || img.filename || ''; selectedPhoto = '';
+    document.getElementById('modal-title').innerText = img.display_filename || img.filename || img.slug;
+    document.getElementById('modal-img').src = img.url + '?t=' + Date.now();
     const promptArea = document.getElementById('prompt-area');
     if (sitesCfg[currentSite].prompt_template) {
         document.getElementById('prompt-text').innerText = sitesCfg[currentSite].prompt_template.replace('[{slug}]', `[${img.slug}]`);
@@ -126,15 +126,30 @@ function selectPhoto(el, ph) {
 }
 async function applyReplace() {
     const res = await fetch('/api/replace/places', { method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ site_id: currentSite, slug: currentSlug, photo_name: selectedPhoto }) });
-    if ((await res.json()).ok) { showToast('교체 완료'); closeModal(); selectSite(currentSite); }
+        body: JSON.stringify({ site_id: currentSite, slug: currentSlug, filename: currentFilename, photo_name: selectedPhoto }) });
+    const data = await res.json();
+    if (data.ok) {
+        const extra = (data.aliases && data.aliases.length) ? ` (+ ${data.aliases.join(', ')})` : '';
+        showToast('교체 완료' + extra);
+        closeModal(); selectSite(currentSite);
+    } else {
+        showToast(data.error || '교체 실패');
+    }
 }
 async function uploadImg() {
     const file = document.getElementById('file-input').files[0];
     const fd = new FormData();
     fd.append('file', file); fd.append('site_id', currentSite); fd.append('slug', currentSlug);
+    fd.append('filename', currentFilename);
     const res = await fetch('/api/replace/upload', { method: 'POST', body: fd });
-    if ((await res.json()).ok) { showToast('업로드 완료'); closeModal(); selectSite(currentSite); }
+    const data = await res.json();
+    if (data.ok) {
+        const extra = (data.aliases && data.aliases.length) ? ` (+ ${data.aliases.join(', ')})` : '';
+        showToast('업로드 완료' + extra);
+        closeModal(); selectSite(currentSite);
+    } else {
+        showToast(data.error || '업로드 실패');
+    }
 }
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
 </script>
