@@ -961,6 +961,10 @@ def _execute_pipeline(
 
         logf.write(f"\n[{datetime.now():%F %T}] Pipeline OK\n")
 
+        warn = _content_generation_warning(steps_out)
+        if warn:
+            logf.write(f"⚠ content: {warn}\n")
+
     payload: dict[str, Any] = {
         "ok": True,
         "site_id": site_id,
@@ -968,11 +972,9 @@ def _execute_pipeline(
         "log_path": str(log_path),
         "message": f"{site_id} 콘텐츠 파이프라인 완료",
     }
-    warn = _content_generation_warning(steps_out)
     if warn:
         payload["content_warning"] = warn
         payload["message"] = f"{site_id} 완료 — {warn}"
-        logf.write(f"⚠ content: {warn}\n")
     return _stamp_pipeline_result(payload)
 
 
@@ -1600,6 +1602,14 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
             {"label": "배포", "cap": "git + GCS + Cloud Build", "note": "생성 성공 후"},
         ]
+    elif site_id == "okstats":
+        parts = [
+            {"label": "가이드", "cap": f"토픽 {guide_n}개", "note": "없는 en/ko MD"},
+            {"label": "이미지", "cap": "Imagen + optimize", "note": "신규 MD만"},
+            {"label": "빌드", "cap": "build_data 1회", "note": ""},
+            {"label": "GCS", "cap": "statfacts/", "note": "생성 후"},
+            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
+        ]
     elif site_id == "starful.biz":
         parts = [
             {"label": "가이드 MD", "cap": f"최대 {item_n}건", "note": "없는 MD만"},
@@ -1634,6 +1644,57 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
     if len(parts) > 3:
         summary += " …"
     return {"parts": parts, "summary": summary or "—"}
+
+
+def _latest_pipeline_section(log_text: str, site_id: str = "") -> str:
+    if not log_text:
+        return ""
+    if site_id:
+        pattern = rf"\n#+ *\n# {re.escape(site_id)} pipeline "
+    else:
+        pattern = r"\n#+ *\n# .+ pipeline "
+    matches = list(re.finditer(pattern, log_text))
+    if not matches:
+        return log_text
+    return log_text[matches[-1].start():]
+
+
+def _extract_created_from_log(log_text: str, *, site_id: str = "") -> list[str]:
+    """Parse generator output lines for files created in the latest pipeline run."""
+    section = _latest_pipeline_section(log_text, site_id)
+    created: list[str] = []
+    seen: set[str] = set()
+    if not log_text:
+        return created
+    for line in section.splitlines():
+        for pat in (
+            r"✅ \[Done\] (\S+)",
+            r"✅ Image generated: (\S+)\.jpg",
+        ):
+            m = re.search(pat, line)
+            if not m:
+                continue
+            name = m.group(1)
+            if name in seen:
+                continue
+            seen.add(name)
+            created.append(name)
+    return created
+
+
+def _label_created_item(name: str) -> str:
+    if name.endswith(".jpg"):
+        return f"이미지 · {name}"
+    if name.endswith("_en.md") or name.endswith("_ko.md"):
+        stem = name.replace("_en.md", "").replace("_ko.md", "")
+        if stem.startswith("guide_"):
+            return f"가이드 · {stem.replace('guide_', '')}"
+        return f"MD · {stem}"
+    if name.endswith(".md"):
+        return f"MD · {name.replace('.md', '')}"
+    if "." not in name:
+        return f"이미지 · {name}.jpg"
+    return name
 
 
 def summarize_pipeline_status(status: dict[str, Any] | None, log_text: str = "") -> dict[str, Any]:
@@ -1682,6 +1743,8 @@ def summarize_pipeline_status(status: dict[str, Any] | None, log_text: str = "")
                 lines.append(f"✗ {name}" + (f" (exit {code})" if code is not None else ""))
 
     if log_text:
+        site_id = str((status or {}).get("site_id") or "")
+        created = _extract_created_from_log(log_text, site_id=site_id)
         for pat, label in (
             (r"Starting generation for (\d+) guide files", "가이드 생성 {0}건"),
             (r"Starting generation for (\d+) files", "아이템 생성 {0}건"),
@@ -1697,7 +1760,16 @@ def summarize_pipeline_status(status: dict[str, Any] | None, log_text: str = "")
                     lines.append(msg)
 
     snippet = _log_snippet(log_text)
-    return {"title": title, "ok": ok, "lines": lines[:12], "log_snippet": snippet}
+    site_id = str((status or {}).get("site_id") or "")
+    created = _extract_created_from_log(log_text, site_id=site_id)
+    return {
+        "title": title,
+        "ok": ok,
+        "lines": lines[:12],
+        "log_snippet": snippet,
+        "created_items": created,
+        "created_labels": [_label_created_item(n) for n in created],
+    }
 
 
 def _log_snippet(log_text: str, *, max_lines: int = 14) -> str:
