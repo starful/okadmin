@@ -1267,14 +1267,17 @@ def _ok_series_content_steps(
     *,
     item_step: tuple[str, str, list[str], int],
     guide_first: bool = True,
+    image_step: tuple[str, str, list[str], int] | None = None,
 ) -> list[tuple[str, str, list[str], int]]:
     guide_step = ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600)
     if guide_first:
         head: list[tuple[str, str, list[str], int]] = [guide_step, item_step]
     else:
         head = [item_step, guide_step]
+    if image_step is None:
+        image_step = ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400)
     return head + [
-        ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
+        image_step,
         ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
         ("build", "build_data", ["python3", "script/build_data.py"], 600),
     ]
@@ -1379,6 +1382,7 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
             site_id,
             item_step=("items", "ramen_generator", ["python3", "script/ramen_generator.py", limit], 3600),
             guide_first=False,
+            image_step=("images", "generate_images", ["python3", "script/generate_images.py"], 2400),
         )
         return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
