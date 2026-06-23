@@ -391,7 +391,16 @@ async function bootstrapBacklog() {
 }
 
 async function expandCsv(siteId) {
-    if (!confirm('CSV에 시드/확장 행을 추가합니다. 계속할까요?')) return;
+    const pipe = (window.__pipelines || []).find(p => p.site_id === siteId);
+    const snap = pipe && pipe.backlog;
+    const avail = snap && snap.csv_expand
+        ? (snap.csv_expand.items_expandable || 0) + (snap.csv_expand.guides_expandable || 0)
+        : 0;
+    if (!avail) {
+        showToast('추가할 CSV 시드가 없습니다 (이미 모두 등록됨)');
+        return;
+    }
+    if (!confirm(`CSV에 시드 토픽 ${avail}건을 추가합니다. 계속할까요?`)) return;
     const res = await fetch('/api/content/pipeline/csv-expand', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -402,7 +411,10 @@ async function expandCsv(siteId) {
         showToast(d.error || 'CSV 갱신 실패');
         return;
     }
-    showToast('CSV 추가 완료');
+    const added = (typeof d.rows_added === 'number')
+        ? d.rows_added
+        : (d.expanded || 0) + (d.expanded_items || 0) + (d.expanded_guides || 0);
+    showToast(added > 0 ? `CSV +${added}행 추가됨` : '추가된 행 없음 (시드가 이미 등록됨)');
     loadPipelines();
 }
 

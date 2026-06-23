@@ -5,6 +5,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Work Hub{% endblock %} · OK Admin</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
     <style>
         :root { --bg: #0a0a0a; --surf: #121212; --border: #222; --accent: #e8ff47; --text: #eee; --muted: #777; }
         html, body { background: #0a0a0a; color: #eee; }
@@ -43,10 +44,8 @@
     <nav>
         <div class="logo-area">OK Admin <span>WORK HUB</span></div>
         <div class="nav-section">HUB</div>
-        <a href="{{ url_for('pages.dashboard') }}" class="{% if active == 'dashboard' %}active{% endif %}">대시보드</a>
-        <a href="{{ url_for('pages.analytics_page') }}" class="{% if active == 'analytics' %}active{% endif %}">분석</a>
+        <a href="{{ url_for('pages.dashboard') }}" class="{% if active == 'dashboard' %}active{% endif %}">홈</a>
         <a href="{{ url_for('pages.schedule_page') }}" class="{% if active == 'schedule' %}active{% endif %}">달력</a>
-        <a href="{{ url_for('pages.gsc_page') }}" class="{% if active == 'gsc' %}active{% endif %}">GSC</a>
         <div class="nav-section">ASSETS</div>
         <a href="{{ url_for('pages.images_page') }}" class="{% if active == 'images' %}active{% endif %}">GCS 이미지</a>
         <div class="user-line">

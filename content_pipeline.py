@@ -183,6 +183,100 @@ KRCAMPUS_EXPAND_GUIDES: list[dict[str, str]] = [
     },
 ]
 
+KRCAMPUS_EXPAND_TOPIC_ROWS: list[dict[str, str]] = [
+    {
+        "slug": "gks-guide",
+        "category": "Budget",
+        "title": "GKS (KGSP) Scholarship Guide for Korea",
+        "description": "Complete guide to Global Korea Scholarship.",
+        "prompt": "Write a detailed GKS scholarship guide: eligibility, documents, timeline, and tips for language vs degree tracks.",
+    },
+    {
+        "slug": "d4-to-d2",
+        "category": "Visa",
+        "title": "Switching from D-4 to D-2 Visa in Korea",
+        "description": "How language students transition to degree visas.",
+        "prompt": "Explain D-4 to D-2 visa change process, timing, documents, and common pitfalls for international students.",
+    },
+    {
+        "slug": "seoul-neighborhoods",
+        "category": "Region",
+        "title": "Best Seoul Neighborhoods for Students",
+        "description": "Sinchon vs Hongdae vs Gangnam for students.",
+        "prompt": "Compare Sinchon, Hongdae, Gangnam, and Jamsil for student housing, commute, and lifestyle with a table.",
+    },
+    {
+        "slug": "busan-student-life",
+        "category": "Region",
+        "title": "Student Life in Busan: Costs and Culture",
+        "description": "Living and studying in Busan.",
+        "prompt": "Compare Busan student life: rent, transit, beaches, language schools, and university access.",
+    },
+    {
+        "slug": "goshiwon-guide",
+        "category": "Housing",
+        "title": "Goshiwon Guide for Korea Students",
+        "description": "What to expect in Korean goshiwon.",
+        "prompt": "Explain goshiwon housing: costs, contracts, pros/cons, and red flags for foreign students.",
+    },
+    {
+        "slug": "dorm-application",
+        "category": "Housing",
+        "title": "How to Apply for University Dormitories in Korea",
+        "description": "Dorm priority and deadlines.",
+        "prompt": "Guide to Korean university dorm applications: deadlines, fees, roommate rules, and alternatives.",
+    },
+    {
+        "slug": "topik-study-plan",
+        "category": "Exam",
+        "title": "3-Month TOPIK Study Plan",
+        "description": "Structured TOPIK prep schedule.",
+        "prompt": "Create a 12-week TOPIK study plan with weekly goals for vocabulary, grammar, reading, and listening.",
+    },
+    {
+        "slug": "arc-registration",
+        "category": "Settlement",
+        "title": "Alien Registration Card (ARC) Guide",
+        "description": "Step-by-step ARC application.",
+        "prompt": "Write ARC registration guide: where to go, documents, photo rules, and re-entry permit basics.",
+    },
+    {
+        "slug": "sim-esim-korea",
+        "category": "Settlement",
+        "title": "SIM and eSIM Plans in Korea (2026)",
+        "description": "Mobile setup for students.",
+        "prompt": "Compare prepaid SIM, eSIM, and carrier plans (SKT, KT, LG U+) for short and long stays in Korea.",
+    },
+    {
+        "slug": "monthly-budget-seoul",
+        "category": "Budget",
+        "title": "Monthly Student Budget in Seoul (2026)",
+        "description": "Seoul cost breakdown.",
+        "prompt": "Provide detailed monthly budget for Seoul students by frugal vs comfortable lifestyle.",
+    },
+    {
+        "slug": "winter-korea-student",
+        "category": "Life",
+        "title": "Surviving Korean Winter as a Student",
+        "description": "Heating, clothing, and indoor life tips.",
+        "prompt": "Guide international students through Korean winter: heating bills, layering, indoor activities, and health tips.",
+    },
+    {
+        "slug": "summer-internship-korea",
+        "category": "Career",
+        "title": "Summer Internships for International Students in Korea",
+        "description": "Finding legal short internships.",
+        "prompt": "Explain summer internship options, visa rules, and where to search for international students in Korea.",
+    },
+    {
+        "slug": "korean-food-student-budget",
+        "category": "Life",
+        "title": "Cheap Korean Food for Students on a Budget",
+        "description": "Affordable meals near campus.",
+        "prompt": "List budget-friendly Korean meals, convenience store hacks, and student cafeteria tips with approximate prices.",
+    },
+]
+
 # Weekly guide topic pool (deduped by id) for dual-csv sites.
 EXPAND_GUIDE_SEEDS: list[dict[str, str]] = [
     {
@@ -221,6 +315,24 @@ EXPAND_GUIDE_SEEDS: list[dict[str, str]] = [
         "topic_ko": "일본 식사 알레르기·식단 제한",
         "keywords": "japan food allergy halal vegan",
     },
+    {
+        "id": "guide_expand_007",
+        "topic_en": "Japan train etiquette and reserved vs non-reserved seats",
+        "topic_ko": "일본 기차 예절·좌석 종류",
+        "keywords": "japan train shinkansen reserved seat",
+    },
+    {
+        "id": "guide_expand_008",
+        "topic_en": "Convenience store survival guide for travelers in Japan",
+        "topic_ko": "일본 편의점 활용 가이드",
+        "keywords": "japan konbini guide 7-eleven lawson",
+    },
+    {
+        "id": "guide_expand_009",
+        "topic_en": "How to handle earthquakes and typhoons in Japan",
+        "topic_ko": "일본 지진·태풍 대비",
+        "keywords": "japan earthquake typhoon safety",
+    },
 ]
 
 STARFUL_EXPAND_POSITIONS = [
@@ -257,6 +369,27 @@ JPCAMPUS_EXPAND_GUIDES = [
         "title": "Opening a bank account as a student",
         "description": "Bank account steps",
         "prompt": "Step-by-step bank account opening for international students.",
+    },
+    {
+        "slug": "transport-seed",
+        "category": "Life",
+        "title": "Student commuter passes in Japan",
+        "description": "Suica, commuter tickets, and discounts",
+        "prompt": "Explain student commuter passes, Suica/Pasmo, and monthly train discounts in major Japanese cities.",
+    },
+    {
+        "slug": "jlpt-seed",
+        "category": "Exam",
+        "title": "JLPT exam guide for international students",
+        "description": "Levels, schedule, and study tips",
+        "prompt": "Write a JLPT guide: N5–N1 overview, exam schedule, registration, and study strategies for university admission.",
+    },
+    {
+        "slug": "classroom-culture-seed",
+        "category": "Culture",
+        "title": "Japanese classroom culture for newcomers",
+        "description": "Participation, punctuality, and group work",
+        "prompt": "Explain Japanese classroom norms: attendance, group projects, speaking up, and relationship with professors.",
     },
 ]
 
@@ -830,7 +963,7 @@ def ensure_hatena_csv(repo: Path, logf) -> dict[str, Any]:
     return out
 
 
-def ensure_jpcampus_csv(repo: Path, logf) -> dict[str, Any]:
+def ensure_jpcampus_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
     path = repo / "data/guide_topics.csv"
     headers = ["slug", "category", "title", "description", "prompt"]
     seeds = [
@@ -847,7 +980,7 @@ def ensure_jpcampus_csv(repo: Path, logf) -> dict[str, Any]:
     else:
         logf.write(f"guide_topics.csv: {n}행 (시드 생략)\n")
     expand_limit = _bounded_limit(
-        os.environ,
+        env or os.environ,
         "GUIDE_LIMIT",
         default=DEFAULT_GUIDE_LIMIT,
         ceiling=MAX_GUIDE_LIMIT,
@@ -858,10 +991,12 @@ def ensure_jpcampus_csv(repo: Path, logf) -> dict[str, Any]:
     out["expanded"] = expanded
     if expanded:
         logf.write(f"guide_topics.csv: 주간 확장 +{expanded}행\n")
+    else:
+        logf.write("guide_topics.csv: 추가할 확장 시드 없음\n")
     return out
 
 
-def ensure_krcampus_csv(repo: Path, logf) -> dict[str, Any]:
+def ensure_krcampus_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
     """Ensure guide_topics + language_schools + universities CSV seeds."""
     guides_path = repo / "data/guide_topics.csv"
     schools_path = repo / "data/language_schools.csv"
@@ -909,6 +1044,21 @@ def ensure_krcampus_csv(repo: Path, logf) -> dict[str, Any]:
         logf.write(f"universities.csv: +{added}행\n")
         out["seeded_univs"] = added
 
+    expand_limit = _bounded_limit(
+        env or os.environ,
+        "GUIDE_LIMIT",
+        default=DEFAULT_GUIDE_LIMIT,
+        ceiling=MAX_GUIDE_LIMIT,
+    )
+    expanded = _append_csv_rows_limited(
+        guides_path, guide_headers, KRCAMPUS_EXPAND_TOPIC_ROWS, key_col="slug", max_add=expand_limit
+    )
+    out["expanded"] = expanded
+    if expanded:
+        logf.write(f"guide_topics.csv: 주간 확장 +{expanded}행\n")
+    else:
+        logf.write("guide_topics.csv: 추가할 확장 시드 없음\n")
+
     return out
 
 
@@ -932,7 +1082,7 @@ def _execute_pipeline(
     with open(log_path, "a", encoding="utf-8") as logf:
         logf.write(f"\n\n{'#' * 60}\n# {site_id} pipeline {datetime.now():%F %T}\n")
         if ensure_fn:
-            seed_info = ensure_fn(repo, logf)
+            seed_info = _call_ensure_csv(ensure_fn, repo, logf, env)
             steps_out.append({"step": "ensure_csv", "ok": True, **seed_info})
 
         for step_id, label, argv, timeout in extra_steps:
@@ -1522,22 +1672,9 @@ def _guide_generator_argv(env: dict[str, str], site_id: str) -> list[str]:
 
 
 def _sanitize_pipeline_limits(env: dict[str, str]) -> None:
-    env["CONTENT_LIMIT"] = str(
-        _bounded_limit(
-            env,
-            "CONTENT_LIMIT",
-            default=DEFAULT_CONTENT_LIMIT,
-            ceiling=MAX_CONTENT_LIMIT,
-        )
-    )
-    env["GUIDE_LIMIT"] = str(
-        _bounded_limit(
-            env,
-            "GUIDE_LIMIT",
-            default=DEFAULT_GUIDE_LIMIT,
-            ceiling=MAX_GUIDE_LIMIT,
-        )
-    )
+    """Work Hub standard per-run caps (fixed): guide 3, content 6."""
+    env["CONTENT_LIMIT"] = str(DEFAULT_CONTENT_LIMIT)
+    env["GUIDE_LIMIT"] = str(DEFAULT_GUIDE_LIMIT)
     env["HATENA_MAX_POSTS"] = str(
         _bounded_limit(
             env,
@@ -1803,6 +1940,17 @@ def _log_snippet(log_text: str, *, max_lines: int = 14) -> str:
     return "\n".join(picked[-max_lines:])
 
 
+def _call_ensure_csv(ensure_fn, repo: Path, logf, env: dict[str, str]) -> dict[str, Any]:
+    try:
+        return ensure_fn(repo, logf, env=env)
+    except TypeError:
+        return ensure_fn(repo, logf)
+
+
+def _csv_expand_rows_added(info: dict[str, Any]) -> int:
+    return int(info.get("expanded") or 0) + int(info.get("expanded_items") or 0) + int(info.get("expanded_guides") or 0)
+
+
 def run_csv_expand(site_id: str) -> dict[str, Any]:
     """Run ensure_* CSV seed/expansion only (no content generation)."""
     if not work_root_available():
@@ -1828,6 +1976,7 @@ def run_csv_expand(site_id: str) -> dict[str, Any]:
             pass
 
     logf = _Log()
+    env = pipeline_env_for_site(site_id)
 
     if site_id == "okcafejp":
         info = ensure_okcafejp_csv(repo, logf)
@@ -1881,9 +2030,9 @@ def run_csv_expand(site_id: str) -> dict[str, Any]:
     elif site_id == "starful.biz":
         info = ensure_starful_csv(repo, logf)
     elif site_id == "jpcampus":
-        info = ensure_jpcampus_csv(repo, logf)
+        info = ensure_jpcampus_csv(repo, logf, env=env)
     elif site_id == "krcampus":
-        info = ensure_krcampus_csv(repo, logf)
+        info = ensure_krcampus_csv(repo, logf, env=env)
     elif site_id == "hatena":
         info = ensure_hatena_csv(repo, logf)
     elif site_id == "okstats":
@@ -1919,7 +2068,8 @@ def run_csv_expand(site_id: str) -> dict[str, Any]:
         for line in messages:
             lf.write(line + "\n")
 
-    return {"ok": True, "site_id": site_id, "messages": messages, **info}
+    rows_added = _csv_expand_rows_added(info)
+    return {"ok": True, "site_id": site_id, "rows_added": rows_added, "messages": messages, **info}
 
 
 CONTENT_PIPELINES: dict[str, dict[str, str]] = {

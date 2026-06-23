@@ -1,463 +1,360 @@
 {% extends "base.html" %}
-{% block title %}대시보드{% endblock %}
+{% block title %}홈{% endblock %}
 {% block head %}
 <style>
-    .dash-last-runs {
-        margin: 8px 0 10px;
-        padding: 8px;
-        background: #000;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        font-family: 'DM Mono', monospace;
-        font-size: 10px;
-    }
-    .dash-last-runs .row { display: flex; justify-content: space-between; margin: 3px 0; color: #777; gap: 8px; }
-    .dash-last-runs .v { color: #bbb; }
-    .dash-last-runs .ok { color: #6a8; }
-    .dash-last-runs .err { color: #a66; }
-    .dash-last-runs .due {
-        font-size: 10px;
-        font-weight: 700;
-        text-align: right;
-        white-space: nowrap;
-    }
-    .dash-last-runs .due.ok { color: #8a8; }
-    .dash-last-runs .due.soon { color: var(--accent); }
-    .dash-last-runs .due.today { color: #f90; }
-    .dash-last-runs .due.overdue { color: #f88; }
-    .dash-last-runs .due.never { color: #a88; }
-    .dash-last-runs .sub {
-        display: block;
-        font-size: 9px;
-        color: #555;
-        margin-top: 1px;
-        text-align: right;
-    }
-    .dash-logs {
-        margin-top: 12px;
-        padding: 8px;
-        background: #000;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        font-family: 'DM Mono', monospace;
-        font-size: 9px;
-    }
-    .dash-logs h4 { margin: 0 0 4px; font-size: 9px; color: #888; }
-    .dash-logs .line { color: #888; margin: 1px 0; word-break: break-all; line-height: 1.35; }
-    .dash-logs pre {
-        margin: 4px 0 0;
-        max-height: 72px;
-        overflow: auto;
-        color: #8a8;
-        white-space: pre-wrap;
-        font-size: 9px;
-    }
-    .dash-logs .tag-ok { color: #6a6; }
-    .dash-logs .tag-err { color: #f88; }
-    .dash-global-log pre { max-height: 200px; }
-    .dash-card { cursor: grab; }
-    .dash-card.dragging {
-        opacity: 0.5;
-        cursor: grabbing;
-    }
-    .dash-card.drop-target {
-        outline: 2px dashed var(--accent);
-        outline-offset: -4px;
-    }
-    .dash-card.pipe-running { border-color: #a80; box-shadow: 0 0 0 1px #a804; }
-    .dash-card.pipe-done-ok { border-color: #4a4; }
-    .dash-card.pipe-done-err { border-color: #a44; }
-    .dash-toolbar {
-        display: flex; align-items: center; justify-content: space-between;
-        gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
-    }
-    .dash-pipeline {
-        margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
-        font-family: 'DM Mono', monospace; font-size: 10px;
-    }
-    .pipe-summary { color: var(--accent); margin: 0 0 8px; }
-    .pipe-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-    .btn-sm { font-size: 10px !important; padding: 5px 8px !important; flex: 1; min-width: 72px; }
-    .pipe-run { width: 100%; margin-top: 4px; }
-    .result-panel { margin-top: 28px; }
-    .result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
-    .result-head h2 { margin: 0; font-size: 15px; }
-    .result-badge {
-        font-family: 'DM Mono'; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px;
-    }
-    .result-badge.ok { background: #1a2e1a; color: #8f8; }
-    .result-badge.err { background: #2e1a1a; color: #f88; }
-    .result-badge.run { background: #2e2a1a; color: #fa0; }
-    .result-badge.idle { background: #1a1a1a; color: #666; }
-    .phase-track { display: flex; gap: 8px; margin-bottom: 12px; font-family: 'DM Mono'; font-size: 10px; }
-    .phase-step {
-        flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
-        background: #0a0a0a; color: #555; text-align: center;
-    }
-    .phase-step.active { border-color: #a80; color: #fa0; background: #1a1608; }
-    .phase-step.done { border-color: #4a4; color: #8c8; background: #0f1a0f; }
-    .summary-lines { list-style: none; margin: 0; padding: 0; font-family: 'DM Mono'; font-size: 11px; line-height: 1.6; }
-    .summary-lines li { padding: 2px 0; color: #ccc; }
-    .log-snippet {
-        margin-top: 12px; padding: 10px 12px; background: #000; border: 1px solid var(--border);
-        border-radius: 8px; font-family: 'DM Mono'; font-size: 10px; color: #8a8;
-        white-space: pre-wrap; max-height: 140px; overflow: auto;
-    }
-    .log-label { font-family: 'DM Mono'; font-size: 10px; color: #666; margin: 10px 0 4px; }
-    details.log-full summary { cursor: pointer; font-family: 'DM Mono'; font-size: 10px; color: #666; margin-top: 10px; }
-    details.log-full pre {
-        margin-top: 8px; padding: 10px; background: #000; border: 1px solid var(--border);
-        border-radius: 8px; font-size: 10px; color: #666; max-height: 220px; overflow: auto; white-space: pre-wrap;
-    }
-    .dash-git-row {
-        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    }
-    .dash-git-row .dash-git-push {
-        flex: 0 0 auto;
-        background: var(--accent) !important;
-        color: #000 !important;
-        border: none !important;
-        font-weight: 800;
-        padding: 5px 12px !important;
-        min-width: 0;
-        font-size: 11px !important;
-    }
-    .dash-git-row .dash-git-push:disabled { opacity: .45; }
+    .dash-global-log pre { max-height: 120px; font-size: 10px; }
+    details.global-log summary { cursor: pointer; font-size: 12px; color: #666; }
 </style>
 {% endblock %}
 {% block content %}
-<h1>대시보드</h1>
-<p class="sub">사이트 상태 · 남은 콘텐츠 · 원클릭 생성 · Git · GSC/SEO</p>
+<h1>홈</h1>
+<p class="sub">지금 할 일 판단 — 긴급순 정렬</p>
 {% if not work_root_ok %}
-<div class="warn">WORK_ROOT(/opt/work) 없음 — 콘텐츠 생성·Git 비활성</div>
+<div class="warn">WORK_ROOT 없음 — 콘텐츠·Git 비활성</div>
 {% endif %}
-<div class="dash-toolbar">
-    <button type="button" class="btn btn-ghost" id="btn-refresh-all-backlog" onclick="refreshBacklog()">전체 건수 새로고침</button>
+<div class="dash-toolbar-home">
+    <button type="button" class="btn btn-ghost btn-sm" id="btn-refresh-backlog" onclick="refreshAllBacklog()">백로그 새로고침</button>
+    <p class="hint">백로그·due·Git·마지막 실행을 보고 지금/대기/스킵을 표시합니다</p>
 </div>
-<div class="card dash-global-log" id="global-log-card" style="display:none">
-    <h3 style="margin-top:0">Auto Register · 최근 로그</h3>
-    <p class="mono" id="global-log-meta" style="color:#666;font-size:10px">—</p>
-    <pre class="mono" id="global-log-tail" style="color:#8a8;white-space:pre-wrap;max-height:200px;overflow:auto;margin:8px 0">—</pre>
-</div>
-<div id="loading" class="mono">로딩 중…</div>
-<div id="sites-grid" class="grid-sites"></div>
-
-<div class="result-panel card" id="result-panel">
-    <div class="result-head">
-        <h2>콘텐츠 결과 <span class="mono" id="result-site" style="color:#666;font-size:11px;font-weight:400"></span></h2>
-        <span class="result-badge idle" id="result-badge">—</span>
-    </div>
-    <div class="phase-track" id="phase-track" style="display:none">
-        <div class="phase-step" id="phase-generate">① 생성·빌드</div>
-        <div class="phase-step" id="phase-deploy">② 배포</div>
-    </div>
-    <ul class="summary-lines" id="summary-lines">
-        <li style="color:#666">카드에서 「콘텐츠 생성」을 누르면 여기에 진행 상황이 표시됩니다.</li>
-    </ul>
-    <p class="log-label" id="log-label" style="display:none"></p>
-    <div class="log-snippet" id="log-snippet" style="display:none"></div>
-    <details class="log-full" id="log-full" style="display:none">
-        <summary>상세 로그 보기</summary>
-        <pre id="log-full-text"></pre>
-    </details>
-</div>
+<div id="loading" class="mono" style="font-size:12px;color:#666;margin-bottom:12px">로딩 중…</div>
+<div id="sites-grid" class="grid-sites-slim"></div>
+<details class="card global-log" id="global-log-card" style="display:none;margin-top:20px">
+    <summary>Auto Register 로그</summary>
+    <p class="mono" id="global-log-meta" style="color:#666;font-size:10px;margin:8px 0 4px">—</p>
+    <pre class="mono" id="global-log-tail" style="color:#8a8;white-space:pre-wrap;overflow:auto;margin:0">—</pre>
+</details>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='pipeline.js') }}"></script>
 <script>
 const DASH_ORDER_KEY = 'okadmin_dashboard_site_order_v1';
-let dragSourceSiteId = '';
+const DUE_WEIGHT = { overdue: 40, never: 35, today: 28, soon: 12, ok: 0 };
 
 function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 }
 
-function logsHtml(siteId, logs) {
-    if (!logs) return '';
-    let html = '<div class="dash-logs">';
-    if (logs.git_commits?.length) {
-        html += '<h4>Git 최근 커밋</h4>';
-        logs.git_commits.slice(0, 3).forEach(c => {
-            html += `<div class="line">${escapeHtml(c)}</div>`;
-        });
-    }
-    if (logs.auto_register?.length) {
-        html += '<h4 style="margin-top:8px">Auto Register (오늘 로그)</h4>';
-        logs.auto_register.slice(-4).forEach(l => {
-            html += `<div class="line">${escapeHtml(l)}</div>`;
-        });
-    }
-    if (logs.deploy?.length) {
-        logs.deploy.slice(0, 1).forEach(d => {
-            const cls = d.state === 'success' ? 'tag-ok' : d.state === 'failed' ? 'tag-err' : '';
-            html += `<h4 style="margin-top:8px" class="${cls}">Deploy · ${escapeHtml(d.mtime)} · ${escapeHtml(d.state)}</h4>`;
-            html += `<pre>${escapeHtml(d.tail || '')}</pre>`;
-        });
-    }
-    if (!logs.git_commits?.length && !logs.auto_register?.length && !logs.deploy?.length) {
-        html += '<div class="line" style="color:#555">로그 없음</div>';
-    }
-    html += '</div>';
-    return html;
-}
-
-function dueRow(label, lastAt, schedule, dueLabel, intervalDays) {
+function dueClass(schedule) {
     const st = (schedule && schedule.status) || 'never';
-    const dueCls = ['ok', 'soon', 'today', 'overdue', 'never'].includes(st) ? st : 'never';
-    const intervalHint = intervalDays ? ` · ${intervalDays}일 주기` : '';
-    const lastLine = lastAt && lastAt !== '—'
-        ? `<span class="sub">최근 ${escapeHtml(lastAt)}</span>`
-        : `<span class="sub">실행 기록 없음</span>`;
-    return `<div class="row">
-        <span>${escapeHtml(label)}${intervalHint}</span>
-        <span>
-            <span class="due ${dueCls}">${escapeHtml(dueLabel || '—')}</span>
-            ${lastLine}
-        </span>
-    </div>`;
+    return ['ok', 'soon', 'today', 'overdue', 'never'].includes(st) ? st : 'never';
 }
 
-function lastRunsHtml(logs) {
-    if (!logs) return '';
-    const gscAt = logs.last_gsc_response_at || '—';
-    const contentAt = logs.last_content_added_at || '—';
-    return `<div class="dash-last-runs">
-        ${dueRow('최종 GSC 대응', gscAt, logs.gsc_schedule, logs.gsc_due_label, 14)}
-        ${dueRow('최종 콘텐츠 추가', contentAt, logs.content_schedule, logs.content_due_label, 7)}
-    </div>`;
+function dueWeight(schedule) {
+    return DUE_WEIGHT[dueClass(schedule)] || 0;
 }
 
-function renderGlobalLogs(global) {
-    const card = document.getElementById('global-log-card');
-    if (!global?.log_tail && !global?.last_run) {
-        card.style.display = 'none';
-        return;
+function backlogSnap(pipe) {
+    return (pipe && pipe.backlog) || null;
+}
+
+function backlogCounts(pipe, siteId) {
+    const snap = backlogSnap(pipe);
+    const bl = (snap && snap.backlog) || {};
+    const sid = siteId || (pipe && pipe.site_id) || '';
+    const itemLabel = sid === 'okstats' ? '인사이트' : '아이템';
+    const total =
+        (bl.items_pairs || 0) + (bl.guides_topics || 0) + (bl.guides_md || 0) +
+        (bl.korean_files || 0) + (bl.images || 0);
+    const summary = (snap && snap.summary) || '';
+    const next = snap && snap.next_run;
+    const nextLine = typeof nextRunText === 'function'
+        ? nextRunText(snap)
+        : (next && ((next.items_pairs || 0) + (next.guides_topics || 0) + (next.korean_files || 0)) > 0
+            ? `다음 실행 약 ${(next.items_pairs || 0) + (next.guides_topics || 0) + (next.korean_files || 0)}건`
+            : '');
+    const nextTotal = next
+        ? (next.items_pairs || 0) + (next.guides_topics || 0) + (next.korean_files || 0)
+        : 0;
+    const parts = [];
+    if (summary && summary !== '없음') parts.push(summary);
+    else {
+        if (bl.items_pairs) parts.push(`${itemLabel} ${bl.items_pairs}`);
+        if (bl.guides_topics) parts.push(`가이드 ${bl.guides_topics}`);
+        if (bl.guides_md) parts.push(`MD ${bl.guides_md}`);
+        if (bl.korean_files) parts.push(`${sid === 'krcampus' ? '일본어' : '번역'} ${bl.korean_files}`);
+        if (bl.images) parts.push(`이미지 ${bl.images}`);
     }
-    card.style.display = 'block';
-    document.getElementById('global-log-meta').textContent =
-        `마지막 실행: ${global.last_run || '—'} · 파일: ${global.log_file || '—'}`;
-    document.getElementById('global-log-tail').textContent = global.log_tail || '(비어 있음)';
+    const csvExpand = snap && snap.csv_expand;
+    const csvSuggested = !!(csvExpand && csvExpand.suggested);
+    return {
+        total,
+        text: parts.length ? parts.join(' · ') : '없음',
+        nextTotal,
+        nextText: nextLine,
+        csvSuggested,
+        csvExpandable: csvExpand
+            ? (csvExpand.items_expandable || 0) + (csvExpand.guides_expandable || 0)
+            : 0,
+        stale: !snap,
+    };
 }
 
-function renderSitesGrid(sites, logData) {
-    renderGlobalLogs(logData.global);
-    const grid = document.getElementById('sites-grid');
-    const displaySites = sortSitesBySavedOrder(sites);
-    grid.innerHTML = displaySites.map(s => {
-        if (s.id === 'okadmin') return '';
-        const links = s.links || {};
-        const git = s.git_summary;
-        let gitHtml = '<span class="mono" style="color:#666">Git 없음</span>';
-        if (s.git === false) gitHtml = '<span class="mono">git: false</span>';
-        else if (git && git.error) gitHtml = `<span class="mono" style="color:#a66">${escapeHtml(git.error)}</span>`;
-        else if (git) {
-            const badge = git.dirty ? '<span class="badge badge-dirty">dirty</span>' : '<span class="badge badge-clean">clean</span>';
-            gitHtml = `<div class="dash-git-row">${badge}<span class="mono">${escapeHtml(git.branch || 'main')}</span>
-                <button type="button" class="btn btn-sm dash-git-push" data-site-id="${escapeHtml(s.id)}">Push</button></div>`;
-        } else if (s.git) gitHtml = '<span class="mono" style="color:#666">(WORK_ROOT 없음)</span>';
+function assessSite(site, logs, pipe) {
+    const bl = backlogCounts(pipe, site.id);
+    const git = site.git_summary || {};
+    const contentDue = logs.content_schedule || {};
+    const gscDue = logs.gsc_schedule || {};
+    const cStat = dueClass(contentDue);
+    const gStat = dueClass(gscDue);
+    const reasons = [];
+    let priority = 0;
+    let verdict = 'wait';
+    let action = '상세 확인';
 
-        const linkBtns = [
-            links.production && `<a href="${links.production}" target="_blank" rel="noreferrer" class="btn btn-ghost" style="display:inline-block;text-decoration:none;margin:2px">Production</a>`,
-            links.github && `<a href="${links.github}" target="_blank" rel="noreferrer" class="btn btn-ghost" style="display:inline-block;text-decoration:none;margin:2px">GitHub</a>`,
-            links.gsc && `<a href="${links.gsc}" target="_blank" rel="noreferrer" class="btn btn-ghost" style="display:inline-block;text-decoration:none;margin:2px">GSC</a>`,
-        ].filter(Boolean).join('');
-
-        return `<div class="card dash-card" draggable="true" data-site-id="${escapeHtml(s.id)}">
-            <div style="font-weight:800;font-size:16px;margin-bottom:8px">${escapeHtml(s.label || s.id)}</div>
-            <div class="mono" style="color:#555;margin-bottom:8px">${escapeHtml(s.id)}</div>
-            <div style="margin-bottom:8px">${linkBtns || '<span class="mono">—</span>'}</div>
-            <div style="margin-bottom:4px">${gitHtml}</div>
-            ${lastRunsHtml((logData.sites || {})[s.id])}
-            ${typeof pipelineActionsHtml === 'function' ? pipelineActionsHtml(pipelineForSite(s.id)) : ''}
-            ${logsHtml(s.id, logData.sites[s.id])}
-        </div>`;
-    }).join('');
-    bindDashboardCardDnD();
-}
-
-function loadSavedSiteOrder() {
-    try {
-        const raw = localStorage.getItem(DASH_ORDER_KEY);
-        const arr = JSON.parse(raw || '[]');
-        return Array.isArray(arr) ? arr.map(String) : [];
-    } catch (_) {
-        return [];
+    if (pipe && pipe.running) {
+        verdict = 'running';
+        priority = 90;
+        action = pipe.phase === 'deploy' ? '배포 완료 대기' : '생성·빌드 대기';
+        reasons.push('파이프라인 실행 중');
+        if (bl.text !== '없음') reasons.push(`백로그: ${bl.text}`);
+        return { verdict, priority, action, reasons, bl, git, cStat, gStat };
     }
-}
 
-function saveSiteOrderFromDom() {
-    const cards = Array.from(document.querySelectorAll('#sites-grid .dash-card[data-site-id]'));
-    const order = cards.map(c => c.dataset.siteId).filter(Boolean);
-    try { localStorage.setItem(DASH_ORDER_KEY, JSON.stringify(order)); } catch (_) {}
-}
+    priority += dueWeight(gscDue) + dueWeight(contentDue);
 
-function sortSitesBySavedOrder(sites) {
-    const order = loadSavedSiteOrder();
-    if (!order.length) return sites;
-    const rank = new Map(order.map((id, i) => [id, i]));
-    return [...sites].sort((a, b) => {
-        const ra = rank.has(a.id) ? rank.get(a.id) : 9999;
-        const rb = rank.has(b.id) ? rank.get(b.id) : 9999;
-        if (ra !== rb) return ra - rb;
-        return String(a.id || '').localeCompare(String(b.id || ''));
-    });
-}
+    if (logs.last_content_added_ok === false) {
+        priority += 22;
+        reasons.push(`마지막 콘텐츠 생성 실패 (${logs.last_content_added_at || '?'})`);
+    }
+    if (logs.last_gsc_response_ok === false) {
+        priority += 22;
+        reasons.push(`마지막 SEO 실패 (${logs.last_gsc_response_at || '?'})`);
+    }
+    const dep = (logs.deploy || [])[0];
+    if (dep && dep.state === 'failed') {
+        priority += 18;
+        reasons.push(`배포 실패 (${dep.mtime})`);
+    }
 
-function bindDashboardCardDnD() {
-    const grid = document.getElementById('sites-grid');
-    const cards = Array.from(grid.querySelectorAll('.dash-card[data-site-id]'));
-    if (!cards.length) return;
+    if (bl.stale && pipe) {
+        reasons.push('백로그 미갱신 — 「백로그 새로고침」 권장');
+    } else if (bl.total > 0) {
+        reasons.push(`백로그 ${bl.total}건: ${bl.text}`);
+        if (bl.nextText) reasons.push(bl.nextText);
+    } else {
+        reasons.push('백로그 없음');
+    }
 
-    const clearDropTargets = () => {
-        grid.querySelectorAll('.dash-card.drop-target').forEach(c => c.classList.remove('drop-target'));
-    };
+    if (bl.csvSuggested) {
+        priority += 8;
+        reasons.push(`CSV 확장 가능 ${bl.csvExpandable}건 — 토픽 추가 검토`);
+    }
 
-    const sourceEl = () => grid.querySelector('.dash-card.dragging');
+    if (git.dirty) {
+        priority += 14;
+        reasons.push(`Git dirty (${git.branch || 'main'}) — Push 필요`);
+    } else if (git.branch) {
+        reasons.push(`Git clean · ${git.branch}`);
+    }
 
-    const getDragAfterElement = (x, y) => {
-        const candidates = Array.from(grid.querySelectorAll('.dash-card[data-site-id]:not(.dragging)'));
-        if (!candidates.length) return null;
-        let nearest = null;
-        let minDist = Number.POSITIVE_INFINITY;
-        for (const el of candidates) {
-            const r = el.getBoundingClientRect();
-            const cx = r.left + r.width / 2;
-            const cy = r.top + r.height / 2;
-            const dist = Math.hypot(x - cx, y - cy);
-            if (dist < minDist) {
-                minDist = dist;
-                nearest = el;
-            }
-        }
-        if (!nearest) return null;
-        const r = nearest.getBoundingClientRect();
-        const before = (y < (r.top + r.bottom) / 2) || (Math.abs(y - (r.top + r.bottom) / 2) < 8 && x < (r.left + r.right) / 2);
-        return { el: nearest, before };
-    };
+    reasons.push(`콘텐츠 주기: ${logs.content_due_label || '—'}`);
+    reasons.push(`GSC 주기: ${logs.gsc_due_label || '—'}`);
 
-    cards.forEach(card => {
-        card.addEventListener('dragstart', (e) => {
-            dragSourceSiteId = card.dataset.siteId || '';
-            card.classList.add('dragging');
-            if (e.dataTransfer) {
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', dragSourceSiteId);
-            }
-        });
-        card.addEventListener('dragend', () => {
-            card.classList.remove('dragging');
-            clearDropTargets();
-            saveSiteOrderFromDom();
-        });
-    });
+    const contentUrgent = ['overdue', 'today', 'never'].includes(cStat);
+    const gscUrgent = ['overdue', 'today', 'never'].includes(gStat);
+    const contentSoon = cStat === 'soon';
+    const gscSoon = gStat === 'soon';
 
-    grid.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        const src = sourceEl();
-        if (!src) return;
-        const pos = getDragAfterElement(e.clientX, e.clientY);
-        clearDropTargets();
-        if (!pos || !pos.el) return;
-        pos.el.classList.add('drop-target');
-        if (pos.before) {
-            pos.el.before(src);
+    if (gStat === 'overdue' || (gStat === 'never' && !logs.last_gsc_response_at)) {
+        action = 'SEO 작업 권장';
+        priority += 5;
+    } else if (contentUrgent && bl.total > 0) {
+        action = '콘텐츠 생성 권장';
+    } else if (bl.total > 0 && (contentUrgent || contentSoon)) {
+        action = '콘텐츠 생성 검토';
+    } else if (git.dirty && logs.last_content_added_ok === true) {
+        action = 'Git Push 권장';
+    } else if (gscUrgent || gscSoon) {
+        action = 'GSC·SEO 확인';
+    } else if (bl.csvSuggested) {
+        action = 'CSV 추가 후 생성 검토';
+    } else if (bl.total === 0 && cStat === 'ok' && gStat === 'ok' && !git.dirty) {
+        action = '지금은 패스 가능';
+        verdict = 'skip';
+        priority = Math.min(priority, 5);
+    } else if (cStat === 'ok' && gStat === 'ok') {
+        action = '급하지 않음 — 여유 있을 때';
+        verdict = 'wait';
+    }
+
+    if (verdict !== 'skip' && verdict !== 'running') {
+        if (priority >= 45 || gStat === 'overdue' || cStat === 'overdue') {
+            verdict = 'now';
+        } else if (priority >= 20 || contentUrgent || gscUrgent || contentSoon || gscSoon) {
+            verdict = 'today';
         } else {
-            pos.el.after(src);
-        }
-    });
-
-    grid.addEventListener('drop', (e) => {
-        e.preventDefault();
-        clearDropTargets();
-        saveSiteOrderFromDom();
-    });
-}
-
-async function dashSitePush(siteId, btn) {
-    if (!siteId) return;
-    const label = btn?.textContent || 'Push';
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = '푸시…';
-    }
-    try {
-        const res = await fetch(`/api/sites/${encodeURIComponent(siteId)}/push`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-        });
-        const d = await res.json();
-        if (!res.ok || d.error) {
-            showToast(d.error || d.message || 'Push 실패');
-            return;
-        }
-        showToast(d.message || 'Push 완료');
-        const sitesRes = await fetch('/api/sites');
-        window.__dashSites = await sitesRes.json();
-        if (window.__dashSites) loadDashboardLogs(window.__dashSites);
-    } catch (_) {
-        showToast('Push 실패');
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = label;
+            verdict = 'wait';
         }
     }
-}
 
-async function loadSites() {
-    document.getElementById('loading').textContent = '사이트 목록 로딩…';
-    const sitesRes = await fetch('/api/sites');
-    const sites = await sitesRes.json();
-    window.__dashSites = sites;
-    document.getElementById('loading').style.display = 'none';
-    renderSitesGrid(sites, { global: {}, sites: {} });
-    loadPipelines();
-    loadDashboardLogs(sites);
-}
-
-window.rerenderDashboard = function rerenderDashboard() {
-    const sites = window.__dashSites;
-    if (!sites) return;
-    const logData = window.__dashLogData || { global: {}, sites: {} };
-    renderSitesGrid(sites, logData);
-    updatePipelineCardStates();
-};
-
-function fetchTimeout(ms) {
-    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-        return AbortSignal.timeout(ms);
+    if (verdict === 'now' && action === '지금은 패스 가능') {
+        action = '즉시 대응 필요';
     }
-    const ctrl = new AbortController();
-    setTimeout(function() { ctrl.abort(); }, ms);
-    return ctrl.signal;
+
+    return { verdict, priority, action, reasons, bl, git, cStat, gStat };
 }
 
-async function loadDashboardLogs(sites) {
-    const loading = document.getElementById('loading');
-    loading.style.display = 'block';
-    loading.textContent = '운영 로그 로딩…';
-    let logData = { global: {}, sites: {} };
-    try {
-        const logsRes = await fetch('/api/dashboard/logs', { signal: fetchTimeout(30000) });
-        try { logData = await logsRes.json(); } catch (_) {}
-    } catch (_) {}
-    loading.style.display = 'none';
-    window.__dashLogData = logData;
-    renderSitesGrid(sites, logData);
+function verdictBanner(assessment) {
+    const labels = {
+        now: '지금',
+        today: '오늘',
+        wait: '대기',
+        skip: '스킵',
+        running: '진행 중',
+    };
+    const label = labels[assessment.verdict] || '—';
+    let headline = assessment.action;
+    if (assessment.verdict === 'now') {
+        const urg = [];
+        if (['overdue', 'never', 'today'].includes(assessment.gStat)) urg.push('GSC');
+        if (['overdue', 'never', 'today'].includes(assessment.cStat)) urg.push('콘텐츠');
+        if (assessment.git.dirty) urg.push('Push');
+        if (urg.length) headline = urg.join(' · ') + ' — ' + assessment.action;
+    }
+    return `<div class="card-verdict verdict-${escapeHtml(assessment.verdict)}">
+        <strong>${escapeHtml(label)}</strong>${escapeHtml(headline)}
+    </div>`;
 }
 
-(function initDashGitPush() {
+function contentDetail(site, logs, pipe, assessment) {
+    if (pipe && pipe.running && pipe.phase !== 'deploy') {
+        return { mid: '생성·빌드 중…', due: 'run', dueText: '진행 중' };
+    }
+    const bl = assessment.bl;
+    let mid = bl.text;
+    if (bl.nextText && bl.total > 0) mid += ` · ${bl.nextText}`;
+    if (bl.csvSuggested) mid += ' · CSV 확장 가능';
+    const dueText = logs.content_due_label || '—';
+    return { mid, due: dueClass(logs.content_schedule), dueText };
+}
+
+function deployDetail(site, logs, pipe, assessment) {
+    if (pipe && pipe.running && pipe.phase === 'deploy') {
+        return { mid: '배포 중…', due: 'run', dueText: '진행 중' };
+    }
+    const git = assessment.git;
+    let mid = git.dirty ? `dirty · ${git.branch || 'main'}` : (git.branch ? `clean · ${git.branch}` : 'Git 없음');
+    const dep = (logs.deploy || [])[0];
+    let dueText = '—';
+    if (dep) {
+        dueText = `${dep.mtime} ${dep.state === 'success' ? '성공' : dep.state === 'failed' ? '실패' : dep.state}`;
+    } else if (logs.last_content_added_at) {
+        dueText = logs.last_content_added_at + (logs.last_content_added_ok === false ? ' 실패' : logs.last_content_added_ok === true ? ' 성공' : '');
+    }
+    if (git.dirty && assessment.verdict !== 'running') {
+        mid += ' · Push 대기';
+    }
+    return { mid, due: git.dirty ? 'today' : dueClass(logs.content_schedule), dueText };
+}
+
+function seoDetail(logs, assessment) {
+    let mid = logs.last_gsc_response_at ? `마지막 ${logs.last_gsc_response_at}` : '미실행';
+    if (logs.last_gsc_response_ok === false) mid += ' · 실패';
+    else if (logs.last_gsc_response_ok === true) mid += ' · 성공';
+    return { mid, due: dueClass(logs.gsc_schedule), dueText: logs.gsc_due_label || '—' };
+}
+
+function wfRow(tag, detail) {
+    return `<div class="wf-row">
+        <span class="wf-tag">${escapeHtml(tag)}</span>
+        <span class="wf-detail" title="${escapeHtml(detail.mid)}">${escapeHtml(detail.mid)}</span>
+        <span class="wf-due ${escapeHtml(detail.due)}">${escapeHtml(detail.dueText)}</span>
+    </div>`;
+}
+
+function workflowRowsHtml(site, logs, pipe, assessment) {
+    return `<div class="wf-rows">
+        ${wfRow('콘텐츠', contentDetail(site, logs, pipe, assessment))}
+        ${wfRow('배포', deployDetail(site, logs, pipe, assessment))}
+        ${wfRow('SEO', seoDetail(logs, assessment))}
+    </div>`;
+}
+
+function reasonsHtml(assessment) {
+    const top = assessment.reasons.slice(0, 4);
+    if (!top.length) return '';
+    return `<ul class="verdict-reasons">${top.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`;
+}
+
+function renderSitesGrid(sites, logData, pipelines) {
+    const global = logData.global;
+    const card = document.getElementById('global-log-card');
+    if (global?.log_tail || global?.last_run) {
+        card.style.display = 'block';
+        document.getElementById('global-log-meta').textContent = `마지막: ${global.last_run || '—'}`;
+        document.getElementById('global-log-tail').textContent = global.log_tail || '';
+    }
+
+    const pipeMap = {};
+    (pipelines || []).forEach(p => { pipeMap[p.site_id] = p; });
+
+    const rows = sites
+        .filter(s => s.id !== 'okadmin')
+        .map(s => {
+            const logs = (logData.sites || {})[s.id] || {};
+            const pipe = pipeMap[s.id];
+            const assessment = assessSite(s, logs, pipe);
+            return { site: s, logs, pipe, assessment };
+        })
+        .sort((a, b) => b.assessment.priority - a.assessment.priority);
+
     const grid = document.getElementById('sites-grid');
-    if (!grid) return;
-    grid.addEventListener('click', (e) => {
-        const btn = e.target.closest('.dash-git-push');
-        if (!btn || btn.disabled) return;
-        dashSitePush(btn.dataset.siteId, btn);
-    });
-})();
+    grid.innerHTML = rows.map(({ site: s, logs, pipe, assessment }) => {
+        const runningCls = pipe && pipe.running ? ' pipe-running' : '';
+        const verdictCls = ` verdict-${assessment.verdict}`;
+        const href = '/site/' + encodeURIComponent(s.id);
+        const sectionHint = assessment.verdict === 'now' || assessment.gStat === 'overdue' || assessment.gStat === 'today'
+            ? '?section=seo'
+            : (assessment.bl.total > 0 ? '?section=content' : (assessment.git?.dirty ? '?section=deploy' : ''));
+        return `<a href="${href}${sectionHint}" class="card dash-card slim${runningCls}${verdictCls}" data-site-id="${escapeHtml(s.id)}">
+            <div class="slim-head">
+                <span class="slim-title">${escapeHtml(s.label || s.id)}</span>
+            </div>
+            <div class="slim-id">${escapeHtml(s.id)}</div>
+            ${verdictBanner(assessment)}
+            ${reasonsHtml(assessment)}
+            ${workflowRowsHtml(s, logs, pipe, assessment)}
+            <div class="slim-foot">
+                <span class="verdict-action">→ ${escapeHtml(assessment.action)}</span>
+                <span class="btn btn-open">열기</span>
+            </div>
+        </a>`;
+    }).join('');
+}
 
-loadSites();
+async function refreshAllBacklog() {
+    const btn = document.getElementById('btn-refresh-backlog');
+    if (btn) btn.disabled = true;
+    if (typeof refreshBacklog === 'function') {
+        await refreshBacklog(null, { silent: false });
+        await loadHome();
+    }
+    if (btn) btn.disabled = false;
+}
+
+async function loadHome() {
+    const loading = document.getElementById('loading');
+    try {
+        if (typeof refreshBacklog === 'function') {
+            await refreshBacklog(null, { silent: true });
+        }
+        const [sitesRes, logsRes, pipesRes] = await Promise.all([
+            fetch('/api/sites'),
+            fetch('/api/dashboard/logs'),
+            fetch('/api/content/pipelines'),
+        ]);
+        const sites = await sitesRes.json();
+        let logData = { global: {}, sites: {} };
+        let pipelines = [];
+        try { logData = await logsRes.json(); } catch (_) {}
+        try { pipelines = await pipesRes.json(); } catch (_) {}
+        loading.style.display = 'none';
+        renderSitesGrid(sites, logData, pipelines);
+    } catch (_) {
+        loading.textContent = '로드 실패';
+    }
+}
+
+loadHome();
 </script>
 {% endblock %}

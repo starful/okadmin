@@ -208,7 +208,7 @@ def _starful_backlog(repo: Path) -> dict[str, Any]:
 
 def _jpcampus_backlog(repo: Path) -> dict[str, Any]:
     topics_path = repo / "data/guide_topics.csv"
-    guides_dir = repo / "data/guides"
+    content_dir = repo / "app" / "content"
     guides_pending = 0
     korean_pending = 0
     if topics_path.is_file():
@@ -217,15 +217,39 @@ def _jpcampus_backlog(repo: Path) -> dict[str, Any]:
                 slug = (row.get("slug") or "").strip()
                 if not slug:
                     continue
-                en = guides_dir / f"{slug}.md"
+                en = content_dir / f"guide_{slug}.md"
                 if not en.is_file():
                     guides_pending += 1
-                kr = guides_dir / f"{slug}_kr.md"
+                kr = content_dir / f"guide_{slug}_kr.md"
                 if en.is_file() and not kr.is_file():
                     korean_pending += 1
     return {
         "guides_topics": guides_pending,
         "korean_files": korean_pending,
+        "csv_guides": _count_csv(topics_path, "slug"),
+    }
+
+
+def _krcampus_backlog(repo: Path) -> dict[str, Any]:
+    topics_path = repo / "data/guide_topics.csv"
+    content_dir = repo / "app" / "content"
+    guides_pending = 0
+    ja_pending = 0
+    if topics_path.is_file():
+        with topics_path.open(encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                slug = (row.get("slug") or "").strip()
+                if not slug:
+                    continue
+                en = content_dir / f"guide_{slug}.md"
+                if not en.is_file():
+                    guides_pending += 1
+                ja = content_dir / f"guide_{slug}_ja.md"
+                if en.is_file() and not ja.is_file():
+                    ja_pending += 1
+    return {
+        "guides_topics": guides_pending,
+        "korean_files": ja_pending,
         "csv_guides": _count_csv(topics_path, "slug"),
     }
 
@@ -236,6 +260,7 @@ def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, int]:
         DEFAULT_ITEM_SEEDS,
         EXPAND_GUIDE_SEEDS,
         JPCAMPUS_EXPAND_GUIDES,
+        KRCAMPUS_EXPAND_TOPIC_ROWS,
         OKCAFE_EXPAND_SEEDS,
         STARFUL_EXPAND_POSITIONS,
         _bounded_limit,
@@ -309,6 +334,19 @@ def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, int]:
             if slug and slug not in existing:
                 guides_avail += 1
 
+    elif site_id == "krcampus":
+        path = repo / "data/guide_topics.csv"
+        existing = set()
+        if path.is_file():
+            with path.open(encoding="utf-8-sig") as f:
+                existing = {(r.get("slug") or "").strip().lower() for r in csv.DictReader(f)}
+        for row in KRCAMPUS_EXPAND_TOPIC_ROWS:
+            if guides_avail >= guide_cap:
+                break
+            slug = (row.get("slug") or "").strip().lower()
+            if slug and slug not in existing:
+                guides_avail += 1
+
     elif site_id == "okstats":
         guides_path = repo / "script/csv/guides.csv"
         existing_ids = set()
@@ -335,11 +373,21 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     if not repo.is_dir():
         return {"ok": False, "error": f"missing repo {repo}"}
 
-    from content_pipeline import pipeline_env_for_site, _bounded_limit, DEFAULT_CONTENT_LIMIT, DEFAULT_GUIDE_LIMIT, MAX_CONTENT_LIMIT, MAX_GUIDE_LIMIT
+    from content_pipeline import (
+        pipeline_env_for_site,
+        _bounded_limit,
+        DEFAULT_CONTENT_LIMIT,
+        DEFAULT_GUIDE_LIMIT,
+        DEFAULT_KOREAN_LIMIT,
+        MAX_CONTENT_LIMIT,
+        MAX_GUIDE_LIMIT,
+        MAX_KOREAN_LIMIT,
+    )
 
     env = pipeline_env_for_site(site_id)
     item_limit = _bounded_limit(env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
     guide_limit = _bounded_limit(env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
+    korean_limit = _bounded_limit(env, "KOREAN_LIMIT", default=DEFAULT_KOREAN_LIMIT, ceiling=MAX_KOREAN_LIMIT)
 
     raw: dict[str, Any] = {}
     if site_id == "okramen":
@@ -352,6 +400,8 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         raw = _starful_backlog(repo)
     elif site_id == "jpcampus":
         raw = _jpcampus_backlog(repo)
+    elif site_id == "krcampus":
+        raw = _krcampus_backlog(repo)
     elif site_id == "okstats":
         raw = _okstats_backlog(repo)
     elif site_id == "hatena":
@@ -368,6 +418,7 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
 
     next_items = min(item_limit, items_pairs) if items_pairs else 0
     next_guides = min(guide_limit, guides_topics) if guides_topics else 0
+    next_korean = min(korean_limit, korean) if korean else 0
 
     content_empty = items_pairs == 0 and guides_topics == 0 and korean == 0
     expand_avail = expand.get("items_expandable", 0) + expand.get("guides_expandable", 0)
@@ -392,6 +443,11 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
             lines.append(f"가이드 {guides_topics}")
         if korean:
             lines.append(f"한국어 {korean}")
+    elif site_id == "krcampus":
+        if guides_topics:
+            lines.append(f"가이드 {guides_topics}")
+        if korean:
+            lines.append(f"일본어 {korean}")
     elif site_id == "okstats":
         if items_pairs:
             lines.append(f"인사이트 {items_pairs}")
@@ -422,6 +478,12 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         "next_run": {
             "items_pairs": next_items,
             "guides_topics": next_guides,
+            "korean_files": next_korean,
+            "limits": {
+                "content": item_limit,
+                "guide": guide_limit,
+                "korean": korean_limit,
+            },
         },
         "csv_expand": {
             **expand,

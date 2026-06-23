@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}{{ site_label }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='hub.css') }}">
+<style>
+    .result-panel { margin-top: 20px; }
+    .result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+    .result-head h2 { margin: 0; font-size: 15px; }
+    .result-badge { font-family: 'DM Mono'; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
+    .result-badge.ok { background: #1a2e1a; color: #8f8; }
+    .result-badge.err { background: #2e1a1a; color: #f88; }
+    .result-badge.run { background: #2e2a1a; color: #fa0; }
+    .result-badge.idle { background: #1a1a1a; color: #666; }
+    .phase-track { display: flex; gap: 8px; margin-bottom: 12px; font-family: 'DM Mono'; font-size: 10px; }
+    .phase-step { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: #0a0a0a; color: #555; text-align: center; }
+    .phase-step.active { border-color: #a80; color: #fa0; background: #1a1608; }
+    .phase-step.done { border-color: #4a4; color: #8c8; background: #0f1a0f; }
+    .phase-step.idle { opacity: 0.55; }
+    .summary-lines { list-style: none; margin: 0; padding: 0; font-size: 12px; line-height: 1.6; }
+    .summary-lines li { padding: 2px 0; color: #ccc; }
+    .summary-lines li.created-highlight { color: #8cf; font-weight: 700; }
+    .log-snippet { margin-top: 8px; padding: 10px 12px; background: #000; border: 1px solid var(--border); border-radius: 8px; font-family: 'DM Mono'; font-size: 10px; color: #8a8; white-space: pre-wrap; min-height: 48px; }
+    .log-label { font-family: 'DM Mono'; font-size: 10px; color: #666; margin: 12px 0 4px; }
+    .log-full { margin-top: 12px; }
+    .log-full pre { margin: 4px 0 0; padding: 10px; background: #000; border: 1px solid var(--border); border-radius: 8px; font-size: 10px; color: #666; white-space: pre-wrap; min-height: 80px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="hub-sticky-chrome">
+<div class="site-picker-bar">
+    <a href="{{ url_for('pages.dashboard') }}" class="btn btn-ghost" style="font-size:11px;padding:6px 12px">← 홈</a>
+    <select id="site-select" aria-label="사이트 선택">
+        {% for s in hub_sites %}
+        <option value="{{ s.id }}" {% if s.id == site_id %}selected{% endif %}>{{ s.label }}</option>
+        {% endfor %}
+    </select>
+    <div class="ext-links">
+        {% if site_links.production %}<a href="{{ site_links.production }}" target="_blank" rel="noreferrer">Production</a>{% endif %}
+        {% if site_links.github %}<a href="{{ site_links.github }}" target="_blank" rel="noreferrer">GitHub</a>{% endif %}
+        {% if site_links.gsc %}<a href="{{ site_links.gsc }}" target="_blank" rel="noreferrer">GSC</a>{% endif %}
+    </div>
+</div>
+
+<h1 style="margin-bottom:4px">{{ site_label }}</h1>
+<p class="sub" style="margin-bottom:16px">{{ site_id }}</p>
+
+{% if not work_root_ok %}
+<div class="warn">WORK_ROOT 없음 — 생성·Git 비활성</div>
+{% endif %}
+
+<div class="workflow-strip" id="workflow-strip">
+    <button type="button" class="wf-step" data-section="content" id="wf-content">
+        <div class="wf-num">① 콘텐츠</div>
+        <div class="wf-label" id="wf-content-label">—</div>
+        <div class="wf-meta" id="wf-content-meta">대기</div>
+    </button>
+    <button type="button" class="wf-step" data-section="deploy" id="wf-deploy">
+        <div class="wf-num">② 배포</div>
+        <div class="wf-label" id="wf-deploy-label">—</div>
+        <div class="wf-meta" id="wf-deploy-meta">Git</div>
+    </button>
+    <button type="button" class="wf-step" data-section="metrics" id="wf-metrics">
+        <div class="wf-num">③ 지표</div>
+        <div class="wf-label">GA4 · GSC</div>
+        <div class="wf-meta" id="wf-metrics-meta">불러오기</div>
+    </button>
+    <button type="button" class="wf-step" data-section="seo" id="wf-seo">
+        <div class="wf-num">④ SEO</div>
+        <div class="wf-label" id="wf-seo-label">—</div>
+        <div class="wf-meta" id="wf-seo-meta">URL 작업</div>
+    </button>
+</div>
+</div>
+
+<div class="hub-panel active" id="panel-content" role="tabpanel">
+    <div class="card hub-load-bar" id="content-load-bar">
+        <span class="hub-load-hint" id="content-hint">백로그 확인 중…</span>
+        <div class="hub-action-btns" id="content-actions"></div>
+    </div>
+    <div class="result-panel card" id="result-panel">
+        <div class="result-head">
+            <h2>실행 결과</h2>
+            <span class="result-badge idle" id="result-badge">—</span>
+        </div>
+        <div class="phase-track" id="phase-track">
+            <div class="phase-step idle" id="phase-generate">① 생성·빌드</div>
+            <div class="phase-step idle" id="phase-deploy">② 배포</div>
+        </div>
+        <ul class="summary-lines" id="summary-lines">
+            <li style="color:#666">「콘텐츠 생성」 실행 시 여기에 표시됩니다.</li>
+        </ul>
+        <p class="log-label" id="log-label">파이프라인 로그</p>
+        <div class="log-snippet" id="log-snippet">—</div>
+        <div class="log-full" id="log-full">
+            <p class="log-label" style="margin-top:14px">상세 로그</p>
+            <pre id="log-full-text">—</pre>
+        </div>
+    </div>
+</div>
+
+<div class="hub-panel" id="panel-deploy" role="tabpanel">
+    <div class="card hub-load-bar hub-action-bar" id="deploy-action-bar">
+        <div class="work-git-row" id="deploy-git">로딩…</div>
+        <div class="hub-git-actions" id="deploy-actions"></div>
+    </div>
+    <div class="card">
+        <h2 style="margin:0 0 8px;font-size:14px">배포 기록</h2>
+        <p class="deploy-meta" id="deploy-recent-meta">—</p>
+        <ul class="deploy-log-list" id="deploy-log-list">
+            <li style="color:#666">기록 없음</li>
+        </ul>
+    </div>
+</div>
+
+<div class="hub-panel" id="panel-metrics" role="tabpanel">
+    <iframe id="iframe-metrics" class="hub-embed-frame" title="지표" scrolling="no"
+        src="{{ url_for('pages.analytics_page', site=site_id, days=current_days, embed='1') }}"></iframe>
+</div>
+
+<div class="hub-panel" id="panel-seo" role="tabpanel">
+    <iframe id="iframe-seo" class="hub-embed-frame" title="SEO" scrolling="no"
+        src="{{ url_for('pages.gsc_page', site=site_id, embed='1') }}"></iframe>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='pipeline.js') }}"></script>
+<script src="{{ url_for('static', filename='site_hub.js') }}"></script>
+<script>
+(function() {
+    const SITE_ID = {{ site_id | tojson }};
+    const INITIAL_SECTION = {{ current_section | tojson }};
+    const SITE_COLOR = {{ site_color | tojson }};
+    initSiteHub(SITE_ID, INITIAL_SECTION, SITE_COLOR);
+})();
+</script>
+{% endblock %}

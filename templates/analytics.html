@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends 'embed_base.html' if embed else 'base.html' %}
 {% block title %}분석{% endblock %}
 {% block head %}
 <style>
@@ -43,10 +43,14 @@
     .current-pick { font-family: 'DM Mono'; font-size: 11px; color: var(--accent); margin: 0 0 12px; }
     .load-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
     .load-bar .btn:disabled { opacity: .45; cursor: wait; }
+    {% if embed %}
+    .analytics-embed-table-wrap { max-height: none !important; overflow: visible !important; }
+    {% endif %}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 {% endblock %}
 {% block content %}
+{% if not embed %}
 <!-- analytics-ui-v7: GSC indexing summary (API only, no URL inspection) -->
 <h1>통합 분석</h1>
 <p class="sub">GA4 · GSC — 사이트·기간 선택 후 불러오기</p>
@@ -85,6 +89,24 @@
     </div>
     <p class="hint">GSC: {{ gsc_hint }} · GA4: {{ ga4_hint }}</p>
 </div>
+{% else %}
+<div id="analytics-toolbar" style="margin-bottom:12px">
+    <div class="period-bar" style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        {% for d in [7, 28, 90] %}
+        <form class="nav-form" method="get" action="{{ url_for('pages.analytics_page') }}" style="display:inline;margin:0">
+            <input type="hidden" name="site" value="{{ current_site }}">
+            <input type="hidden" name="embed" value="1">
+            <input type="hidden" name="days" value="{{ d }}">
+            <button type="submit" class="period-btn{% if current_days == d %} active{% endif %}" style="padding:6px 12px;border-radius:8px;border:1px solid #333;background:{% if current_days == d %}#e8ff47{% else %}#000{% endif %};color:{% if current_days == d %}#000{% else %}#888{% endif %};font-weight:700;cursor:pointer">{{ d }}일</button>
+        </form>
+        {% endfor %}
+    </div>
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px;margin:0">
+        <span class="mono" style="color:#888;font-size:11px">GA4 · GSC 지표 (API 호출 · 수십 초 소요 가능)</span>
+        <button type="button" class="btn" id="btn-load-analytics">지표 불러오기</button>
+    </div>
+</div>
+{% endif %}
 
 <div id="analytics-panels">
     <div class="section-title">GA4</div>
@@ -122,7 +144,7 @@
         <div class="chart-card">
             <h3>상위 검색어</h3>
             <p class="meta" id="meta-top-queries">「분석 불러오기」 클릭</p>
-            <div style="max-height:240px;overflow:auto">
+            <div class="{% if embed %}analytics-embed-table-wrap{% endif %}" style="max-height:240px;overflow:auto">
                 <table class="data" id="table-queries">
                     <thead><tr><th>#</th><th>검색어</th><th>노출</th><th>클릭</th><th>CTR</th></tr></thead>
                     <tbody><tr><td colspan="5" class="hint">「분석 불러오기」 클릭</td></tr></tbody>
@@ -138,6 +160,7 @@
 (function() {
     var currentSite = {{ current_site | tojson }};
     var currentDays = {{ current_days }};
+    var ANALYTICS_EMBED = {{ embed | tojson }};
     var charts = {};
 
     function n(v) { return v == null ? 0 : v; }
@@ -352,8 +375,9 @@
         }).catch(function(e) {
             if (typeof showToast === 'function') showToast(e.message || '로드 실패');
         }).finally(function() {
-            if (btn) { btn.disabled = false; btn.textContent = '분석 불러오기'; }
+            if (btn) { btn.disabled = false; btn.textContent = ANALYTICS_EMBED ? '지표 불러오기' : '분석 불러오기'; }
             if (panels) panels.classList.remove('loading');
+            if (typeof okadminEmbedResize === 'function') okadminEmbedResize();
         });
     }
 

@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends 'embed_base.html' if embed else 'base.html' %}
 {% block title %}GSC{% endblock %}
 {% block head %}
 <style>
@@ -40,6 +40,7 @@
     #apply-files-wrap > span { flex: 1; min-width: 0; line-height: 1.45; }
     #apply-files-hint { word-break: keep-all; overflow-wrap: break-word; }
     .url-list-wrap { max-height: 420px; overflow: auto; margin-top: 8px; }
+    .gsc-embed .url-list-wrap { max-height: none; overflow: visible; }
     .url-list-wrap a { color: var(--accent); text-decoration: none; }
     .url-list-wrap a:hover { text-decoration: underline; }
     .url-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -98,6 +99,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 {% endblock %}
 {% block content %}
+{% if not embed %}
 <!-- gsc-ui-v12: URL history, file delete, action bar on URL panel -->
 <h1>GSC 분석</h1>
 <p class="sub">사이트 선택 → 분석 불러오기 → URL 선택 → SEO 또는 파일 삭제 · Push/Deploy는 수동</p>
@@ -126,8 +128,17 @@
     </div>
     <p class="mono" style="color:#666;font-size:10px;margin:8px 0 0">GSC: {{ gsc_hint }} · GA4: {{ ga4_hint }}</p>
 </div>
+{% else %}
+<div id="gsc-toolbar" style="margin-bottom:12px">
+    <div class="card gsc-load-bar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px">
+        <span class="mono" style="color:#888;font-size:11px">URL 패턴 · SEO 실행</span>
+        <button type="button" class="btn" id="btn-load-gsc-dashboard">SEO 데이터 불러오기</button>
+    </div>
+</div>
+{% endif %}
 
-<div class="two-col" id="gsc-root">
+<div class="{% if embed %}gsc-embed{% else %}two-col{% endif %}" id="gsc-root">
+    {% if not embed %}
     <div class="card">
         <p class="site-last-run" id="site-last-run">마지막 실행: —</p>
         <p class="meta" id="gsc-count" style="margin-top:12px">—</p>
@@ -139,7 +150,14 @@
             <a href="/oauth/gsc/setup" style="color:var(--accent)">API 설정</a>
         </p>
     </div>
+    {% else %}
+    <div style="display:none">
+        <p id="site-last-run"></p><p id="gsc-count"></p><p id="api-hint"></p><p id="gemini-hint"></p>
+        <p id="push-commit-hint"></p><div id="gsc-ops-status"></div>
+    </div>
+    {% endif %}
     <div id="gsc-panels">
+        {% if not embed %}
         <div class="analytics-grid">
             <div class="card" id="panel-ga4">
                 <h3 style="margin-top:0">GA4 · 28일</h3>
@@ -163,6 +181,14 @@
                 <div class="chart-wrap"><canvas id="gsc-chart"></canvas></div>
             </div>
         </div>
+        {% else %}
+        <div style="display:none" aria-hidden="true">
+            <div id="panel-ga4"><p id="ga4-meta"></p><canvas id="ga4-chart"></canvas>
+                <span id="m-sessions"></span><span id="m-users"></span><span id="m-pageviews"></span></div>
+            <div id="panel-gsc"><p id="gsc-meta"></p><canvas id="gsc-chart"></canvas>
+                <span id="g-clicks"></span><span id="g-impressions"></span><span id="g-ctr"></span><span id="g-position"></span></div>
+        </div>
+        {% endif %}
         <div class="card" id="panel-urls">
             <h3 style="margin-top:0">GSC · 패턴별 URL</h3>
             <p class="meta" id="url-patterns-summary">분석 불러오기 후 표시 · 한 번에 한 패턴만 선택</p>
@@ -228,6 +254,7 @@
 <script>
 let sites = {{ gsc_sites | tojson }};
 let currentSiteId = {{ current_site | tojson }};
+const GSC_EMBED = {{ embed | tojson }};
 let ga4Chart = null, gscChart = null, dashboard = null;
 let currentLowCtr = [], currentLowImpression = [];
 let selectedUrls = new Set();
@@ -312,11 +339,13 @@ function getSiteId() {
 }
 
 function initGscPage() {
-    const saved = sessionStorage.getItem('okadmin_gsc_site');
-    if (saved && sites.some(s => s.id === saved) && saved !== currentSiteId) {
-        sessionStorage.removeItem('okadmin_gsc_site');
-        window.location.href = {{ url_for('pages.gsc_page') | tojson }} + '?site=' + encodeURIComponent(saved);
-        return;
+    if (!GSC_EMBED) {
+        const saved = sessionStorage.getItem('okadmin_gsc_site');
+        if (saved && sites.some(s => s.id === saved) && saved !== currentSiteId) {
+            sessionStorage.removeItem('okadmin_gsc_site');
+            window.location.href = {{ url_for('pages.gsc_page') | tojson }} + '?site=' + encodeURIComponent(saved);
+            return;
+        }
     }
     sessionStorage.removeItem('okadmin_gsc_site');
     const s = currentSiteMeta();
@@ -370,6 +399,7 @@ async function loadDashboard(clearResults) {
         showToast('로드 실패');
     } finally {
         document.getElementById('gsc-panels').classList.remove('loading');
+        if (typeof okadminEmbedResize === 'function') setTimeout(okadminEmbedResize, 120);
     }
 }
 
@@ -688,6 +718,7 @@ function renderPatternUrlLists(lowCtr, lowImp) {
     renderUrlPatternList('low-impression-list', 'url-list-meta-low-impression', currentLowImpression, 'low_impression');
     syncPatternPickers();
     updateSelectedCount();
+    if (typeof okadminEmbedResize === 'function') setTimeout(okadminEmbedResize, 80);
 }
 
 function patternLabel(p) {
@@ -854,6 +885,7 @@ function renderResults(data) {
         }
         el.appendChild(card);
     }
+    if (typeof okadminEmbedResize === 'function') setTimeout(okadminEmbedResize, 80);
 }
 
 function restoreLastResults() {

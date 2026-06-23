@@ -7,34 +7,69 @@ function escPipeline(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 }
 
-function remainingText(b) {
-    const bl = b.backlog || {};
+function pipelineBacklogSnap(p) {
+    const root = (p && p.backlog) || null;
+    return root && typeof root === 'object' ? root : null;
+}
+
+function csvExpandAvail(snap) {
+    const exp = (snap && snap.csv_expand) || {};
+    return (exp.items_expandable || 0) + (exp.guides_expandable || 0);
+}
+
+function csvExpandAdded(d) {
+    if (typeof d.rows_added === 'number') return d.rows_added;
+    return (d.expanded || 0) + (d.expanded_items || 0) + (d.expanded_guides || 0);
+}
+
+function remainingText(p) {
+    const snap = pipelineBacklogSnap(p);
+    if (snap?.summary && snap.summary !== '없음') return snap.summary;
+    const bl = (snap && snap.backlog) || {};
+    const siteId = (p && p.site_id) || '';
+    const itemLabel = siteId === 'okstats' ? '인사이트' : '아이템';
     const bits = [];
-    if (bl.items_pairs) bits.push(`아이템 ${bl.items_pairs}`);
+    if (bl.items_pairs) bits.push(`${itemLabel} ${bl.items_pairs}`);
     if (bl.guides_topics) bits.push(`가이드 ${bl.guides_topics}`);
     if (bl.guides_md) bits.push(`가이드 ${bl.guides_md}`);
-    if (bl.korean_files) bits.push(`한국어 ${bl.korean_files}`);
+    if (bl.korean_files) bits.push(`${siteId === 'krcampus' ? '일본어' : '한국어'} ${bl.korean_files}`);
     if (bl.images) bits.push(`이미지 ${bl.images}`);
     return bits.length ? bits.join(' · ') : '없음';
 }
 
+function nextRunText(snap) {
+    const next = snap && snap.next_run;
+    if (!next) return '';
+    const lim = next.limits || { guide: 3, content: 6 };
+    const bits = [];
+    if (next.guides_topics) bits.push(`가이드 ${next.guides_topics}`);
+    if (next.items_pairs) bits.push(`콘텐츠 ${next.items_pairs}`);
+    if (next.korean_files) bits.push(`번역 ${next.korean_files}`);
+    if (!bits.length) return '';
+    return `다음 실행 ${bits.join(' · ')} (한도 가이드 ${lim.guide} · 콘텐츠 ${lim.content})`;
+}
+
 function backlogHtml(p) {
-    const b = p.backlog;
+    const snap = pipelineBacklogSnap(p);
     const refreshBtn = (siteId, disabled) =>
         `<button type="button" class="btn btn-ghost btn-sm" onclick="refreshBacklog('${escPipeline(siteId)}')" ${disabled ? 'disabled' : ''}>건수 새로고침</button>`;
     const actions = (r, e) => `<div class="pipe-actions">${r}${e || ''}</div>`;
-    if (!b) {
+    if (!snap) {
         return `<div class="dash-pipeline">
             <p class="pipe-summary">남은 건수: —</p>
             ${actions(refreshBtn(p.site_id, false), '')}
         </div>`;
     }
-    const exp = b.csv_expand || {};
-    const expandBtn = (exp.items_expandable || exp.guides_expandable)
-        ? `<button type="button" class="btn btn-ghost btn-sm" onclick="expandCsv('${escPipeline(p.site_id)}')" ${p.running ? 'disabled' : ''}>CSV 추가</button>`
-        : '';
+    const exp = snap.csv_expand || {};
+    const expandAvail = csvExpandAvail(snap);
+    const expandTitle = expandAvail
+        ? `CSV에 ${expandAvail}건 추가 가능 (시드 토픽)`
+        : '추가할 시드 없음 — 이미 모두 등록됨';
+    const expandBtn = `<button type="button" class="btn btn-ghost btn-sm" onclick="expandCsv('${escPipeline(p.site_id)}')" ${p.running || !expandAvail ? 'disabled' : ''} title="${escPipeline(expandTitle)}">CSV 추가${expandAvail ? ` (${expandAvail})` : ''}</button>`;
+    const nextLine = nextRunText(snap);
     return `<div class="dash-pipeline">
-        <p class="pipe-summary">남은 건수: ${escPipeline(remainingText(b))}</p>
+        <p class="pipe-summary">남은 건수: ${escPipeline(remainingText(p))}</p>
+        ${nextLine ? `<p class="pipe-summary pipe-next">${escPipeline(nextLine)}</p>` : ''}
         ${actions(refreshBtn(p.site_id, p.running), expandBtn)}
     </div>`;
 }
@@ -67,19 +102,19 @@ function renderPhaseTrack(phase, running) {
     const gen = document.getElementById('phase-generate');
     const dep = document.getElementById('phase-deploy');
     if (!track || !gen || !dep) return;
+    track.style.display = 'flex';
+    gen.className = 'phase-step';
+    dep.className = 'phase-step';
     if (!running) {
-        track.style.display = 'none';
-        gen.className = 'phase-step';
-        dep.className = 'phase-step';
+        gen.classList.add('idle');
+        dep.classList.add('idle');
         return;
     }
-    track.style.display = 'flex';
     if (phase === 'deploy') {
-        gen.className = 'phase-step done';
-        dep.className = 'phase-step active';
+        gen.classList.add('done');
+        dep.classList.add('active');
     } else {
-        gen.className = 'phase-step active';
-        dep.className = 'phase-step';
+        gen.classList.add('active');
     }
 }
 
@@ -111,31 +146,29 @@ function renderSummary(summary, logTail, lastRun, opts) {
     else setResultBadge('idle', title);
 
     const lines = summary?.lines?.length ? summary.lines : ['결과 없음'];
-    linesEl.innerHTML = lines.map(l => `<li>${escPipeline(l)}</li>`).join('');
+    let html = '';
+    if (summary?.created_labels?.length) {
+        html += `<li class="created-highlight">+ 추가 ${summary.created_labels.length}건: ${escPipeline(summary.created_labels.join(', '))}</li>`;
+    }
+    html += lines.map(l => `<li>${escPipeline(l)}</li>`).join('');
+    linesEl.innerHTML = html;
 
     const snip = (summary?.log_snippet || '').trim();
     if (snipEl && logLabel) {
-        if (snip) {
-            logLabel.style.display = 'block';
-            logLabel.textContent = phase === 'deploy' && running ? 'deploy.sh 로그 (실시간)' : '파이프라인 로그';
-            snipEl.style.display = 'block';
-            snipEl.textContent = snip;
-        } else {
-            logLabel.style.display = 'none';
-            snipEl.style.display = 'none';
-        }
+        logLabel.style.display = 'block';
+        logLabel.textContent = snip
+            ? (phase === 'deploy' && running ? 'deploy.sh 로그 (실시간)' : '파이프라인 로그')
+            : '파이프라인 로그';
+        snipEl.style.display = 'block';
+        snipEl.textContent = snip || '—';
     }
 
     const fullText = (opts?.deploy_log_tail && running && phase === 'deploy')
         ? opts.deploy_log_tail + '\n\n--- pipeline ---\n\n' + (logTail || '')
         : (logTail || '');
     if (fullWrap && fullPre) {
-        if (fullText && fullText.length > 80) {
-            fullWrap.style.display = 'block';
-            fullPre.textContent = fullText;
-        } else {
-            fullWrap.style.display = 'none';
-        }
+        fullWrap.style.display = 'block';
+        fullPre.textContent = fullText || '—';
     }
 }
 
@@ -158,7 +191,7 @@ async function loadPipelines() {
     } catch (_) {
         window.__pipelines = [];
     }
-    if (!backlogBootstrapDone && window.__pipelines.some(p => !p.backlog)) {
+    if (!backlogBootstrapDone) {
         backlogBootstrapDone = true;
         bootstrapBacklog();
     }
@@ -178,8 +211,6 @@ async function runPipeline(siteId, label) {
     activePipelineSite = siteId;
     const siteEl = document.getElementById('result-site');
     if (siteEl) siteEl.textContent = '· ' + (label || siteId);
-    const panel = document.getElementById('result-panel');
-    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     setResultBadge('run', '시작');
     renderSummary({ title: '생성 중', lines: ['① 콘텐츠 생성을 시작합니다…'] }, '', null, { running: true, phase: 'generate' });
 
@@ -255,7 +286,13 @@ async function bootstrapBacklog() {
 }
 
 async function expandCsv(siteId) {
-    if (!confirm('CSV에 시드/확장 행을 추가합니다. 계속할까요?')) return;
+    const pipe = typeof pipelineForSite === 'function' ? pipelineForSite(siteId) : null;
+    const avail = csvExpandAvail(pipelineBacklogSnap(pipe));
+    if (!avail) {
+        showToast('추가할 CSV 시드가 없습니다 (이미 모두 등록됨)');
+        return;
+    }
+    if (!confirm(`CSV에 시드 토픽 ${avail}건을 추가합니다. 계속할까요?`)) return;
     const res = await fetch('/api/content/pipeline/csv-expand', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -266,6 +303,7 @@ async function expandCsv(siteId) {
         showToast(d.error || 'CSV 갱신 실패');
         return;
     }
-    showToast('CSV 추가 완료');
-    loadPipelines();
+    const added = csvExpandAdded(d);
+    showToast(added > 0 ? `CSV +${added}행 추가됨` : '추가된 행 없음 (시드가 이미 등록됨)');
+    await refreshBacklog(siteId, { silent: true });
 }
