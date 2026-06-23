@@ -15,7 +15,6 @@ from blueprints.content_bp import content_bp
 from blueprints.gsc_bp import gsc_bp
 from blueprints.hub import hub_bp
 from blueprints.images import images_bp
-from blueprints.ops import ops_bp
 from blueprints.pages import pages_bp
 from blueprints.schedule import schedule_bp
 from blueprints.todos import todos_bp
@@ -62,7 +61,6 @@ def create_app() -> Flask:
     app.register_blueprint(hub_bp)
     app.register_blueprint(todos_bp)
     app.register_blueprint(schedule_bp)
-    app.register_blueprint(ops_bp)
     app.register_blueprint(images_bp)
     app.register_blueprint(gsc_bp)
     app.register_blueprint(analytics_bp)

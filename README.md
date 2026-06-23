@@ -1,6 +1,6 @@
 # Work Hub / OK Admin
 
-로컬 운영 허브: 사이트 레지스트리, 달력, Auto Register, GSC, 콘텐츠 스크립트, GCS 이미지 (Flask).
+로컬 운영 허브: 사이트 레지스트리, 달력, GSC, 콘텐츠 스크립트, GCS 이미지 (Flask).
 
 ## 실행
 

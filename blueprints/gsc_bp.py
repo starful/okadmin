@@ -8,7 +8,7 @@ from auth import requires_auth
 from config import COL_GSC_ACTIONS, COL_OPS_EVENTS, get_service, list_services, repo_path, work_root_available
 from git_ops import deploy_script_path
 from firestore_db import doc_to_dict, firestore_unavailable_message, get_db
-from gsc_hub_helpers import seo_commit_message
+from gsc_hub_helpers import record_gsc_seo_calendar, seo_commit_message
 from gsc_run_store import gsc_last_runs, write_gsc_seo_run
 from gsc_seo_worker import delete_url_content_files, load_dashboard, run_seo_jobs
 from gsc_service import (
@@ -110,6 +110,8 @@ def gsc_run_seo():
         for r in results
     )
     write_gsc_seo_run(site_id, result, ok=seo_ok)
+    result["calendar_event"] = record_gsc_seo_calendar(site_id, result)
+    result["calendar_skipped"] = result["calendar_event"] is None
     result["suggested_commit_message"] = seo_commit_message(site_id, result)
     result["last_runs"] = gsc_last_runs(site_id)
     from gsc_url_store import url_history_meta

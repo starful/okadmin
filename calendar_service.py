@@ -1,4 +1,4 @@
-"""Unified calendar: ops_events + todos + auto_register seed."""
+"""Unified calendar: ops_events + todos."""
 from __future__ import annotations
 
 import re
@@ -6,14 +6,10 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from config import (
-    AUTO_REGISTER_SCHEDULE,
     CALENDAR_VISIBLE_KINDS,
     CALENDAR_WINDOW_DAYS,
     COL_OPS_EVENTS,
     COL_TODOS,
-    EVENT_COLORS,
-    EVENT_KINDS,
-    LOG_DIR,
     SITE_COLORS,
 )
 from jp_holidays import holidays_between
@@ -24,7 +20,6 @@ _WORK_TYPE_SHORT = {
     "content": "컨텐츠",
     "feature": "기능",
     "git": "git",
-    "auto_register": "컨텐츠",
     "todo": "TODO",
     "deploy": "배포",
     "manual": "메모",
@@ -62,20 +57,6 @@ _CONTENT_HINTS = re.compile(
 )
 from firestore_db import doc_to_dict, get_db
 
-# Python weekday: Mon=0 … Sun=6 (auto_register.sh: 1=Mon … 7=Sun)
-AUTO_REGISTER_BY_WEEKDAY: dict[int, tuple[str, str]] = {
-    0: ("okramen", "okramen"),
-    1: ("okonsen", "okonsen"),
-    2: ("okcaddie", "okcaddie"),
-    3: ("okstats", "StatFacts"),
-    4: ("starful.biz", "starful.biz"),
-    5: ("jpcampus", "jpcampus"),
-    6: ("hatena", "hatena"),
-}
-
-DEFAULT_SEED_START = date(2026, 4, 27)
-AUTO_REGISTER_HOUR = 9
-
 
 def _parse_date_only(val: Any) -> str | None:
     if not val:
@@ -84,106 +65,6 @@ def _parse_date_only(val: Any) -> str | None:
     if "T" in s:
         return s.split("T", 1)[0]
     return s[:10] if len(s) >= 10 else None
-
-
-def _log_run_status(log_path) -> str:
-    text = log_path.read_text(encoding="utf-8", errors="replace")
-    if "Auto register finished" in text:
-        return "completed"
-    if "Auto register started" in text and "ERROR" not in text[-500:]:
-        return "started"
-    if "Skip:" in text:
-        return "skipped"
-    return "unknown"
-
-
-def collect_log_status_by_date() -> dict[str, str]:
-    out: dict[str, str] = {}
-    if not LOG_DIR.is_dir():
-        return out
-    for path in LOG_DIR.glob("auto-register-*.log"):
-        m = re.match(r"auto-register-(\d{4}-\d{2}-\d{2})\.log$", path.name)
-        if not m:
-            continue
-        out[m.group(1)] = _log_run_status(path)
-    return out
-
-
-def existing_seed_keys(db) -> set[str]:
-    keys: set[str] = set()
-    for doc in db.collection(COL_OPS_EVENTS).stream():
-        data = doc.to_dict() or {}
-        if data.get("seed_key"):
-            keys.add(data["seed_key"])
-    return keys
-
-
-def seed_auto_register_range(
-    db,
-    start: date,
-    end: date,
-    *,
-    overwrite: bool = False,
-) -> dict[str, int]:
-    """Insert auto_register ops_events for each day in range (dedupe by seed_key)."""
-    from firebase_admin import firestore as fs
-
-    log_status = collect_log_status_by_date()
-    existing = existing_seed_keys(db)
-    created = 0
-    skipped = 0
-
-    d = start
-    while d <= end:
-        iso_day = d.isoformat()
-        seed_key = f"auto_register:{iso_day}"
-        if seed_key in existing and not overwrite:
-            skipped += 1
-            d += timedelta(days=1)
-            continue
-
-        if overwrite and seed_key in existing:
-            for doc in db.collection(COL_OPS_EVENTS).stream():
-                data = doc.to_dict() or {}
-                if data.get("seed_key") == seed_key:
-                    doc.reference.delete()
-
-        if d.weekday() not in AUTO_REGISTER_BY_WEEKDAY:
-            d += timedelta(days=1)
-            continue
-
-        site_id, _label = AUTO_REGISTER_BY_WEEKDAY[d.weekday()]
-        run = log_status.get(iso_day, "planned")
-        title = f"Auto Register · {site_id}"
-        notes_parts = [f"weekday={d.strftime('%a')}", f"run={run}"]
-        if run == "completed":
-            title += " ✓"
-        elif run == "skipped":
-            title += " (skip)"
-            notes_parts.append("log=skip")
-
-        start_at = f"{iso_day}T{AUTO_REGISTER_HOUR:02d}:00:00"
-        end_at = f"{iso_day}T{AUTO_REGISTER_HOUR + 1:02d}:00:00"
-
-        db.collection(COL_OPS_EVENTS).add(
-            {
-                "title": title,
-                "site_id": site_id,
-                "kind": "auto_register",
-                "start_at": start_at,
-                "end_at": end_at,
-                "all_day": False,
-                "notes": " · ".join(notes_parts),
-                "seed_key": seed_key,
-                "run_status": run,
-                "created_at": fs.SERVER_TIMESTAMP,
-            }
-        )
-        existing.add(seed_key)
-        created += 1
-        d += timedelta(days=1)
-
-    return {"created": created, "skipped": skipped, "from": start.isoformat(), "to": end.isoformat()}
 
 
 def _text_on_bg(hex_color: str) -> str:
@@ -234,8 +115,6 @@ def _work_type(doc: dict) -> str:
         return "content"
     if kind in ("git_push", "other"):
         return _infer_work_type_from_text(doc)
-    if kind == "auto_register":
-        return "auto_register"
     if kind == "todo":
         return "todo"
     if kind == "deploy":
@@ -282,11 +161,6 @@ def _execution_phase(doc: dict, event_date: str, *, today: date | None = None) -
     if doc.get("status") == "done":
         return "done"
 
-    if work_type == "auto_register":
-        if run == "completed" or "✓" in title:
-            return "done"
-        return "planned"
-
     if work_type in _LOGGED_WORK_TYPES:
         return "done"
 
@@ -303,6 +177,50 @@ def calendar_item_visible(doc: dict, *, source_collection: str = "ops_events") -
         return False
     kind = (doc.get("kind") or "manual").strip()
     return kind in CALENDAR_VISIBLE_KINDS
+
+
+def _event_summary(doc: dict) -> str:
+    kind = (doc.get("kind") or "").strip()
+    title = (doc.get("title") or "").strip()
+    failed = "실패" in title
+    if kind == "content":
+        return "콘텐츠 실패" if failed else "콘텐츠 완료"
+    if kind == "gsc":
+        pat_m = re.search(r"(저노출|저CTR)", title)
+        pat = pat_m.group(1) if pat_m else "SEO"
+        cnt_m = re.search(r"(\d+)\s*건", title)
+        cnt = f" {cnt_m.group(1)}건" if cnt_m else ""
+        status = "실패" if failed else "완료"
+        return f"GSC {pat}{cnt} {status}"
+    wt = _WORK_TYPE_SHORT.get(kind, kind)
+    return f"{wt} 실패" if failed else wt
+
+
+def _merge_day_items(items: list[dict]) -> list[dict]:
+    """One chip per site+kind per day; stack run count when duplicated."""
+    merged: dict[str, dict] = {}
+    for item in items:
+        key = f"{item['site_id']}:{item.get('kind') or item.get('work_type') or 'other'}"
+        if key not in merged:
+            merged[key] = {**item, "run_count": 1}
+            continue
+        row = merged[key]
+        row["run_count"] = int(row.get("run_count") or 1) + 1
+        if "실패" in (item.get("summary") or ""):
+            row["summary"] = item.get("summary")
+        prev = (row.get("notes") or "").strip()
+        nxt = (item.get("notes") or "").strip()
+        if nxt and nxt not in prev:
+            row["notes"] = f"{prev}\n---\n{nxt}".strip()[:2000] if prev else nxt[:2000]
+    out: list[dict] = []
+    for row in merged.values():
+        rc = int(row.pop("run_count", 1))
+        summary = row.get("summary") or "작업"
+        if rc > 1:
+            base = summary.replace(" ×", "").split(" ×")[0]
+            row["summary"] = f"{base} ×{rc}"
+        out.append(row)
+    return out
 
 
 def doc_to_day_item(doc: dict, *, source_collection: str = "ops_events") -> dict | None:
@@ -322,6 +240,7 @@ def doc_to_day_item(doc: dict, *, source_collection: str = "ops_events") -> dict
     type_label = _WORK_TYPE_SHORT.get(work_type, work_type)
     tag = f"{phase_label}·{type_label}"
     chip_title = body if body and body != "(no title)" else site
+    summary = _event_summary(doc)
     record_id = doc["id"]
     cal_id = f"evt-{record_id}" if source_collection == "ops_events" else f"todo-{record_id}"
     return {
@@ -335,6 +254,7 @@ def doc_to_day_item(doc: dict, *, source_collection: str = "ops_events") -> dict
         "phase": phase,
         "phase_label": phase_label,
         "chip_title": chip_title,
+        "summary": summary,
         "color": color,
         "text_color": text_color,
         "seeded": bool(doc.get("seed_key")),
@@ -382,8 +302,9 @@ def calendar_days_view(
     d = start
     while d <= end:
         key = d.isoformat()
+        items = _merge_day_items(by_day.get(key, []))
         items = sorted(
-            by_day.get(key, []),
+            items,
             key=lambda x: (x["site_id"], x.get("work_type", x["kind"]), x["label"]),
         )
         days.append(

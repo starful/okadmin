@@ -120,6 +120,7 @@ def schedule_page():
         event_kinds=SCHEDULE_EVENT_KINDS,
         site_colors=SITE_COLORS,
         site_icons=site_favicon_urls(),
+        site_labels={s["id"]: s.get("label", s["id"]) for s in list_services()},
         calendar_window_days=CALENDAR_WINDOW_DAYS,
     )
 

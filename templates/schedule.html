@@ -10,11 +10,19 @@
     .fc .fc-daygrid-day.fc-day-jp-holiday { background: #1a1218; }
     .fc .fc-daygrid-day.fc-day-weekend { background: #141414; }
     .fc .fc-jp-holiday { font-family: 'DM Mono'; font-size: 9px; color: #f9a8d4; margin-top: 2px; line-height: 1.2; }
-    .fc-event { font-size: 10px; font-weight: 600; border-radius: 4px; border-left-width: 4px !important; cursor: pointer; margin-bottom: 2px; padding: 1px 2px; }
-    .fc-event .fc-event-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .cal-chip { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; overflow: hidden; background: rgba(0,0,0,0.18); }
-    .cal-chip img { width: 16px; height: 16px; object-fit: contain; display: block; }
-    .cal-chip-fallback { font-size: 11px; font-weight: 800; color: inherit; }
+    .fc-daygrid-day-events { display: flex !important; flex-wrap: wrap; gap: 3px; padding: 2px 4px 4px; align-content: flex-start; }
+    .fc-daygrid-event-harness { position: static !important; width: auto !important; margin: 0 !important; }
+    .fc-daygrid-block-event { width: auto !important; max-width: none !important; background: transparent !important; border: none !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; }
+    .fc-daygrid-block-event .fc-event-main { padding: 0 !important; }
+    .fc-event { font-size: 10px; font-weight: 600; cursor: pointer; }
+    .fc-event .fc-event-title { display: none !important; }
+    .cal-event-pill { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 4px 9px 4px 4px; border-radius: 8px; background: #1a1a1a; border: 1px solid #3a3a3a; box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+    .cal-event-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; line-height: 1.25; }
+    .cal-event-site { font-size: 12px; font-weight: 700; color: #f0f0f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+    .cal-event-work { font-size: 11px; font-family: 'DM Mono', monospace; color: #ccc; white-space: nowrap; }
+    .cal-chip { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; overflow: hidden; background: #f3f3f3; border: 2px solid #888; flex-shrink: 0; }
+    .cal-chip img { width: 20px; height: 20px; object-fit: contain; display: block; }
+    .cal-chip-fallback { font-size: 13px; font-weight: 800; color: #111; }
     .fc-daygrid-event { opacity: 1 !important; }
     .fc-event.ev-phase-planned { opacity: 0.5 !important; border-style: dashed !important; border-width: 2px !important; }
     .fc-event.ev-phase-skipped { opacity: 0.35 !important; background: #444 !important; border-color: #666 !important; color: #aaa !important; }
@@ -34,10 +42,10 @@
 {% endblock %}
 {% block content %}
 <h1>작업 달력</h1>
-<p class="sub">SEO 콘텐츠 생성 · 사이트 아이콘 · 기준일 ±{{ calendar_window_days }}일 · ◀▶ 1주 이동</p>
+<p class="sub">SEO 콘텐츠 · GSC SEO · 오늘 기준 ±1주 · ◀▶ 1주 이동</p>
 <div class="phase-legend">
-    <span><span class="sample done">실행</span> 파이프라인 완료</span>
-    <span>칩 = 사이트 favicon · 클릭하면 상세 메모</span>
+    <span><span class="sample done">실행</span> 완료 작업</span>
+    <span>콘텐츠 = 파이프라인 · GSC = 메타/SEO 수정 · 클릭 시 상세</span>
 </div>
 <div class="legend-sites">
     {% for sid, hex in site_colors.items() %}
@@ -79,6 +87,8 @@
 const WINDOW_DAYS = {{ calendar_window_days }};
 const WEEK_STEP = 7;
 const SITE_ICONS = {{ site_icons | tojson }};
+const SITE_COLORS = {{ site_colors | tojson }};
+const SITE_LABELS = {{ site_labels | tojson }};
 let calendar = null, editCalId = null, editSeeded = false;
 let holidayMap = {}, anchorDate = null, serverToday = null;
 let rangeStart = null, rangeEnd = null;
@@ -111,10 +121,6 @@ function weekGridForRange(startIso, endIso) {
 function onKindChange() {
     const k = document.getElementById('ev-kind').value;
     document.getElementById('todo-fields').style.display = k === 'todo' ? 'block' : 'none';
-    if (k === 'auto_register' && !editCalId) {
-        const site = document.getElementById('ev-site').value;
-        document.getElementById('ev-title').value = site ? `Auto Register · ${site}` : 'Auto Register';
-    }
 }
 
 function openEvModal(item, dateStr) {
@@ -171,32 +177,50 @@ function escapeHtml(s) {
 }
 
 function eventTooltip(p) {
-    const parts = [p.site_id, p.label || p.title || ''];
-    if (p.notes) parts.push(String(p.notes).slice(0, 200));
+    const parts = [SITE_LABELS[p.site_id] || p.site_id, p.summary || p.label || p.title || ''];
+    if (p.notes) parts.push(String(p.notes).slice(0, 400));
     return parts.filter(Boolean).join('\n');
+}
+
+function iconMarkup(site, color, tip) {
+    const letter = escapeHtml((site[0] || '?').toUpperCase());
+    const chipStyle = `border-color:${color};background:#f5f5f5`;
+    const icon = SITE_ICONS[site] || '';
+    if (!icon) {
+        return `<span class="cal-chip cal-chip-fallback" style="${chipStyle}">${letter}</span>`;
+    }
+    return `<span class="cal-chip" style="${chipStyle}">` +
+        `<img src="${icon}" alt="" loading="lazy" ` +
+        `onerror="this.outerHTML='<span class=\\'cal-chip cal-chip-fallback\\' style=\\'${chipStyle}\\'>${letter}</span>'">` +
+        `</span>`;
 }
 
 function renderEventContent(arg) {
     const p = arg.event.extendedProps || {};
     const site = p.site_id || '';
-    const icon = SITE_ICONS[site] || '';
+    const color = SITE_COLORS[site] || p.color || '#888780';
     const tip = escapeHtml(eventTooltip(p));
-    if (icon) {
-        return { html: `<span class="cal-chip" title="${tip}"><img src="${icon}" alt="" loading="lazy" onerror="this.style.display='none'"></span>` };
-    }
-    const letter = escapeHtml((site[0] || '?').toUpperCase());
-    return { html: `<span class="cal-chip cal-chip-fallback" title="${tip}">${letter}</span>` };
+    const siteLabel = escapeHtml(SITE_LABELS[site] || site);
+    const workLabel = escapeHtml(p.summary || '콘텐츠 완료');
+    return {
+        html: `<span class="cal-event-pill" style="border-left:3px solid ${color}" title="${tip}">` +
+            iconMarkup(site, color, tip) +
+            `<span class="cal-event-copy">` +
+            `<span class="cal-event-site">${siteLabel}</span>` +
+            `<span class="cal-event-work">${workLabel}</span>` +
+            `</span></span>`,
+    };
 }
 
 function itemToFcEvent(it) {
     return {
         id: it.cal_id,
-        title: it.chip_title || it.site_id,
+        title: ' ',
         start: it.date,
         allDay: true,
-        backgroundColor: it.color,
-        borderColor: it.color,
-        textColor: it.text_color,
+        backgroundColor: 'transparent',
+        borderColor: 'transparent',
+        display: 'block',
         classNames: [`ev-phase-${it.phase || 'done'}`],
         extendedProps: it,
     };
@@ -204,32 +228,17 @@ function itemToFcEvent(it) {
 
 function paintEvent(info) {
     const p = info.event.extendedProps;
-    const phase = p.phase || 'done';
-    const bg = info.event.backgroundColor || p.color;
-    if (phase === 'skipped') return;
-    if (bg) {
-        info.el.style.setProperty('background-color', bg, 'important');
-        info.el.style.setProperty('border-color', bg, 'important');
-        info.el.style.color = info.event.textColor || p.text_color || '#111';
-    }
-    if (phase === 'planned') {
-        info.el.style.setProperty('background-color', '#3a3a3a', 'important');
-        info.el.style.setProperty('border-color', '#666', 'important');
-        info.el.style.setProperty('color', '#bbb', 'important');
-        info.el.style.setProperty('opacity', '0.85', 'important');
-        info.el.style.borderStyle = 'dashed';
-        info.el.style.borderWidth = '2px';
-    }
-    const label = p.label || p.title || '';
+    info.el.style.setProperty('background', 'transparent', 'important');
+    info.el.style.setProperty('border', 'none', 'important');
+    info.el.style.setProperty('box-shadow', 'none', 'important');
+    info.el.style.setProperty('padding', '0', 'important');
     info.el.title = eventTooltip(p);
-    const chip = info.el.querySelector('.cal-chip');
-    if (chip && !chip.title) chip.title = info.el.title;
 }
 
 function updateRangeHint(data) {
     const rel = data.anchor === data.today ? '오늘 기준' : `기준 ${data.anchor}`;
     document.getElementById('range-hint').textContent =
-        `${data.start} ~ ${data.end} · ${rel} · ±${WINDOW_DAYS}일`;
+        `${data.start} ~ ${data.end} · ${rel} · ±1주`;
 }
 
 function applyCalendarData(data, events) {
@@ -273,7 +282,7 @@ function applyCalendarData(data, events) {
         },
         headerToolbar: { left: 'prevWeek,nextWeek hubToday', center: 'title', right: '' },
         views: { dayGridHub: hubView },
-        dayMaxEvents: 12,
+        dayMaxEvents: 8,
         moreLinkClick: 'popover',
         events,
         eventContent: renderEventContent,

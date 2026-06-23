@@ -1550,7 +1550,7 @@ def run_post_pipeline_deploy(
     *,
     on_job_started: Any = None,
 ) -> dict[str, Any]:
-    """After content pipeline OK: git push + Cloud Build (same flags as auto_register)."""
+    """After content pipeline OK: git push + Cloud Build."""
     import os
 
     from git_ops import deploy_script_path, start_deploy, wait_for_deploy_job

@@ -2,8 +2,6 @@
 {% block title %}홈{% endblock %}
 {% block head %}
 <style>
-    .dash-global-log pre { max-height: 120px; font-size: 10px; }
-    details.global-log summary { cursor: pointer; font-size: 12px; color: #666; }
 </style>
 {% endblock %}
 {% block content %}
@@ -18,11 +16,6 @@
 </div>
 <div id="loading" class="mono" style="font-size:12px;color:#666;margin-bottom:12px">로딩 중…</div>
 <div id="sites-grid" class="grid-sites-slim"></div>
-<details class="card global-log" id="global-log-card" style="display:none;margin-top:20px">
-    <summary>Auto Register 로그</summary>
-    <p class="mono" id="global-log-meta" style="color:#666;font-size:10px;margin:8px 0 4px">—</p>
-    <pre class="mono" id="global-log-tail" style="color:#8a8;white-space:pre-wrap;overflow:auto;margin:0">—</pre>
-</details>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='pipeline.js') }}"></script>
@@ -277,14 +270,6 @@ function reasonsHtml(assessment) {
 }
 
 function renderSitesGrid(sites, logData, pipelines) {
-    const global = logData.global;
-    const card = document.getElementById('global-log-card');
-    if (global?.log_tail || global?.last_run) {
-        card.style.display = 'block';
-        document.getElementById('global-log-meta').textContent = `마지막: ${global.last_run || '—'}`;
-        document.getElementById('global-log-tail').textContent = global.log_tail || '';
-    }
-
     const pipeMap = {};
     (pipelines || []).forEach(p => { pipeMap[p.site_id] = p; });
 

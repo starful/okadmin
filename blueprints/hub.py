@@ -37,7 +37,7 @@ def api_sites():
 @hub_bp.route("/dashboard/logs")
 @requires_auth
 def api_dashboard_logs():
-    """Auto-register / deploy / git commit snippets for dashboard."""
+    """Deploy / git commit snippets for dashboard."""
     return jsonify(dashboard_logs())
 
 

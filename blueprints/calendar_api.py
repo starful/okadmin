@@ -1,23 +1,20 @@
-"""Unified calendar API (TODO + ops events + seed)."""
+"""Unified calendar API (TODO + ops events)."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from flask import Blueprint, jsonify, request
 
 from auth import requires_auth
 from calendar_service import (
-    DEFAULT_SEED_START,
     all_calendar_events,
     calendar_days_view,
     default_calendar_range,
     event_to_fullcalendar,
     parse_calendar_id,
-    seed_auto_register_range,
     todo_to_fullcalendar,
 )
 from config import (
-    AUTO_REGISTER_SCHEDULE,
     CALENDAR_WINDOW_DAYS,
     COL_OPS_EVENTS,
     COL_TODOS,
@@ -179,27 +176,3 @@ def calendar_delete(cal_id: str):
         return jsonify({"error": "not found"}), 404
     ref.delete()
     return jsonify({"ok": True})
-
-
-@calendar_bp.route("/seed", methods=["POST"])
-@requires_auth
-def calendar_seed():
-    """Backfill auto_register days from logs + generate range (default Apr 27 → +90d)."""
-    db, err = _require_db()
-    if err:
-        return err
-    data = request.get_json(silent=True) or {}
-    start_s = data.get("start") or DEFAULT_SEED_START.isoformat()
-    end_s = data.get("end")
-    if not end_s:
-        end_s = (date.today() + timedelta(days=90)).isoformat()
-    overwrite = bool(data.get("overwrite"))
-
-    try:
-        start_d = date.fromisoformat(start_s[:10])
-        end_d = date.fromisoformat(end_s[:10])
-    except ValueError:
-        return jsonify({"error": "invalid start/end date"}), 400
-
-    stats = seed_auto_register_range(db, start_d, end_d, overwrite=overwrite)
-    return jsonify({"ok": True, **stats, "schedule": list(AUTO_REGISTER_SCHEDULE)})

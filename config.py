@@ -31,51 +31,7 @@ def _resolve_ops_root() -> Path:
 
 
 OPS_ROOT = _resolve_ops_root()
-AUTO_REGISTER_SCRIPT = OPS_ROOT / "auto_register.sh"
-AUTO_REGISTER_STATUS_SCRIPT = OPS_ROOT / "show_auto_register_status.sh"
-STATE_FILE = OPS_ROOT / "state" / "auto-register.last-run"
 LOG_DIR = OPS_ROOT / "logs"
-
-AUTO_REGISTER_SCHEDULE = [
-    ("Mon", "okramen"),
-    ("Tue", "okonsen"),
-    ("Wed", "okcaddie"),
-    ("Thu", "StatFacts"),
-    ("Fri", "starful.biz"),
-    ("Sat", "jpcampus"),
-    ("Sun", "hatena · okpy.net"),
-]
-
-def _schedule_project_id(proj: str) -> str:
-    return "hatena" if "hatena" in proj.lower() else proj
-
-
-def auto_register_projects() -> list[dict[str, str]]:
-    """Selectable services: weekday schedule + git sites with deploy.sh."""
-    items: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for day, proj in AUTO_REGISTER_SCHEDULE:
-        pid = _schedule_project_id(proj)
-        items.append({"day": day, "id": pid, "label": proj})
-        seen.add(pid)
-    for svc in list_services():
-        sid = (svc.get("id") or "").strip()
-        if sid in ("okadmin",) or not svc.get("git", True):
-            continue
-        path = (svc.get("path") or sid).strip()
-        if not path or path in seen:
-            continue
-        repo = WORK_ROOT / path
-        if not repo.is_dir() or not (repo / "deploy.sh").is_file():
-            continue
-        label = (svc.get("label") or sid).strip()
-        items.append({"day": "—", "id": path, "label": label})
-        seen.add(path)
-    return items
-
-
-def auto_register_project_ids() -> list[str]:
-    return [p["id"] for p in auto_register_projects()]
 
 # 예전 GCal 서브캘린더 색과 동일 계열
 SITE_COLORS: dict[str, str] = {
@@ -90,16 +46,15 @@ SITE_COLORS: dict[str, str] = {
     "okstats": "#2563eb",
 }
 
-EVENT_KINDS = ["todo", "auto_register", "git_push", "gsc", "manual", "deploy", "content", "other"]
-# 달력 UI에 표시할 작업 종류 (SEO 콘텐츠 파이프라인만)
-CALENDAR_VISIBLE_KINDS = frozenset({"content"})
-SCHEDULE_EVENT_KINDS = ["content"]
+EVENT_KINDS = ["todo", "git_push", "gsc", "manual", "deploy", "content", "other"]
+# 달력 UI에 표시할 작업 종류 (SEO 콘텐츠 + GSC SEO)
+CALENDAR_VISIBLE_KINDS = frozenset({"content", "gsc"})
+SCHEDULE_EVENT_KINDS = ["content", "gsc"]
 # 달력: 오늘 기준 앞뒤 N일
-CALENDAR_WINDOW_DAYS = 14
+CALENDAR_WINDOW_DAYS = 7
 
 EVENT_COLORS = {
     "todo": "#818cf8",
-    "auto_register": "#22c55e",
     "git_push": "#60a5fa",
     "gsc": "#f59e0b",
     "manual": "#7F77DD",

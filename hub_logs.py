@@ -1,4 +1,4 @@
-"""Read ops / deploy / git activity logs for dashboard."""
+"""Read deploy / git activity logs for dashboard."""
 from __future__ import annotations
 
 import re
@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config import LOG_DIR, OPS_ROOT, STATE_FILE, list_services, repo_path, work_root_available
+from config import LOG_DIR, OPS_ROOT, list_services, repo_path, work_root_available
 from content_pipeline import pipeline_last_run
 from dashboard_schedule import (
     CONTENT_INTERVAL_DAYS,
@@ -17,12 +17,6 @@ from dashboard_schedule import (
 from gsc_run_store import gsc_last_runs
 from git_ops import DEPLOY_LOG_DIR, tail_deploy_log
 from git_util import git_summary
-
-# auto-register 로그에서 사이트 매칭용 (hatena → okpy.net 운영)
-SITE_LOG_ALIASES: dict[str, list[str]] = {
-    "hatena": ["hatena", "okpy"],
-    "starful.biz": ["starful.biz", "starful_biz", "starful.biz"],
-}
 
 
 def _log_dirs() -> list[Path]:
@@ -35,64 +29,6 @@ def _log_dirs() -> list[Path]:
 
 def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
-
-
-def _tail_file(path: Path, *, lines: int = 25) -> str:
-    if not path.is_file():
-        return ""
-    try:
-        rows = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return ""
-    return "\n".join(_strip_ansi(line) for line in rows[-lines:])
-
-
-def latest_auto_register_log_path() -> Path | None:
-    found: list[Path] = []
-    for d in _log_dirs():
-        found.extend(d.glob("auto-register-*.log"))
-    if not found:
-        return None
-    return max(found, key=lambda p: p.stat().st_mtime)
-
-
-def global_ops_log(*, tail_lines: int = 28) -> dict[str, Any]:
-    last_run = ""
-    if STATE_FILE.is_file():
-        last_run = STATE_FILE.read_text(encoding="utf-8").strip()
-    latest = latest_auto_register_log_path()
-    return {
-        "last_run": last_run,
-        "log_file": latest.name if latest else "",
-        "log_tail": _tail_file(latest, lines=tail_lines) if latest else "",
-    }
-
-
-def _site_match_tokens(site_id: str) -> list[str]:
-    tokens = list(SITE_LOG_ALIASES.get(site_id, [site_id]))
-    if site_id not in tokens:
-        tokens.insert(0, site_id)
-    return tokens
-
-
-def _grep_auto_register_for_site(site_id: str, *, max_lines: int = 12) -> list[str]:
-    tokens = _site_match_tokens(site_id)
-    latest = latest_auto_register_log_path()
-    if not latest:
-        return []
-    try:
-        text = latest.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
-    hits: list[str] = []
-    for line in text.splitlines():
-        plain = _strip_ansi(line).strip()
-        if not plain:
-            continue
-        low = plain.lower()
-        if any(t.lower() in low for t in tokens):
-            hits.append(plain[:200])
-    return hits[-max_lines:]
 
 
 def deploy_logs_for_site(site_id: str, *, max_files: int = 2, tail_lines: int = 10) -> list[dict[str, Any]]:
@@ -116,7 +52,6 @@ def deploy_logs_for_site(site_id: str, *, max_files: int = 2, tail_lines: int = 
 def site_activity(site_id: str, svc: dict[str, Any]) -> dict[str, Any]:
     activity: dict[str, Any] = {
         "git_commits": [],
-        "auto_register": [],
         "deploy": [],
     }
     if svc.get("git") and work_root_available():
@@ -125,7 +60,6 @@ def site_activity(site_id: str, svc: dict[str, Any]) -> dict[str, Any]:
         activity["git_branch"] = gs.get("branch")
         activity["git_dirty"] = gs.get("dirty")
 
-    # Last GSC 대응 시각 (SEO 실행 우선, 없으면 dashboard/gsc 최신 실행)
     gsc_meta = gsc_last_runs(site_id)
     gsc_last_at = gsc_meta.get("last_seo_at") or gsc_meta.get("last_run_at")
     activity["last_gsc_response_at"] = (
@@ -140,7 +74,6 @@ def site_activity(site_id: str, svc: dict[str, Any]) -> dict[str, Any]:
     activity["gsc_schedule"] = gsc_sched
     activity["gsc_due_label"] = format_due_label(gsc_sched)
 
-    # Last 콘텐츠 추가 시각 (운영·콘텐츠 pipeline 최신 실행)
     content_meta = pipeline_last_run(site_id)
     activity["last_content_added_at"] = content_meta.get("last_run_display")
     activity["last_content_added_ok"] = content_meta.get("last_run_ok")
@@ -151,17 +84,15 @@ def site_activity(site_id: str, svc: dict[str, Any]) -> dict[str, Any]:
     activity["content_schedule"] = content_sched
     activity["content_due_label"] = format_due_label(content_sched)
 
-    activity["auto_register"] = _grep_auto_register_for_site(site_id)
     activity["deploy"] = deploy_logs_for_site(site_id)
     return activity
 
 
 def dashboard_logs() -> dict[str, Any]:
-    global_log = global_ops_log()
     sites: dict[str, Any] = {}
     for svc in list_services():
         sid = svc.get("id") or ""
         if sid == "okadmin":
             continue
         sites[sid] = site_activity(sid, svc)
-    return {"global": global_log, "sites": sites}
+    return {"sites": sites}
