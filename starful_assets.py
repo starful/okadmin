@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 PROTECTED_ASSET_PREFIXES = ("favicon", "apple-touch")
-PROTECTED_ASSET_NAMES = frozenset({"default", "default_og", "logo"})
+PROTECTED_ASSET_NAMES = frozenset({"default", "default_og", "logo", "brand_biz_mark"})
 
 
 def is_protected_asset(stem: str) -> bool:
