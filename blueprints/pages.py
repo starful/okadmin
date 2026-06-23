@@ -10,12 +10,13 @@ from auth import requires_auth
 from config import (
     CALENDAR_WINDOW_DAYS,
     DEFAULT_GCS_IMAGE_SITE,
-    EVENT_KINDS,
+    SCHEDULE_EVENT_KINDS,
     SITE_COLORS,
     gcs_sites,
     get_service,
     list_services,
     repo_path,
+    site_favicon_urls,
     work_root_available,
 )
 from git_ops import deploy_script_path
@@ -116,8 +117,9 @@ def schedule_page():
         active="schedule",
         user_email=session.get("user_email", ""),
         services=list_services(),
-        event_kinds=EVENT_KINDS,
+        event_kinds=SCHEDULE_EVENT_KINDS,
         site_colors=SITE_COLORS,
+        site_icons=site_favicon_urls(),
         calendar_window_days=CALENDAR_WINDOW_DAYS,
     )
 

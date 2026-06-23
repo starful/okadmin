@@ -7,6 +7,7 @@ from typing import Any
 
 from config import (
     AUTO_REGISTER_SCHEDULE,
+    CALENDAR_VISIBLE_KINDS,
     CALENDAR_WINDOW_DAYS,
     COL_OPS_EVENTS,
     COL_TODOS,
@@ -297,7 +298,16 @@ def _execution_phase(doc: dict, event_date: str, *, today: date | None = None) -
     return "done"
 
 
+def calendar_item_visible(doc: dict, *, source_collection: str = "ops_events") -> bool:
+    if source_collection == "todos":
+        return False
+    kind = (doc.get("kind") or "manual").strip()
+    return kind in CALENDAR_VISIBLE_KINDS
+
+
 def doc_to_day_item(doc: dict, *, source_collection: str = "ops_events") -> dict | None:
+    if not calendar_item_visible(doc, source_collection=source_collection):
+        return None
     site = (doc.get("site_id") or "").strip()
     if not site:
         return None
@@ -311,7 +321,7 @@ def doc_to_day_item(doc: dict, *, source_collection: str = "ops_events") -> dict
     phase_label = _PHASE_LABEL[phase]
     type_label = _WORK_TYPE_SHORT.get(work_type, work_type)
     tag = f"{phase_label}·{type_label}"
-    chip_title = f"{site} · {tag}"
+    chip_title = body if body and body != "(no title)" else site
     record_id = doc["id"]
     cal_id = f"evt-{record_id}" if source_collection == "ops_events" else f"todo-{record_id}"
     return {
@@ -408,6 +418,8 @@ def default_calendar_range() -> tuple[date, date]:
 
 
 def event_to_fullcalendar(doc: dict, *, source_collection: str = "ops_events") -> dict:
+    if not calendar_item_visible(doc, source_collection=source_collection):
+        return None  # type: ignore[return-value]
     site = (doc.get("site_id") or "").strip()
     if not site:
         return None  # type: ignore[return-value]
@@ -420,7 +432,7 @@ def event_to_fullcalendar(doc: dict, *, source_collection: str = "ops_events") -
     phase_label = _PHASE_LABEL[phase]
     type_label = _WORK_TYPE_SHORT.get(work_type, work_type)
     tag = f"{phase_label}·{type_label}"
-    chip_title = f"{site} · {tag}"
+    chip_title = body if body and body != "(no title)" else site
     record_id = doc["id"]
     cal_id = f"evt-{record_id}" if source_collection == "ops_events" else f"todo-{record_id}"
 
@@ -492,13 +504,6 @@ def all_calendar_events(db) -> list[dict]:
     for doc in db.collection(COL_OPS_EVENTS).stream():
         data = doc_to_dict(doc)
         fc = event_to_fullcalendar(data, source_collection="ops_events")
-        if fc:
-            events.append(fc)
-    for doc in db.collection(COL_TODOS).stream():
-        data = doc_to_dict(doc)
-        if not (data.get("site_id") or "").strip():
-            continue
-        fc = todo_to_fullcalendar(data)
         if fc:
             events.append(fc)
     return events

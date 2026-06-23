@@ -60,21 +60,12 @@ def _record_pipeline_calendar(site_id: str, result: dict) -> dict | None:
     title = f"콘텐츠 · {label}" if ok else f"콘텐츠 실패 · {label}"
     if ok:
         title = f"✓ {title}"
-    ev = record_ops_calendar_event(
+    return record_ops_calendar_event(
         site_id=site_id,
         kind="content",
         title=title,
         notes=_pipeline_calendar_notes(result),
     )
-    deploy = result.get("deploy") or {}
-    if ok and deploy and not deploy.get("skipped") and deploy.get("state") == "success":
-        record_ops_calendar_event(
-            site_id=site_id,
-            kind="deploy",
-            title=f"✓ Deploy · {label}",
-            notes=(deploy.get("message") or "deploy.sh 완료")[:500],
-        )
-    return ev
 
 
 @content_bp.route("/jobs")

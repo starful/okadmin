@@ -10,8 +10,11 @@
     .fc .fc-daygrid-day.fc-day-jp-holiday { background: #1a1218; }
     .fc .fc-daygrid-day.fc-day-weekend { background: #141414; }
     .fc .fc-jp-holiday { font-family: 'DM Mono'; font-size: 9px; color: #f9a8d4; margin-top: 2px; line-height: 1.2; }
-    .fc-event { font-size: 10px; font-weight: 600; border-radius: 4px; border-left-width: 4px !important; cursor: pointer; margin-bottom: 2px; }
+    .fc-event { font-size: 10px; font-weight: 600; border-radius: 4px; border-left-width: 4px !important; cursor: pointer; margin-bottom: 2px; padding: 1px 2px; }
     .fc-event .fc-event-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cal-chip { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; overflow: hidden; background: rgba(0,0,0,0.18); }
+    .cal-chip img { width: 16px; height: 16px; object-fit: contain; display: block; }
+    .cal-chip-fallback { font-size: 11px; font-weight: 800; color: inherit; }
     .fc-daygrid-event { opacity: 1 !important; }
     .fc-event.ev-phase-planned { opacity: 0.5 !important; border-style: dashed !important; border-width: 2px !important; }
     .fc-event.ev-phase-skipped { opacity: 0.35 !important; background: #444 !important; border-color: #666 !important; color: #aaa !important; }
@@ -31,11 +34,10 @@
 {% endblock %}
 {% block content %}
 <h1>작업 달력</h1>
-<p class="sub">기준일 ±{{ calendar_window_days }}일(2주) · ◀▶ 1주 이동 · 사이트별 색 · 🇯🇵 공휴일</p>
+<p class="sub">SEO 콘텐츠 생성 · 사이트 아이콘 · 기준일 ±{{ calendar_window_days }}일 · ◀▶ 1주 이동</p>
 <div class="phase-legend">
-    <span><span class="sample done">실행</span> 완료</span>
-    <span><span class="sample planned">예정</span> 미래·예약</span>
-    <span>종류: <b>GSC</b>·<b>컨텐츠</b>(Auto Register·글 추가) · <b>기능</b>·<b>git</b> — <i>실행=사이트 색 · 예정=회색</i></span>
+    <span><span class="sample done">실행</span> 파이프라인 완료</span>
+    <span>칩 = 사이트 favicon · 클릭하면 상세 메모</span>
 </div>
 <div class="legend-sites">
     {% for sid, hex in site_colors.items() %}
@@ -76,6 +78,7 @@
 <script>
 const WINDOW_DAYS = {{ calendar_window_days }};
 const WEEK_STEP = 7;
+const SITE_ICONS = {{ site_icons | tojson }};
 let calendar = null, editCalId = null, editSeeded = false;
 let holidayMap = {}, anchorDate = null, serverToday = null;
 let rangeStart = null, rangeEnd = null;
@@ -163,10 +166,32 @@ async function deleteEvent() {
     closeEvModal(); reloadCalendar();
 }
 
+function escapeHtml(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+}
+
+function eventTooltip(p) {
+    const parts = [p.site_id, p.label || p.title || ''];
+    if (p.notes) parts.push(String(p.notes).slice(0, 200));
+    return parts.filter(Boolean).join('\n');
+}
+
+function renderEventContent(arg) {
+    const p = arg.event.extendedProps || {};
+    const site = p.site_id || '';
+    const icon = SITE_ICONS[site] || '';
+    const tip = escapeHtml(eventTooltip(p));
+    if (icon) {
+        return { html: `<span class="cal-chip" title="${tip}"><img src="${icon}" alt="" loading="lazy" onerror="this.style.display='none'"></span>` };
+    }
+    const letter = escapeHtml((site[0] || '?').toUpperCase());
+    return { html: `<span class="cal-chip cal-chip-fallback" title="${tip}">${letter}</span>` };
+}
+
 function itemToFcEvent(it) {
     return {
         id: it.cal_id,
-        title: it.chip_title || `${it.site_id} · ${it.tag}`,
+        title: it.chip_title || it.site_id,
         start: it.date,
         allDay: true,
         backgroundColor: it.color,
@@ -195,8 +220,10 @@ function paintEvent(info) {
         info.el.style.borderStyle = 'dashed';
         info.el.style.borderWidth = '2px';
     }
-    const label = p.label || '';
-    info.el.title = `${p.site_id} · ${p.phase_label || ''} · ${p.tag} · ${label}`;
+    const label = p.label || p.title || '';
+    info.el.title = eventTooltip(p);
+    const chip = info.el.querySelector('.cal-chip');
+    if (chip && !chip.title) chip.title = info.el.title;
 }
 
 function updateRangeHint(data) {
@@ -246,9 +273,10 @@ function applyCalendarData(data, events) {
         },
         headerToolbar: { left: 'prevWeek,nextWeek hubToday', center: 'title', right: '' },
         views: { dayGridHub: hubView },
-        dayMaxEvents: 5,
+        dayMaxEvents: 12,
         moreLinkClick: 'popover',
         events,
+        eventContent: renderEventContent,
         eventDidMount: paintEvent,
         dayCellClassNames: (arg) => {
             const ds = fmtDate(arg.date);

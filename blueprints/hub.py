@@ -8,8 +8,6 @@ from hub_logs import dashboard_logs
 from config import get_service, list_services, repo_path, work_root_available
 from git_ops import deploy_job_status, deploy_script_path, git_push_repo, start_deploy
 from git_util import git_summary
-from ops_calendar import record_ops_calendar_event
-
 hub_bp = Blueprint("hub", __name__, url_prefix="/api")
 
 
@@ -98,34 +96,14 @@ def api_site_push(site_id: str):
         site_id=site_id,
         message=data.get("message"),
     )
-    label = svc.get("label", site_id)
-    calendar_event = None
-    if result.get("ok"):
-        notes_parts = []
-        if result.get("last_commit"):
-            notes_parts.append(result["last_commit"])
-        if result.get("branch"):
-            notes_parts.append(f"branch={result['branch']}")
-        calendar_event = record_ops_calendar_event(
-            site_id=site_id,
-            kind="git_push",
-            title=f"Push · {label}",
-            notes="\n".join(notes_parts),
-        )
     status = 200 if result.get("ok") else 500
     if not result.get("ok"):
         err = result.get("error") or "push failed"
         return jsonify(
-            {**result, "status": "failed", "message": err, "calendar_event": None}
+            {**result, "status": "failed", "message": err}
         ), status
 
-    return jsonify(
-        {
-            **result,
-            "calendar_event": calendar_event,
-            "calendar_skipped": calendar_event is None,
-        }
-    )
+    return jsonify(result)
 
 
 @hub_bp.route("/sites/<site_id>/deploy/status")
@@ -152,19 +130,9 @@ def api_site_deploy(site_id: str):
     if not result.get("ok"):
         return jsonify(result), 400
 
-    label = svc.get("label", site_id)
-    notes = f"pid={result.get('pid')}\nmode={result.get('mode')}\nlog={result.get('log_path')}"
-    calendar_event = record_ops_calendar_event(
-        site_id=site_id,
-        kind="deploy",
-        title=f"Deploy · {label}",
-        notes=notes,
-    )
     return jsonify(
         {
             **result,
             "message": "deploy started in background",
-            "calendar_event": calendar_event,
-            "calendar_skipped": calendar_event is None,
         }
     )

@@ -91,6 +91,9 @@ SITE_COLORS: dict[str, str] = {
 }
 
 EVENT_KINDS = ["todo", "auto_register", "git_push", "gsc", "manual", "deploy", "content", "other"]
+# 달력 UI에 표시할 작업 종류 (SEO 콘텐츠 파이프라인만)
+CALENDAR_VISIBLE_KINDS = frozenset({"content"})
+SCHEDULE_EVENT_KINDS = ["content"]
 # 달력: 오늘 기준 앞뒤 N일
 CALENDAR_WINDOW_DAYS = 14
 
@@ -151,6 +154,17 @@ def get_service(site_id: str) -> dict[str, Any] | None:
         if svc.get("id") == site_id:
             return svc
     return None
+
+
+def site_favicon_urls() -> dict[str, str]:
+    """Production favicon URL per site for calendar chips."""
+    out: dict[str, str] = {}
+    for svc in list_services():
+        sid = svc.get("id") or ""
+        prod = (svc.get("links") or {}).get("production") or ""
+        if sid and prod:
+            out[sid] = f"{str(prod).rstrip('/')}/static/images/favicon.ico"
+    return out
 
 
 def gcs_sites() -> dict[str, dict[str, Any]]:
