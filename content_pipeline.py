@@ -335,6 +335,193 @@ EXPAND_GUIDE_SEEDS: list[dict[str, str]] = [
     },
 ]
 
+# StatFacts weekly pools (not Japan travel guides).
+STATFACTS_GUIDE_EXPAND: list[dict[str, str]] = [
+    {
+        "id": "benchmark-segmentation",
+        "topic_en": "Segmenting benchmarks by device and traffic source",
+        "topic_ko": "",
+        "keywords": "benchmark segmentation mobile desktop",
+    },
+    {
+        "id": "guardrail-metrics-ab-tests",
+        "topic_en": "Choosing guardrail metrics for A/B tests",
+        "topic_ko": "",
+        "keywords": "guardrail metrics ab test",
+    },
+    {
+        "id": "reading-meta-analysis-limits",
+        "topic_en": "What meta-analysis can and cannot tell product teams",
+        "topic_ko": "",
+        "keywords": "meta analysis limits product",
+    },
+    {
+        "id": "documenting-experiment-priors",
+        "topic_en": "Documenting external priors in experiment briefs",
+        "topic_ko": "",
+        "keywords": "experiment brief benchmark prior",
+    },
+    {
+        "id": "seasonality-and-benchmarks",
+        "topic_en": "Adjusting benchmarks for seasonality and campaigns",
+        "topic_ko": "",
+        "keywords": "seasonality benchmark context",
+    },
+    {
+        "id": "sample-ratio-mismatch",
+        "topic_en": "Detecting sample ratio mismatch in experiments",
+        "topic_ko": "",
+        "keywords": "srm sample ratio mismatch",
+    },
+]
+
+STATFACTS_INSIGHT_EXPAND: list[dict[str, str]] = [
+    {
+        "id": "guest-checkout-conversion",
+        "topic": "Guest checkout",
+        "intervention": "Add guest checkout without forced account creation",
+        "outcome": "Checkout completion rate",
+        "effect_min": "6",
+        "effect_max": "14",
+        "effect_unit": "percent_relative",
+        "categories": "ux,checkout,business",
+        "confidence": "ab_test",
+        "keywords": "guest checkout account friction",
+    },
+    {
+        "id": "trust-badges-checkout",
+        "topic": "Trust badges at checkout",
+        "intervention": "Show security and payment trust badges near pay button",
+        "outcome": "Checkout completion rate",
+        "effect_min": "3",
+        "effect_max": "9",
+        "effect_unit": "percent_relative",
+        "categories": "ux,checkout,business",
+        "confidence": "ab_test",
+        "keywords": "trust badge checkout security",
+    },
+    {
+        "id": "mobile-form-field-count",
+        "topic": "Mobile form field count",
+        "intervention": "Reduce visible fields on mobile signup to five or fewer",
+        "outcome": "Signup completion rate",
+        "effect_min": "8",
+        "effect_max": "18",
+        "effect_unit": "percent_relative",
+        "categories": "ux,signup,business",
+        "confidence": "meta_analysis",
+        "keywords": "mobile signup form fields",
+    },
+    {
+        "id": "annual-plan-discount-callout",
+        "topic": "Annual plan savings callout",
+        "intervention": "Highlight annual savings percentage on pricing page",
+        "outcome": "Share choosing annual billing",
+        "effect_min": "10",
+        "effect_max": "25",
+        "effect_unit": "percent_relative",
+        "categories": "business,saas",
+        "confidence": "ab_test",
+        "keywords": "annual billing pricing page",
+    },
+    {
+        "id": "onboarding-checklist-activation",
+        "topic": "Onboarding checklist",
+        "intervention": "Show a 3–5 step onboarding checklist in first session",
+        "outcome": "Week-1 activation rate",
+        "effect_min": "12",
+        "effect_max": "28",
+        "effect_unit": "percent_relative",
+        "categories": "ux,business,saas",
+        "confidence": "ab_test",
+        "keywords": "onboarding checklist activation",
+    },
+    {
+        "id": "push-notification-opt-in-timing",
+        "topic": "Push opt-in timing",
+        "intervention": "Delay push permission prompt until after first value moment",
+        "outcome": "Push opt-in rate",
+        "effect_min": "15",
+        "effect_max": "40",
+        "effect_unit": "percent_relative",
+        "categories": "ux,business",
+        "confidence": "ab_test",
+        "keywords": "push notification permission prompt",
+    },
+    {
+        "id": "interval-training-5k-time",
+        "topic": "Interval training for 5K",
+        "intervention": "Add twice-weekly interval sessions to base training",
+        "outcome": "5K race time improvement",
+        "effect_min": "2",
+        "effect_max": "5",
+        "effect_unit": "percent_relative",
+        "categories": "sports,running",
+        "confidence": "study",
+        "keywords": "interval training 5k running",
+    },
+    {
+        "id": "protein-post-workout-recovery",
+        "topic": "Post-workout protein timing",
+        "intervention": "Consume 20–30g protein within 2 hours after strength training",
+        "outcome": "Muscle soreness and recovery scores",
+        "effect_min": "10",
+        "effect_max": "22",
+        "effect_unit": "percent_relative",
+        "categories": "health,sports",
+        "confidence": "study",
+        "keywords": "protein recovery strength training",
+    },
+    {
+        "id": "mindfulness-break-work-stress",
+        "topic": "Micro mindfulness breaks",
+        "intervention": "Offer guided 5-minute mindfulness breaks during workday",
+        "outcome": "Self-reported stress scores",
+        "effect_min": "8",
+        "effect_max": "18",
+        "effect_unit": "percent_relative",
+        "categories": "health,hr",
+        "confidence": "study",
+        "keywords": "mindfulness workplace stress",
+    },
+    {
+        "id": "meal-kit-portion-adherence",
+        "topic": "Meal kit portion control",
+        "intervention": "Switch to pre-portioned meal kits for weekday dinners",
+        "outcome": "Weekly calorie intake",
+        "effect_min": "5",
+        "effect_max": "12",
+        "effect_unit": "percent_relative",
+        "categories": "food,health",
+        "confidence": "study",
+        "keywords": "meal kit portion calories",
+    },
+    {
+        "id": "tutorial-skip-option-games",
+        "topic": "Skippable game tutorial",
+        "intervention": "Allow skipping the opening tutorial with clear later access",
+        "outcome": "Day-1 retention",
+        "effect_min": "4",
+        "effect_max": "11",
+        "effect_unit": "percent_relative",
+        "categories": "gaming,ux",
+        "confidence": "ab_test",
+        "keywords": "game tutorial skip retention",
+    },
+    {
+        "id": "async-video-interview-completion",
+        "topic": "Async video interviews",
+        "intervention": "Replace live phone screen with async one-way video interview",
+        "outcome": "Candidate screen completion rate",
+        "effect_min": "12",
+        "effect_max": "30",
+        "effect_unit": "percent_relative",
+        "categories": "hr,business",
+        "confidence": "estimate",
+        "keywords": "async interview hiring funnel",
+    },
+]
+
 STARFUL_EXPAND_POSITIONS = [
     "Site Reliability Engineer",
     "MLOps Engineer",
@@ -843,6 +1030,8 @@ def ensure_dual_csv(
     item_col: str = "Name",
     guide_col: str = "topic_en",
     expand_coords: list[dict[str, str]] | None = None,
+    item_expand_seeds: list[dict[str, str]] | None = None,
+    guide_expand_seeds: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     items_path = repo / items_rel
     guides_path = repo / guides_rel
@@ -857,7 +1046,26 @@ def ensure_dual_csv(
     else:
         logf.write(f"{items_rel}: {n_items}행 (시드 생략)\n")
 
-    if expand_coords and "Lat" in item_headers:
+    if item_expand_seeds:
+        expand_limit = _bounded_limit(
+            os.environ,
+            "CONTENT_LIMIT",
+            default=DEFAULT_CONTENT_LIMIT,
+            ceiling=MAX_CONTENT_LIMIT,
+        )
+        expanded = _append_csv_rows_limited(
+            items_path,
+            item_headers,
+            item_expand_seeds,
+            key_col=item_col,
+            max_add=expand_limit,
+        )
+        out["expanded_items"] = expanded
+        if expanded:
+            msg = f"{items_rel}: 주간 insight 시드 +{expanded}행"
+            out["messages"].append(msg)
+            logf.write(msg + "\n")
+    elif expand_coords and "Lat" in item_headers:
         expand_limit = _bounded_limit(
             os.environ,
             "CONTENT_LIMIT",
@@ -888,18 +1096,20 @@ def ensure_dual_csv(
         default=DEFAULT_GUIDE_LIMIT,
         ceiling=MAX_GUIDE_LIMIT,
     )
-    g_added = _append_csv_rows_limited(
-        guides_path,
-        guide_headers,
-        EXPAND_GUIDE_SEEDS,
-        key_col="id",
-        max_add=guide_expand_limit,
-    )
-    out["expanded_guides"] = g_added
-    if g_added:
-        msg = f"{guides_rel}: 주간 가이드 토픽 +{g_added}행"
-        out["messages"].append(msg)
-        logf.write(msg + "\n")
+    guide_pool = EXPAND_GUIDE_SEEDS if guide_expand_seeds is None else guide_expand_seeds
+    if guide_pool:
+        g_added = _append_csv_rows_limited(
+            guides_path,
+            guide_headers,
+            guide_pool,
+            key_col="id",
+            max_add=guide_expand_limit,
+        )
+        out["expanded_guides"] = g_added
+        if g_added:
+            msg = f"{guides_rel}: 주간 가이드 토픽 +{g_added}행"
+            out["messages"].append(msg)
+            logf.write(msg + "\n")
 
     out["item_rows"] = _count_csv_rows(items_path, required_col=item_col)
     out["guide_rows"] = _count_csv_rows(guides_path, required_col=guide_col)
@@ -1467,13 +1677,16 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
                 item_headers=insight_headers,
                 guide_headers=GUIDE_HEADERS,
                 item_seeds=[],
-                guide_seeds=DEFAULT_GUIDE_SEEDS,
+                guide_seeds=[],
                 item_col="id",
                 expand_coords=[],
+                item_expand_seeds=STATFACTS_INSIGHT_EXPAND,
+                guide_expand_seeds=STATFACTS_GUIDE_EXPAND,
             )
 
         steps = [
             ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
+            ("items", "insight_generator", _insight_generator_argv(env), 3600),
             ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
             ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
             ("build", "build_data", ["python3", "script/build_data.py"], 600),
@@ -1668,9 +1881,18 @@ def _guide_cli_limit(env: dict[str, str], site_id: str) -> str:
     return str(topics)
 
 
+def _insight_generator_argv(env: dict[str, str]) -> list[str]:
+    return [
+        "python3",
+        "script/insight_generator.py",
+        "--batch-missing",
+        env["CONTENT_LIMIT"],
+    ]
+
+
 def _guide_generator_argv(env: dict[str, str], site_id: str) -> list[str]:
     glimit = _guide_cli_limit(env, site_id)
-    if site_id == "okramen":
+    if site_id in ("okramen", "okstats"):
         return ["python3", "script/guide_generator.py", "--batch-missing", glimit]
     return ["python3", "script/guide_generator.py", glimit]
 
@@ -1750,7 +1972,8 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
         ]
     elif site_id == "okstats":
         parts = [
-            {"label": "가이드", "cap": f"토픽 {guide_n}개", "note": "없는 en/ko MD"},
+            {"label": "인사이트", "cap": f"CSV {item_n}행 · 최대 {item_n} MD", "note": "insights.csv → AI"},
+            {"label": "가이드", "cap": f"토픽 {guide_n}개", "note": "없는 .md만"},
             {"label": "이미지", "cap": "Imagen + optimize", "note": "신규 MD만"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
             {"label": "GCS", "cap": "statfacts/", "note": "생성 후"},
@@ -2068,9 +2291,11 @@ def run_csv_expand(site_id: str) -> dict[str, Any]:
             item_headers=insight_headers,
             guide_headers=GUIDE_HEADERS,
             item_seeds=[],
-            guide_seeds=DEFAULT_GUIDE_SEEDS,
+            guide_seeds=[],
             item_col="id",
             expand_coords=[],
+            item_expand_seeds=STATFACTS_INSIGHT_EXPAND,
+            guide_expand_seeds=STATFACTS_GUIDE_EXPAND,
         )
     else:
         return {"ok": False, "error": f"no CSV expand for {site_id}"}
@@ -2088,7 +2313,7 @@ CONTENT_PIPELINES: dict[str, dict[str, str]] = {
     "okramen": {"label": "OK Ramen", "description": "라멘 · 가이드 AI + build"},
     "okonsen": {"label": "OK Onsen", "description": "온천 · 가이드 AI + build"},
     "okcaddie": {"label": "OK Caddie", "description": "골프 · 가이드 AI + build"},
-    "okstats": {"label": "StatFacts", "description": "인사이트 · 가이드 AI + 이미지 · build · GCS"},
+    "okstats": {"label": "StatFacts", "description": "인사이트 AI + 가이드 · Imagen · build · GCS"},
     "starful.biz": {"label": "Starful Biz", "description": "포지션 가이드 · 이미지 · build · GCS"},
     "hatena": {"label": "Hatena · okpy", "description": "Python / Cloud 포스트"},
     "jpcampus": {"label": "JP Campus", "description": "가이드 · 한국어 · featured · build"},

@@ -348,12 +348,28 @@ def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, int]:
                 guides_avail += 1
 
     elif site_id == "okstats":
+        from content_pipeline import STATFACTS_GUIDE_EXPAND, STATFACTS_INSIGHT_EXPAND
+
+        insights_path = repo / "script/csv/insights.csv"
+        existing_insight_ids = set()
+        if insights_path.is_file():
+            with insights_path.open(encoding="utf-8-sig") as f:
+                existing_insight_ids = {
+                    (r.get("id") or "").strip().lower() for r in csv.DictReader(f)
+                }
+        for row in STATFACTS_INSIGHT_EXPAND:
+            if items_avail >= item_cap:
+                break
+            rid = (row.get("id") or "").strip().lower()
+            if rid and rid not in existing_insight_ids:
+                items_avail += 1
+
         guides_path = repo / "script/csv/guides.csv"
         existing_ids = set()
         if guides_path.is_file():
             with guides_path.open(encoding="utf-8-sig") as f:
                 existing_ids = {(r.get("id") or "").strip().lower() for r in csv.DictReader(f)}
-        for row in EXPAND_GUIDE_SEEDS:
+        for row in STATFACTS_GUIDE_EXPAND:
             if guides_avail >= guide_cap:
                 break
             rid = (row.get("id") or "").strip().lower()
