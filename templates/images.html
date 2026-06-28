@@ -19,6 +19,25 @@
     .photo-strip img { height: 72px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; }
     .photo-strip img.selected { border-color: var(--accent); }
     .prompt-box { background: #000; border: 1px solid var(--border); padding: 12px; border-radius: 8px; font-family: 'DM Mono'; font-size: 12px; color: #aaa; position: relative; }
+    .prompt-edit { width: 100%; min-height: 120px; background: #000; border: 1px solid var(--border); color: #ccc; padding: 10px; border-radius: 8px; font-family: 'DM Mono'; font-size: 11px; line-height: 1.5; resize: vertical; }
+    .meta-panel { background: #000; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; font-family: 'DM Mono'; font-size: 11px; line-height: 1.6; color: #aaa; }
+    .meta-panel strong { color: #eee; font-weight: 700; }
+    .meta-panel a { color: var(--accent); }
+    .meta-panel .meta-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; margin-bottom: 6px; }
+    .meta-panel .meta-val { color: #ddd; flex: 1; min-width: 0; word-break: break-word; user-select: text; }
+    .btn-copy { padding: 2px 8px; font-size: 9px; font-weight: 700; border-radius: 6px; border: 1px solid var(--border); background: #1a1a1a; color: #aaa; cursor: pointer; flex-shrink: 0; }
+    .btn-copy:hover { border-color: var(--accent); color: var(--accent); }
+    .page-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .page-links a { display: inline-block; padding: 5px 12px; border-radius: 8px; background: var(--accent); color: #000; font-weight: 700; font-size: 11px; text-decoration: none; }
+    .page-links a.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+    .page-links a:hover { opacity: 0.9; }
+    .meta-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .card-name { color: var(--accent); font-size: 10px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .places-query { font-size: 10px; color: #666; margin: 0 0 8px; }
+    .places-fallback { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .places-fallback .hint { font-size: 10px; color: #666; width: 100%; margin: 0 0 4px; }
+    .btn-danger { background: #5a2020; color: #faa; border: 1px solid #844; }
+    .btn-danger:hover { background: #722; color: #fff; }
     .site-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
     .site-tabs button { padding: 8px 12px; background: var(--surf); border: 1px solid var(--border); color: #888; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 11px; }
     .site-tabs button.active { background: var(--accent); color: #000; border-color: var(--accent); }
@@ -26,21 +45,40 @@
 {% endblock %}
 {% block content %}
 <h1>GCS 이미지</h1>
-<p class="sub">GCS 업로드 = 사이트 즉시 반영 (로컬 파일 무시)</p>
+<p class="sub">GCS 업로드 = 사이트 즉시 반영 · CSV/MD 메타 · Places 검색 (StatFacts 제외)</p>
 <div class="site-tabs" id="site-tabs"></div>
-<input type="text" class="search-bar" placeholder="이미지 검색..." oninput="filterGrid(this.value)">
+<input type="text" class="search-bar" id="search-bar" placeholder="slug · 이름 · 주소 검색..." oninput="filterGrid(this.value)">
 <div id="grid-container"></div>
 <div class="modal-overlay" id="modal">
     <div class="modal">
         <button class="close-btn" onclick="closeModal()">×</button>
         <h2 id="modal-title"></h2>
+        <div id="meta-area" style="display:none" class="meta-panel"></div>
         <div id="prompt-area" style="display:none">
-            <div style="font-size:11px;color:var(--accent);margin-bottom:6px">AI PROMPT</div>
-            <div class="prompt-box"><button class="btn" style="position:absolute;top:8px;right:8px;padding:4px 8px;font-size:10px" onclick="copyPrompt()">COPY</button><span id="prompt-text"></span></div>
+            <div style="font-size:11px;color:var(--accent);margin-bottom:6px" id="prompt-label">AI PROMPT</div>
+            <div class="prompt-box" id="prompt-readonly-wrap">
+                <button class="btn" style="position:absolute;top:8px;right:8px;padding:4px 8px;font-size:10px" onclick="copyPrompt()">COPY</button>
+                <span id="prompt-text"></span>
+            </div>
+            <div id="prompt-edit-wrap" style="display:none">
+                <textarea id="prompt-edit" class="prompt-edit" placeholder="image_prompt (MD frontmatter)"></textarea>
+                <div class="meta-actions">
+                    <button type="button" class="btn" onclick="saveSitePrompt()">프롬프트 저장</button>
+                    <button type="button" class="btn btn-ghost" onclick="copyPromptEdit()">복사</button>
+                </div>
+            </div>
         </div>
         <img id="modal-img" style="width:100%;height:260px;object-fit:cover;border-radius:8px;margin:12px 0">
-        <div id="places-area"><p class="mono">Places:</p><div id="places-list"></div>
-        <button onclick="applyReplace()" id="btn-replace" class="btn" style="margin-top:12px" disabled>이미지 교체</button></div>
+        <div id="places-area">
+            <p class="mono">Places</p>
+            <p class="places-query" id="places-query"></p>
+            <div id="places-list"></div>
+        <button onclick="applyReplace()" id="btn-replace" class="btn" style="margin-top:12px" disabled>이미지 교체</button>
+        <div id="places-fallback" class="places-fallback" style="display:none">
+            <p class="hint">Places에 적합한 사진이 없을 때</p>
+            <button type="button" class="btn btn-ghost" id="btn-default-image" onclick="uploadDefaultImage()">Default 이미지로 GCS 업로드</button>
+            <button type="button" class="btn btn-danger" id="btn-delete-content" onclick="deleteSiteContent()">MD 삭제 + GCS blob 삭제 + push</button>
+        </div></div>
         <hr style="border:0;border-top:1px solid var(--border);margin:20px 0">
         <p class="mono">직접 업로드:</p>
         <input type="file" id="file-input" onchange="uploadImg()">
@@ -49,7 +87,9 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let currentSite = '', allData = [], selectedPhoto = '', currentSlug = '', currentFilename = '';
+let currentSite = '', allData = [], selectedPhoto = '', currentSlug = '', currentFilename = '', currentMetaSlug = '';
+let currentSiteMeta = null;
+const META_SITES = new Set(['okonsen', 'okramen', 'okcaddie', 'okstats', 'krcampus', 'starful_biz']);
 const sitesCfg = {{ sites | tojson }};
 const siteIds = Object.keys(sitesCfg);
 const tabs = document.getElementById('site-tabs');
@@ -66,6 +106,14 @@ const initialSite = (savedSite && sitesCfg[savedSite]) ? savedSite
     : ((defaultSite && sitesCfg[defaultSite]) ? defaultSite : (siteIds[0] || null));
 if (initialSite) selectSite(initialSite);
 else document.getElementById('grid-container').innerHTML = '<p class="mono">GCS 사이트 없음</p>';
+
+function metaSlugFor(img) {
+    let s = img.slug || '';
+    if (currentSite === 'starful_biz' && s.endsWith('_hero')) {
+        return s.slice(0, -5);
+    }
+    return s;
+}
 
 async function selectSite(sid) {
     currentSite = sid;
@@ -92,31 +140,272 @@ function renderGrid(data) {
         const card = document.createElement('div');
         card.className = 'img-card';
         card.onclick = () => openModal(img);
-        card.innerHTML = `<img src="${img.url}?t=${Date.now()}" loading="lazy"><div class="card-body">${img.display_filename || img.filename}<br>${img.size_kb} KB</div>`;
+        const nameLine = (META_SITES.has(currentSite) && img.name)
+            ? `<div class="card-name">${escHtml(img.name)}</div>` : '';
+        card.innerHTML = `<img src="${img.url}?t=${Date.now()}" loading="lazy"><div class="card-body">${escHtml(img.display_filename || img.filename)}${nameLine}<br>${img.size_kb} KB</div>`;
         currentGroup.appendChild(card);
     });
 }
 function filterGrid(q) {
-    renderGrid(allData.filter(d => d.slug.toLowerCase().includes(q.toLowerCase())));
+    const ql = (q || '').trim().toLowerCase();
+    if (!ql) { renderGrid(allData); return; }
+    renderGrid(allData.filter(d => {
+        const hay = [
+            d.slug, d.display_filename, d.filename,
+            d.name, d.address, d.features,
+        ].filter(Boolean).join(' ').toLowerCase();
+        return hay.includes(ql);
+    }));
 }
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+}
+
+function metaRow(label, text, field) {
+    if (!text) return '';
+    return `<div class="meta-row"><strong>${label}</strong><span class="meta-val">${escHtml(text)}</span>` +
+        `<button type="button" class="btn-copy" onclick="copyMetaField('${field}')">복사</button></div>`;
+}
+
+async function copyToClipboard(text, toastLabel) {
+    const val = String(text || '').trim();
+    if (!val) {
+        showToast('복사할 내용 없음');
+        return;
+    }
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(val);
+        } else {
+            const ta = document.createElement('textarea');
+            ta.value = val;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        }
+        showToast((toastLabel || '텍스트') + ' 복사됨');
+    } catch (_) {
+        showToast('복사 실패 · 텍스트를 직접 선택해 주세요');
+    }
+}
+
+function copyMetaField(field) {
+    if (!currentSiteMeta) return;
+    const labels = { name: '이름', address: '주소', slug: 'slug', places_query: '검색어', lat: '위치', features: '특징' };
+    let val = currentSiteMeta[field] || '';
+    if (field === 'lat' && currentSiteMeta.lat && currentSiteMeta.lng) {
+        val = `${currentSiteMeta.lat}, ${currentSiteMeta.lng}`;
+    }
+    copyToClipboard(val, labels[field] || field);
+}
+
+function pageLinkLabel(lang) {
+    if (lang === 'ko') return '한국어 페이지';
+    if (lang === 'ja') return 'ページ';
+    return 'English page';
+}
+
+function renderSiteMeta(meta) {
+    currentSiteMeta = meta;
+    const el = document.getElementById('meta-area');
+    const bits = [];
+
+    const pages = meta.page_urls || {};
+    const pageEntries = Object.entries(pages);
+    if (pageEntries.length) {
+        const links = pageEntries.map(([lang, url]) =>
+            `<a href="${escHtml(url)}" target="_blank" rel="noreferrer">${escHtml(pageLinkLabel(lang))}</a>`
+        ).join('');
+        bits.push(`<div class="meta-row" style="margin-bottom:10px"><strong>사이트</strong><span class="page-links">${links}</span></div>`);
+    } else {
+        bits.push(`<div class="meta-row" style="color:#a66;margin-bottom:8px">MD 없음 · 페이지 URL 생성 불가</div>`);
+    }
+    if (meta.gsc_url) {
+        bits.push(`<div class="meta-row"><strong>GSC</strong><span class="page-links">` +
+            `<a href="${escHtml(meta.gsc_url)}" target="_blank" rel="noreferrer" class="secondary">Search Console</a></span></div>`);
+    }
+
+    bits.push(metaRow(meta.name_label || '이름', meta.name, 'name'));
+    bits.push(metaRow('slug', meta.slug, 'slug'));
+    bits.push(metaRow('주소', meta.address, 'address'));
+    if (meta.lat && meta.lng) {
+        const coord = `${meta.lat}, ${meta.lng}`;
+        const map = meta.maps_url
+            ? `<a href="${escHtml(meta.maps_url)}" target="_blank" rel="noreferrer">지도 열기</a>`
+            : '';
+        bits.push(`<div class="meta-row"><strong>위치</strong><span class="meta-val">${escHtml(coord)}</span>` +
+            `<button type="button" class="btn-copy" onclick="copyMetaField('lat')">복사</button>${map ? ' ' + map : ''}</div>`);
+    }
+    bits.push(metaRow('특징', meta.features, 'features'));
+    if (meta.places_query) bits.push(metaRow('Places 검색', meta.places_query, 'places_query'));
+    if (meta.csv_match === false) bits.push(`<div style="color:#a66;margin-top:4px">CSV 매칭 없음 · MD/slug 기준</div>`);
+    if (meta.md_files && meta.md_files.length) {
+        bits.push(`<div style="color:#666;font-size:10px;margin-top:4px">MD: ${escHtml(meta.md_files.join(', '))}</div>`);
+    }
+    el.innerHTML = bits.filter(Boolean).join('') || '<div style="color:#666">메타 없음</div>';
+    el.style.display = 'block';
+}
+
+function setPromptMode(mode) {
+    const readonly = document.getElementById('prompt-readonly-wrap');
+    const editWrap = document.getElementById('prompt-edit-wrap');
+    const label = document.getElementById('prompt-label');
+    if (mode === 'edit') {
+        readonly.style.display = 'none';
+        editWrap.style.display = 'block';
+        label.textContent = 'image_prompt (MD · Imagen용)';
+    } else if (mode === 'template') {
+        readonly.style.display = 'block';
+        editWrap.style.display = 'none';
+        label.textContent = 'AI PROMPT (템플릿)';
+    } else {
+        document.getElementById('prompt-area').style.display = 'none';
+    }
+}
+
+function setPlacesFallbackVisible(show) {
+    const el = document.getElementById('places-fallback');
+    const delBtn = document.getElementById('btn-delete-content');
+    if (!el) return;
+    const visible = show && META_SITES.has(currentSite) && currentMetaSlug;
+    el.style.display = visible ? 'flex' : 'none';
+    if (delBtn) {
+        const hasMd = currentSiteMeta && (currentSiteMeta.md_files || []).length > 0;
+        delBtn.style.display = visible && hasMd ? '' : 'none';
+    }
+}
+
+async function uploadDefaultImage() {
+    if (!currentSite || !currentMetaSlug) return;
+    if (!confirm(`default 이미지를 GCS에 업로드할까요?\n${currentMetaSlug}`)) return;
+    const res = await fetch(`/api/images/${currentSite}/${encodeURIComponent(currentMetaSlug)}/default`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+        showToast('Default 이미지 업로드 완료');
+        closeModal();
+        selectSite(currentSite);
+    } else {
+        showToast(data.error || '업로드 실패');
+    }
+}
+
+async function deleteSiteContent() {
+    if (!currentSite || !currentMetaSlug || !currentSiteMeta) return;
+    const mdList = (currentSiteMeta.md_files || []).join('\n  ');
+    const msg = `다음 MD와 GCS blob을 삭제하고 git push합니다. 되돌릴 수 없습니다.\n\nslug: ${currentMetaSlug}\n${mdList ? '  ' + mdList + '\n' : ''}\nbuild_data 실행 후 push됩니다.`;
+    if (!confirm(msg)) return;
+    const res = await fetch(`/api/images/${currentSite}/${encodeURIComponent(currentMetaSlug)}/delete-content`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+        const pushMsg = data.git_push?.message || '';
+        const warn = data.warning || '';
+        showToast(warn ? `삭제됨 · ${warn}` : (pushMsg || 'MD + GCS 삭제 · push 완료'));
+        closeModal();
+        selectSite(currentSite);
+    } else {
+        showToast(data.error || '삭제 실패');
+    }
+}
+
 async function openModal(img) {
-    currentSlug = img.slug; currentFilename = img.display_filename || img.filename || ''; selectedPhoto = '';
-    document.getElementById('modal-title').innerText = img.display_filename || img.filename || img.slug;
+    currentSlug = img.slug;
+    currentMetaSlug = metaSlugFor(img);
+    currentFilename = img.display_filename || img.filename || '';
+    selectedPhoto = '';
+    currentSiteMeta = null;
+    document.getElementById('modal-title').innerText = img.name || img.display_filename || img.filename || img.slug;
     document.getElementById('modal-img').src = img.url + '?t=' + Date.now();
+    document.getElementById('meta-area').style.display = 'none';
+    document.getElementById('meta-area').innerHTML = '';
+    document.getElementById('prompt-edit').value = '';
+    document.getElementById('places-query').textContent = '';
+    document.getElementById('btn-replace').disabled = true;
+    setPlacesFallbackVisible(false);
+
     const promptArea = document.getElementById('prompt-area');
-    if (sitesCfg[currentSite].prompt_template) {
-        document.getElementById('prompt-text').innerText = sitesCfg[currentSite].prompt_template.replace('[{slug}]', `[${img.slug}]`);
+    if (META_SITES.has(currentSite)) {
+        try {
+            const mRes = await fetch(`/api/images/${currentSite}/${encodeURIComponent(currentMetaSlug)}/meta`);
+            const mData = await mRes.json();
+            if (mData.ok !== false) {
+                renderSiteMeta(mData);
+                setPlacesFallbackVisible(true);
+                if (mData.name) document.getElementById('modal-title').innerText = mData.name;
+                if (mData.prompt_editable) {
+                    promptArea.style.display = 'block';
+                    setPromptMode('edit');
+                    document.getElementById('prompt-edit').value = mData.image_prompt || '';
+                } else if (sitesCfg[currentSite].prompt_template) {
+                    promptArea.style.display = 'block';
+                    setPromptMode('template');
+                    document.getElementById('prompt-text').innerText = sitesCfg[currentSite].prompt_template.replace('[{slug}]', `[${currentMetaSlug}]`);
+                } else {
+                    promptArea.style.display = 'none';
+                }
+            }
+        } catch (_) {}
+    } else if (sitesCfg[currentSite].prompt_template) {
         promptArea.style.display = 'block';
-    } else promptArea.style.display = 'none';
+        setPromptMode('template');
+        document.getElementById('prompt-text').innerText = sitesCfg[currentSite].prompt_template.replace('[{slug}]', `[${img.slug}]`);
+    } else {
+        promptArea.style.display = 'none';
+    }
+
     document.getElementById('modal').classList.add('open');
     const pList = document.getElementById('places-list');
     pList.innerHTML = '검색 중...';
-    const res = await fetch(`/api/search/${currentSite}/${img.slug}`);
-    const places = await res.json();
-    pList.innerHTML = places.map(p => `<div style="margin-bottom:12px"><div class="mono">${p.name}</div><div class="photo-strip">${p.photos.map(ph => `<img src="https://places.googleapis.com/v1/${ph}/media?maxWidthPx=200&key={{ places_key }}" onclick="selectPhoto(this, '${ph}')">`).join('')}</div></div>`).join('');
+    const res = await fetch(`/api/search/${currentSite}/${encodeURIComponent(currentMetaSlug)}`);
+    const payload = await res.json();
+    const places = Array.isArray(payload) ? payload : (payload.places || []);
+    const queryHint = payload.query || '';
+    document.getElementById('places-query').textContent = queryHint ? `검색: ${queryHint}` : '';
+    if (payload.error) {
+        pList.innerHTML = `<p class="mono" style="color:#f88">${escHtml(payload.error)}</p>`;
+        setPlacesFallbackVisible(true);
+        return;
+    }
+    if (!places.length) {
+        const msg = currentSite === 'okstats'
+            ? 'StatFacts는 Imagen/직접 업로드 사용 · Places 후보 없음'
+            : '사진 후보 없음';
+        pList.innerHTML = `<p class="mono" style="color:#666">${msg}</p>`;
+        setPlacesFallbackVisible(true);
+        return;
+    }
+    setPlacesFallbackVisible(true);
+    pList.innerHTML = places.map(p => {
+        const addr = p.address ? `<div style="color:#666;font-size:10px">${escHtml(p.address)}</div>` : '';
+        const photos = (p.photos || []).map(ph =>
+            `<img src="https://places.googleapis.com/v1/${ph}/media?maxWidthPx=200&key={{ places_key }}" onclick="selectPhoto(this, '${ph}')">`
+        ).join('');
+        return `<div style="margin-bottom:12px"><div class="mono">${escHtml(p.name || '')}</div>${addr}<div class="photo-strip">${photos}</div></div>`;
+    }).join('');
 }
 function copyPrompt() {
-    navigator.clipboard.writeText(document.getElementById('prompt-text').innerText).then(() => showToast('복사됨'));
+    copyToClipboard(document.getElementById('prompt-text').innerText, '프롬프트');
+}
+function copyPromptEdit() {
+    copyToClipboard(document.getElementById('prompt-edit').value, '프롬프트');
+}
+async function saveSitePrompt() {
+    const text = document.getElementById('prompt-edit').value.trim();
+    const res = await fetch(`/api/images/${currentSite}/${encodeURIComponent(currentMetaSlug)}/prompt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_prompt: text }),
+    });
+    const d = await res.json();
+    if (!res.ok || !d.ok) {
+        showToast(d.error || '저장 실패');
+        return;
+    }
+    showToast('image_prompt 저장됨');
 }
 function selectPhoto(el, ph) {
     document.querySelectorAll('.photo-strip img').forEach(i => i.classList.remove('selected'));

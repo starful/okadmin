@@ -13,8 +13,22 @@ from google.cloud import storage
 from PIL import Image
 
 from auth import requires_auth
-from config import PLACES_TIMEOUT, PROTECTED_IMAGES, gcs_sites, get_service, repo_path
-from starful_assets import normalize_upload, normalize_slug, sibling_blob_names
+from config import PLACES_TIMEOUT, PROTECTED_IMAGES, gcs_sites, get_service, repo_path, work_root_available
+from image_site_meta import (
+    bump_site_thumbnail_cache,
+    enrich_site_image_rows,
+    places_search_opts,
+    site_image_meta,
+    site_save_image_prompt,
+    SITE_META_KEYS,
+)
+from image_site_content import (
+    delete_site_content,
+    get_default_image_payload,
+    list_content_md_paths,
+    sync_local_image,
+)
+from starful_assets import normalize_upload, sibling_blob_names
 
 images_bp = Blueprint("images", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
@@ -141,7 +155,24 @@ def _upload_image_blob(
         logger.exception("GCS upload failed for %s/%s", image_key, slug)
         return {"ok": False, "error": str(exc)[:200]}
 
-    return {"ok": True, "filename": primary_name, "url": f"https://storage.googleapis.com/{bucket.name}/{prefix}{primary_name}"}
+    out = {"ok": True, "filename": primary_name, "url": f"https://storage.googleapis.com/{bucket.name}/{prefix}{primary_name}"}
+    return _after_image_upload(image_key, slug, out)
+
+
+def _after_image_upload(image_key: str, slug: str, out: dict) -> dict:
+    if not out.get("ok") or image_key not in SITE_THUMBNAIL_CACHE_KEYS:
+        return out
+    bump = bump_site_thumbnail_cache(image_key, slug)
+    out["cache_bust"] = bump
+    if bump.get("ok") and bump.get("thumbnail_cache_v"):
+        base = out.get("url", "").split("?", 1)[0]
+        out["url"] = f"{base}?v={bump['thumbnail_cache_v']}"
+    return out
+
+
+SITE_THUMBNAIL_CACHE_KEYS = frozenset(
+    {"okonsen", "okramen", "okcaddie", "okstats", "krcampus", "starful_biz"}
+)
 
 
 @images_bp.route("/images/<site_id>")
@@ -189,7 +220,231 @@ def api_images(site_id):
                 row["url"] = f"https://storage.googleapis.com/{bucket_name}/{prefix}{canon}"
     result.sort(key=lambda x: x["slug"].lower())
     result.sort(key=lambda x: x.get("updated_ts") or 0, reverse=True)
+    if site_id in SITE_META_KEYS:
+        result = enrich_site_image_rows(site_id, result)
     return jsonify(result)
+
+
+@images_bp.route("/images/<site_id>/<slug>/default", methods=["POST"])
+@requires_auth
+def api_upload_default_image(site_id: str, slug: str):
+    if site_id not in SITE_META_KEYS:
+        return jsonify({"ok": False, "error": "not supported for site"}), 400
+    if not work_root_available():
+        return jsonify({"ok": False, "error": "WORK_ROOT not available"}), 503
+    cfg = get_site_cfg(site_id)
+    if not cfg:
+        return jsonify({"ok": False, "error": "invalid site_id"}), 400
+
+    prep = get_default_image_payload(site_id, slug)
+    if not prep.get("ok"):
+        return jsonify(prep), 400
+
+    slug_norm, filename = normalize_upload(site_id, slug, prep.get("filename"))
+    bucket = storage_client.bucket(cfg["bucket"])
+    out = _upload_image_blob(
+        site_id,
+        bucket,
+        slug_norm,
+        cfg["prefix"],
+        prep["payload"],
+        filename=filename or prep.get("filename"),
+    )
+    if not out.get("ok"):
+        return jsonify(out), 500
+
+    local_rel = sync_local_image(site_id, slug_norm, prep["payload"], out.get("filename") or filename or "")
+    return jsonify({**out, "source": prep.get("source"), "local_image": local_rel})
+
+
+@images_bp.route("/images/<site_id>/<slug>/delete-content", methods=["POST"])
+@requires_auth
+def api_delete_site_content(site_id: str, slug: str):
+    if site_id not in SITE_META_KEYS:
+        return jsonify({"ok": False, "error": "not supported for site"}), 400
+    if not work_root_available():
+        return jsonify({"ok": False, "error": "WORK_ROOT not available"}), 503
+    md_preview = list_content_md_paths(site_id, slug)
+    if not md_preview:
+        return jsonify({"ok": False, "error": "no MD files for this slug"}), 400
+    result = delete_site_content(site_id, slug, client=storage_client)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@images_bp.route("/images/<site_id>/<slug>/meta")
+@requires_auth
+def api_site_image_meta(site_id: str, slug: str):
+    if site_id not in SITE_META_KEYS:
+        return jsonify({"ok": False, "error": "meta not supported for site"}), 400
+    if not work_root_available():
+        return jsonify({"ok": False, "error": "WORK_ROOT not available"}), 503
+    meta = site_image_meta(site_id, slug)
+    if not meta.get("ok", True) and meta.get("error"):
+        return jsonify(meta), 400
+    return jsonify(meta)
+
+
+@images_bp.route("/images/okonsen/<slug>/meta")
+@requires_auth
+def api_okonsen_image_meta(slug: str):
+    return api_site_image_meta("okonsen", slug)
+
+
+@images_bp.route("/images/<site_id>/<slug>/prompt", methods=["POST"])
+@requires_auth
+def api_site_save_prompt(site_id: str, slug: str):
+    if site_id not in SITE_META_KEYS:
+        return jsonify({"ok": False, "error": "prompt not supported for site"}), 400
+    if not work_root_available():
+        return jsonify({"ok": False, "error": "WORK_ROOT not available"}), 503
+    data = request.get_json(silent=True) or {}
+    result = site_save_image_prompt(site_id, slug, data.get("image_prompt") or "")
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@images_bp.route("/images/okonsen/<slug>/prompt", methods=["POST"])
+@requires_auth
+def api_okonsen_save_prompt(slug: str):
+    return api_site_save_prompt("okonsen", slug)
+
+
+def _places_search_text(
+    *,
+    query: str,
+    lat: str = "",
+    lng: str = "",
+    language_code: str = "ja",
+    region_code: str = "",
+    bias_radius_m: float = 1500.0,
+) -> list[dict]:
+    headers = {
+        "X-Goog-Api-Key": PLACES_API_KEY,
+        "X-Goog-FieldMask": "places.displayName,places.photos,places.formattedAddress",
+    }
+    body: dict = {
+        "textQuery": query,
+        "languageCode": language_code,
+        "maxResultCount": 8,
+    }
+    if region_code:
+        body["regionCode"] = region_code
+    if lat and lng:
+        try:
+            body["locationBias"] = {
+                "circle": {
+                    "center": {"latitude": float(lat), "longitude": float(lng)},
+                    "radius": float(bias_radius_m),
+                }
+            }
+        except ValueError:
+            pass
+    try:
+        res = requests.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers=headers,
+            json=body,
+            timeout=PLACES_TIMEOUT,
+        )
+        res.raise_for_status()
+    except requests.RequestException as exc:
+        logger.warning("places searchText failed: %s", exc)
+        return []
+    places = res.json().get("places") or []
+    return [
+        {
+            "name": p.get("displayName", {}).get("text", ""),
+            "address": p.get("formattedAddress", ""),
+            "photos": [ph.get("name") for ph in (p.get("photos") or [])[:5] if ph.get("name")],
+        }
+        for p in places
+        if p.get("photos")
+    ]
+
+
+def _places_search_nearby(
+    *,
+    lat: float,
+    lng: float,
+    search_types: list,
+    language_code: str = "ja",
+) -> list[dict]:
+    headers = {
+        "X-Goog-Api-Key": PLACES_API_KEY,
+        "X-Goog-FieldMask": "places.displayName,places.photos,places.formattedAddress",
+    }
+    body = {
+        "includedTypes": search_types,
+        "locationRestriction": {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": 1200.0,
+            }
+        },
+        "maxResultCount": 8,
+        "languageCode": language_code,
+    }
+    try:
+        res = requests.post(
+            "https://places.googleapis.com/v1/places:searchNearby",
+            headers=headers,
+            json=body,
+            timeout=PLACES_TIMEOUT,
+        )
+        res.raise_for_status()
+    except requests.RequestException:
+        return []
+    places = res.json().get("places") or []
+    return [
+        {
+            "name": p.get("displayName", {}).get("text", ""),
+            "address": p.get("formattedAddress", ""),
+            "photos": [ph.get("name") for ph in (p.get("photos") or [])[:5] if ph.get("name")],
+        }
+        for p in places
+        if p.get("photos")
+    ]
+
+
+def _site_places_search(site_id: str, slug: str) -> tuple[list[dict], str]:
+    meta = site_image_meta(site_id, slug)
+    if not meta.get("uses_places", True):
+        label = {
+            "okstats": "StatFacts · Imagen/직접 업로드 (Places 미사용)",
+        }.get(site_id, "Places 검색 미사용")
+        return [], label
+
+    query = meta.get("places_query") or slug.replace("_", " ")
+    lat, lng = meta.get("lat") or "", meta.get("lng") or ""
+    opts = places_search_opts(site_id)
+    results = _places_search_text(
+        query=query,
+        lat=lat,
+        lng=lng,
+        language_code=opts["language_code"],
+        region_code=opts["region_code"],
+        bias_radius_m=opts["bias_radius_m"],
+    )
+    if not results and opts["nearby_fallback"] and lat and lng:
+        try:
+            cfg = get_site_cfg(site_id) or {}
+            results = _places_search_nearby(
+                lat=float(lat),
+                lng=float(lng),
+                search_types=cfg.get("search_type") or [],
+                language_code=opts["language_code"],
+            )
+        except ValueError:
+            pass
+    hint = query
+    if lat and lng:
+        hint = f"{query} · {lat}, {lng}"
+    return results, hint
+
+
+def _okonsen_places_search(slug: str) -> tuple[list[dict], str]:
+    return _site_places_search("okonsen", slug)
 
 
 @images_bp.route("/search/<site_id>/<slug>")
@@ -200,6 +455,11 @@ def api_search(site_id, slug):
         return jsonify({"ok": False, "error": "invalid site_id"}), 400
     if not PLACES_API_KEY:
         return jsonify({"ok": False, "error": "missing GOOGLE_PLACES_API_KEY"}), 500
+
+    if site_id in SITE_META_KEYS:
+        places, hint = _site_places_search(site_id, slug)
+        return jsonify({"ok": True, "query": hint, "places": places})
+
     headers = {"X-Goog-Api-Key": PLACES_API_KEY, "X-Goog-FieldMask": "places.displayName,places.photos"}
     body = {
         "includedTypes": cfg["search_type"],
@@ -224,13 +484,18 @@ def api_search(site_id, slug):
         return jsonify({"ok": False, "error": "places api request failed"}), 502
     places = res.json().get("places", [])
     return jsonify(
-        [
-            {
-                "name": p.get("displayName", {}).get("text", ""),
-                "photos": [ph.get("name") for ph in p.get("photos", [])[:5]],
-            }
-            for p in places
-        ]
+        {
+            "ok": True,
+            "query": "Tokyo area (legacy)",
+            "places": [
+                {
+                    "name": p.get("displayName", {}).get("text", ""),
+                    "address": "",
+                    "photos": [ph.get("name") for ph in p.get("photos", [])[:5]],
+                }
+                for p in places
+            ],
+        }
     )
 
 

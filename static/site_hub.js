@@ -65,12 +65,20 @@ function wireHubEmbedIframes() {
         iframe.addEventListener('load', () => resizeHubIframe(iframe));
     });
     window.addEventListener('message', (e) => {
-        if (e.data?.type !== 'okadmin-embed-resize') return;
-        [metrics, seo].forEach(iframe => {
-            if (iframe && e.source === iframe.contentWindow) {
-                setHubIframeHeight(iframe, e.data.height);
+        if (e.data?.type === 'okadmin-embed-resize') {
+            [metrics, seo].forEach(iframe => {
+                if (iframe && e.source === iframe.contentWindow) {
+                    setHubIframeHeight(iframe, e.data.height);
+                }
+            });
+            return;
+        }
+        if (e.data?.type === 'okadmin-hub-refresh') {
+            const siteId = document.getElementById('site-select')?.value;
+            if (siteId && (!e.data.site_id || e.data.site_id === siteId)) {
+                loadSiteWorkflow(siteId);
             }
-        });
+        }
     });
 }
 

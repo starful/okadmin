@@ -72,6 +72,7 @@ GCS_IMAGE_SITE_ORDER = (
     "okramen",
     "okcaddie",
     "okstats",
+    "krcampus",
     "starful_biz",
 )
 DEFAULT_GCS_IMAGE_SITE = "okonsen"

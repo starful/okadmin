@@ -151,9 +151,9 @@
         </p>
     </div>
     {% else %}
-    <div style="display:none">
+    <div style="display:none" aria-hidden="true">
         <p id="site-last-run"></p><p id="gsc-count"></p><p id="api-hint"></p><p id="gemini-hint"></p>
-        <p id="push-commit-hint"></p><div id="gsc-ops-status"></div>
+        <p id="push-commit-hint"></p>
     </div>
     {% endif %}
     <div id="gsc-panels">
@@ -205,6 +205,9 @@
                     <button type="button" class="btn btn-ghost" id="gsc-deploy-btn" disabled title="deploy.sh">Deploy</button>
                 </div>
             </div>
+            {% if embed %}
+            <div id="gsc-ops-status"></div>
+            {% endif %}
             <div class="pattern-mode-bar" id="pattern-mode-bar" style="display:none">
                 <span class="mono" style="color:#888;font-size:10px">SEO 대상 패턴</span>
                 <label class="pattern-mode-opt">
@@ -567,6 +570,16 @@ function clearUrlSelection(syncUi = true) {
     updateSelectedCount();
 }
 
+function notifyParentHub(action) {
+    if (window.parent === window) return;
+    try {
+        window.parent.postMessage(
+            { type: 'okadmin-hub-refresh', action, site_id: getSiteId() },
+            '*'
+        );
+    } catch (_) {}
+}
+
 async function gscSiteAction(action) {
     const site_id = getSiteId();
     const btn = document.getElementById(action === 'push' ? 'gsc-push-btn' : 'gsc-deploy-btn');
@@ -574,7 +587,6 @@ async function gscSiteAction(action) {
     const label = btn.textContent;
     btn.disabled = true;
     btn.textContent = action === 'push' ? '푸시…' : '배포…';
-    renderOpsStatus(statusEl, 'running', action === 'push' ? 'Push 진행 중…' : 'Deploy 시작 중…', '', '');
     let body = {};
     if (action === 'deploy') {
         body = { mode: 'deploy-only' };
@@ -588,6 +600,7 @@ async function gscSiteAction(action) {
         } catch (_) {}
     }
     try {
+        renderOpsStatus(statusEl, 'running', action === 'push' ? 'Push 진행 중…' : 'Deploy 시작 중…', '', '');
         const res = await fetch(`/api/sites/${encodeURIComponent(site_id)}/${action}`, {
             method: 'POST',
             credentials: 'same-origin',
@@ -598,16 +611,22 @@ async function gscSiteAction(action) {
         if (!res.ok || d.error) {
             const err = d.error || d.message || '실패';
             renderOpsStatus(statusEl, 'failed', '실패', err, d.output || '');
-            return showToast(err);
+            showToast(err);
+            return;
         }
         if (action === 'push') {
             const detail = [d.message, d.last_commit, d.output].filter(Boolean).join('\n');
             renderOpsStatus(statusEl, 'success', 'Push 성공', detail, '');
             showToast(d.message || '푸시 완료');
+            notifyParentHub('push');
         } else {
             renderOpsStatus(statusEl, 'running', d.message || '배포 진행 중', d.log_path || '', '');
             showToast(d.message || '배포 시작');
-            if (d.job_id) await pollDeployStatus(site_id, d.job_id, statusEl);
+            if (d.job_id) {
+                await pollDeployStatus(site_id, d.job_id, statusEl, (ok) => {
+                    if (ok) notifyParentHub('deploy');
+                });
+            }
         }
     } catch (e) {
         renderOpsStatus(statusEl, 'failed', '요청 실패', String(e), '');

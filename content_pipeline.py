@@ -1728,6 +1728,11 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
 
     if site_id in ("okramen", "okonsen", "okcaddie"):
         item_label = {"okramen": "라멘", "okonsen": "온천", "okcaddie": "코스"}.get(site_id, "아이템")
+        image_cap = (
+            "Places + default 복사 + optimize"
+            if site_id in ("okonsen", "okcaddie")
+            else "Imagen + optimize"
+        )
         parts = [
             {
                 "label": "가이드",
@@ -1739,7 +1744,7 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
                 "cap": f"CSV {item_n}행 · 최대 {item_n * 2} MD",
                 "note": "없는 en/ko만",
             },
-            {"label": "이미지", "cap": "Imagen + optimize", "note": "신규 MD만"},
+            {"label": "이미지", "cap": image_cap, "note": "신규 MD만"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
             {"label": "배포", "cap": "git + GCS + Cloud Build", "note": "생성 성공 후"},
         ]
@@ -1778,7 +1783,10 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
             {"label": "어학원", "cap": "language_schools.csv", "note": "AI school_*.md"},
             {"label": "대학", "cap": "universities.csv", "note": "AI univ_*.md"},
             {"label": "日本語", "cap": f"최대 {korean_n} MD", "note": "없는 *_ja.md"},
+            {"label": "이미지", "cap": "Places + default 복사 + optimize", "note": "school/univ MD"},
             {"label": "빌드", "cap": "build_data", "note": ""},
+            {"label": "GCS", "cap": "krcampus/", "note": "생성 후"},
+            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
         ]
 
     summary = " · ".join(f"{p['label']} {p['cap']}" for p in parts[:3])

@@ -28,6 +28,62 @@
             t.innerText = m; t.style.display = 'block';
             setTimeout(() => { t.style.display = 'none'; }, 3000);
         }
+        function escapeHtmlOps(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+        }
+
+        function renderOpsStatus(el, state, title, detail, logTail) {
+            if (!el) return;
+            const colors = {
+                success: '#6a6', running: '#fa0', failed: '#f88', unknown: '#888',
+            };
+            const c = colors[state] || '#888';
+            let html = `<div style="color:${c};font-weight:700;margin-bottom:4px">${escapeHtmlOps(title)}</div>`;
+            if (detail) html += `<div style="color:#aaa;white-space:pre-wrap;word-break:break-word">${escapeHtmlOps(detail)}</div>`;
+            if (logTail) {
+                html += `<pre style="margin-top:8px;max-height:160px;overflow:auto;background:#000;border:1px solid #333;padding:8px;color:#8a8;font-size:10px">${escapeHtmlOps(logTail)}</pre>`;
+            }
+            el.style.display = 'block';
+            el.innerHTML = html;
+            if (typeof okadminEmbedResize === 'function') setTimeout(okadminEmbedResize, 80);
+        }
+
+        async function pollDeployStatus(siteId, jobId, statusEl, onDone) {
+            const maxMs = 45 * 60 * 1000;
+            const started = Date.now();
+            while (Date.now() - started < maxMs) {
+                await new Promise(r => setTimeout(r, 3000));
+                const res = await fetch(
+                    `/api/sites/${encodeURIComponent(siteId)}/deploy/status?job_id=${encodeURIComponent(jobId)}`,
+                    { credentials: 'same-origin' }
+                );
+                const d = await res.json();
+                if (!res.ok || d.error) {
+                    renderOpsStatus(statusEl, 'failed', '상태 조회 실패', d.error || '', '');
+                    if (onDone) onDone(false, d);
+                    return;
+                }
+                renderOpsStatus(statusEl, d.state, d.message || d.state, d.log_path || '', d.log_tail || '');
+                if (d.state === 'success') {
+                    showToast('배포 완료');
+                    if (onDone) onDone(true, d);
+                    return;
+                }
+                if (d.state === 'failed') {
+                    showToast('배포 실패');
+                    if (onDone) onDone(false, d);
+                    return;
+                }
+                if (d.state === 'unknown') {
+                    if (onDone) onDone(null, d);
+                    return;
+                }
+            }
+            renderOpsStatus(statusEl, 'failed', '타임아웃', '45분 내 완료 신호 없음', '');
+            showToast('배포 타임아웃 · 로그 확인');
+            if (onDone) onDone(false, null);
+        }
+
         function okadminEmbedResize() {
             if (window.parent === window) return;
             const h = Math.max(
