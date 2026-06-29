@@ -440,45 +440,44 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     expand_avail = expand.get("items_expandable", 0) + expand.get("guides_expandable", 0)
     csv_refresh_suggested = content_empty and expand_avail > 0
 
-    lines: list[str] = []
-    if site_id in ("okramen", "okonsen", "okcaddie"):
-        if items_pairs:
-            lines.append(f"아이템 {items_pairs}")
-        if guides_topics:
-            lines.append(f"가이드 {guides_topics}")
-        if images:
-            lines.append(f"이미지 {images}")
-    elif site_id == "starful.biz":
-        gm = int(raw.get("guides_md") or 0)
-        if gm:
-            lines.append(f"가이드 {gm}")
-        if images:
-            lines.append(f"이미지 {images}")
-    elif site_id == "jpcampus":
-        if guides_topics:
-            lines.append(f"가이드 {guides_topics}")
-        if korean:
-            lines.append(f"한국어 {korean}")
-    elif site_id == "krcampus":
-        if guides_topics:
-            lines.append(f"가이드 {guides_topics}")
-        if korean:
-            lines.append(f"일본어 {korean}")
+    if site_id == "starful.biz":
+        content_n = 0
+        guide_n = int(raw.get("guides_md") or 0)
+    elif site_id in ("jpcampus", "krcampus"):
+        content_n = 0
+        guide_n = guides_topics
     elif site_id == "okstats":
-        if items_pairs:
-            lines.append(f"인사이트 {items_pairs}")
-        if guides_topics:
-            lines.append(f"가이드 {guides_topics}")
-        if images:
-            lines.append(f"이미지 {images}")
+        content_n = items_pairs
+        guide_n = guides_topics
+    elif site_id in ("okramen", "okonsen", "okcaddie"):
+        content_n = items_pairs
+        guide_n = guides_topics
+    else:
+        content_n = items_pairs
+        guide_n = guides_topics
 
-    if not lines:
-        lines.append("없음")
+    generatable = {
+        "content": content_n,
+        "guides": guide_n,
+        "total": content_n + guide_n,
+    }
+
+    if site_id == "okstats":
+        summary = f"인사이트 {content_n} · 가이드 {guide_n}"
+    elif site_id == "starful.biz":
+        summary = f"가이드 {guide_n}"
+    elif site_id in ("jpcampus", "krcampus"):
+        summary = f"가이드 {guide_n}"
+    elif site_id in ("okramen", "okonsen", "okcaddie"):
+        summary = f"아이템 {content_n} · 가이드 {guide_n}"
+    else:
+        summary = f"콘텐츠 {content_n} · 가이드 {guide_n}"
 
     return {
         "ok": True,
         "site_id": site_id,
         "computed_at": datetime.now().replace(microsecond=0).isoformat(sep=" "),
+        "generatable": generatable,
         "csv": {
             "items": raw.get("csv_items"),
             "guides": raw.get("csv_guides"),
@@ -505,7 +504,7 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
             **expand,
             "suggested": csv_refresh_suggested,
         },
-        "summary": " · ".join(lines),
+        "summary": summary,
     }
 
 

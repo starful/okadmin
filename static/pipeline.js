@@ -17,6 +17,27 @@ function csvExpandAvail(snap) {
     return (exp.items_expandable || 0) + (exp.guides_expandable || 0);
 }
 
+/** Human-readable generatable content + guide counts (MD not yet built). */
+function generatableText(snap, siteId) {
+    if (!snap) return '—';
+    if (snap.summary) return snap.summary;
+    const g = snap.generatable || {};
+    const content = g.content || 0;
+    const guides = g.guides || 0;
+    if (siteId === 'okstats') return `인사이트 ${content} · 가이드 ${guides}`;
+    if (siteId === 'starful.biz') return `가이드 ${guides}`;
+    if (siteId === 'jpcampus' || siteId === 'krcampus') return `가이드 ${guides}`;
+    if (siteId === 'okramen' || siteId === 'okonsen' || siteId === 'okcaddie') {
+        return `아이템 ${content} · 가이드 ${guides}`;
+    }
+    return `콘텐츠 ${content} · 가이드 ${guides}`;
+}
+
+function generatableHtml(snap, siteId) {
+    const text = generatableText(snap, siteId);
+    return `<span class="gen-label">생성 가능</span> <span class="gen-values">${escPipeline(text)}</span>`;
+}
+
 function csvExpandAdded(d) {
     if (typeof d.rows_added === 'number') return d.rows_added;
     return (d.expanded || 0) + (d.expanded_items || 0) + (d.expanded_guides || 0);
@@ -24,17 +45,8 @@ function csvExpandAdded(d) {
 
 function remainingText(p) {
     const snap = pipelineBacklogSnap(p);
-    if (snap?.summary && snap.summary !== '없음') return snap.summary;
-    const bl = (snap && snap.backlog) || {};
     const siteId = (p && p.site_id) || '';
-    const itemLabel = siteId === 'okstats' ? '인사이트' : '아이템';
-    const bits = [];
-    if (bl.items_pairs) bits.push(`${itemLabel} ${bl.items_pairs}`);
-    if (bl.guides_topics) bits.push(`가이드 ${bl.guides_topics}`);
-    if (bl.guides_md) bits.push(`가이드 ${bl.guides_md}`);
-    if (bl.korean_files) bits.push(`${siteId === 'krcampus' ? '일본어' : '한국어'} ${bl.korean_files}`);
-    if (bl.images) bits.push(`이미지 ${bl.images}`);
-    return bits.length ? bits.join(' · ') : '없음';
+    return generatableText(snap, siteId);
 }
 
 function nextRunText(snap) {
@@ -56,7 +68,7 @@ function backlogHtml(p) {
     const actions = (r, e) => `<div class="pipe-actions">${r}${e || ''}</div>`;
     if (!snap) {
         return `<div class="dash-pipeline">
-            <p class="pipe-summary">남은 건수: —</p>
+            <p class="pipe-summary generatable-summary"><span class="gen-label">생성 가능</span> <span class="gen-values">—</span></p>
             ${actions(refreshBtn(p.site_id, false), '')}
         </div>`;
     }
@@ -66,10 +78,8 @@ function backlogHtml(p) {
         ? `CSV에 ${expandAvail}건 추가 가능 (시드 토픽)`
         : '주간 시드 토픽 추가 (이미 있으면 스킵)';
     const expandBtn = `<button type="button" class="btn btn-ghost btn-sm" onclick="expandCsv('${escPipeline(p.site_id)}')" ${p.running ? 'disabled' : ''} title="${escPipeline(expandTitle)}">CSV 추가${expandAvail ? ` (${expandAvail})` : ''}</button>`;
-    const nextLine = nextRunText(snap);
     return `<div class="dash-pipeline">
-        <p class="pipe-summary">남은 건수: ${escPipeline(remainingText(p))}</p>
-        ${nextLine ? `<p class="pipe-summary pipe-next">${escPipeline(nextLine)}</p>` : ''}
+        <p class="pipe-summary generatable-summary">${generatableHtml(snap, p.site_id)}</p>
         ${actions(refreshBtn(p.site_id, p.running), expandBtn)}
     </div>`;
 }

@@ -44,36 +44,21 @@ function backlogCounts(pipe, siteId) {
     const snap = backlogSnap(pipe);
     const bl = (snap && snap.backlog) || {};
     const sid = siteId || (pipe && pipe.site_id) || '';
-    const itemLabel = sid === 'okstats' ? '인사이트' : '아이템';
-    const total =
-        (bl.items_pairs || 0) + (bl.guides_topics || 0) + (bl.guides_md || 0) +
-        (bl.korean_files || 0) + (bl.images || 0);
+    const gen = (snap && snap.generatable) || {};
+    const generatableTotal = typeof gen.total === 'number'
+        ? gen.total
+        : (gen.content || 0) + (gen.guides || 0);
     const summary = (snap && snap.summary) || '';
-    const next = snap && snap.next_run;
-    const nextLine = typeof nextRunText === 'function'
-        ? nextRunText(snap)
-        : (next && ((next.items_pairs || 0) + (next.guides_topics || 0) + (next.korean_files || 0)) > 0
-            ? `다음 실행 약 ${(next.items_pairs || 0) + (next.guides_topics || 0) + (next.korean_files || 0)}건`
-            : '');
-    const nextTotal = next
-        ? (next.items_pairs || 0) + (next.guides_topics || 0) + (next.korean_files || 0)
-        : 0;
-    const parts = [];
-    if (summary && summary !== '없음') parts.push(summary);
-    else {
-        if (bl.items_pairs) parts.push(`${itemLabel} ${bl.items_pairs}`);
-        if (bl.guides_topics) parts.push(`가이드 ${bl.guides_topics}`);
-        if (bl.guides_md) parts.push(`MD ${bl.guides_md}`);
-        if (bl.korean_files) parts.push(`${sid === 'krcampus' ? '일본어' : '번역'} ${bl.korean_files}`);
-        if (bl.images) parts.push(`이미지 ${bl.images}`);
-    }
+    const text = summary || (typeof generatableText === 'function'
+        ? generatableText(snap, sid)
+        : '없음');
     const csvExpand = snap && snap.csv_expand;
     const csvSuggested = !!(csvExpand && csvExpand.suggested);
     return {
-        total,
-        text: parts.length ? parts.join(' · ') : '없음',
-        nextTotal,
-        nextText: nextLine,
+        total: generatableTotal,
+        text,
+        nextTotal: 0,
+        nextText: '',
         csvSuggested,
         csvExpandable: csvExpand
             ? (csvExpand.items_expandable || 0) + (csvExpand.guides_expandable || 0)
@@ -120,12 +105,11 @@ function assessSite(site, logs, pipe) {
     }
 
     if (bl.stale && pipe) {
-        reasons.push('백로그 미갱신 — 「백로그 새로고침」 권장');
+        reasons.push('백로그 미갱신 — 「건수 새로고침」 권장');
     } else if (bl.total > 0) {
-        reasons.push(`백로그 ${bl.total}건: ${bl.text}`);
-        if (bl.nextText) reasons.push(bl.nextText);
+        reasons.push(`생성 가능 ${bl.text}`);
     } else {
-        reasons.push('백로그 없음');
+        reasons.push('생성 대기 없음');
     }
 
     if (bl.csvSuggested) {
@@ -214,9 +198,7 @@ function contentDetail(site, logs, pipe, assessment) {
         return { mid: '생성·빌드 중…', due: 'run', dueText: '진행 중' };
     }
     const bl = assessment.bl;
-    let mid = bl.text;
-    if (bl.nextText && bl.total > 0) mid += ` · ${bl.nextText}`;
-    if (bl.csvSuggested) mid += ' · CSV 확장 가능';
+    const mid = `생성 가능 ${bl.text}`;
     const dueText = logs.content_due_label || '—';
     return { mid, due: dueClass(logs.content_schedule), dueText };
 }

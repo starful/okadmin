@@ -138,25 +138,16 @@ function renderContentBar(siteId) {
 
     const p = typeof pipelineForSite === 'function' ? pipelineForSite(siteId) : null;
     const snap = typeof pipelineBacklogSnap === 'function' ? pipelineBacklogSnap(p) : p?.backlog;
-    const remain = backlogSummaryText(p, siteId);
     const exp = snap?.csv_expand || {};
     const expandAvail = (exp.items_expandable || 0) + (exp.guides_expandable || 0);
-    const nextLine = typeof nextRunText === 'function' ? nextRunText(snap) : '';
 
-    let hintText = remain === '없음'
-        ? '백로그 없음 · CSV 추가로 토픽을 채울 수 있음'
-        : `남은 건수: ${remain}`;
-    if (nextLine) hintText += ` · ${nextLine}`;
-    if (expandAvail > 0) hintText += ` · CSV 추가 가능 ${expandAvail}건`;
-    const csv = snap?.csv;
-    if (csv && (csv.items != null || csv.guides != null)) {
-        const csvBits = [];
-        if (csv.items != null) csvBits.push(`CSV 아이템 ${csv.items}`);
-        if (csv.guides != null) csvBits.push(`CSV 가이드 ${csv.guides}`);
-        if (csvBits.length) hintText += ` · ${csvBits.join(' · ')}`;
+    if (typeof generatableHtml === 'function') {
+        hint.innerHTML = generatableHtml(snap, siteId);
+        hint.className = 'hub-load-hint generatable-summary';
+    } else {
+        hint.textContent = `생성 가능: ${typeof remainingText === 'function' ? remainingText(p || {}) : '—'}`;
+        hint.className = 'hub-load-hint';
     }
-    if (snap?.computed_at) hintText += ` · ${snap.computed_at}`;
-    hint.textContent = hintText;
 
     const label = escHub(p?.label || siteId);
     const running = p?.running;
@@ -291,7 +282,9 @@ function updateWorkflowStrip(site, logs, pipe) {
 
     const cLabel = document.getElementById('wf-content-label');
     const cMeta = document.getElementById('wf-content-meta');
-    if (cLabel) cLabel.textContent = remain === '없음' ? '백로그 없음' : remain;
+    if (cLabel) cLabel.textContent = typeof generatableText === 'function'
+        ? generatableText(pipelineBacklogSnap(pipe), pipe?.site_id || '')
+        : (remain === '없음' ? '생성 가능 0건' : remain);
     if (cMeta) cMeta.textContent = logs.content_due_label || '7일 주기';
     const cStep = document.getElementById('wf-content');
     if (cStep) {
