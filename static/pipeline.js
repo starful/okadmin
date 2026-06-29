@@ -64,8 +64,8 @@ function backlogHtml(p) {
     const expandAvail = csvExpandAvail(snap);
     const expandTitle = expandAvail
         ? `CSV에 ${expandAvail}건 추가 가능 (시드 토픽)`
-        : '추가할 시드 없음 — 이미 모두 등록됨';
-    const expandBtn = `<button type="button" class="btn btn-ghost btn-sm" onclick="expandCsv('${escPipeline(p.site_id)}')" ${p.running || !expandAvail ? 'disabled' : ''} title="${escPipeline(expandTitle)}">CSV 추가${expandAvail ? ` (${expandAvail})` : ''}</button>`;
+        : '주간 시드 토픽 추가 (이미 있으면 스킵)';
+    const expandBtn = `<button type="button" class="btn btn-ghost btn-sm" onclick="expandCsv('${escPipeline(p.site_id)}')" ${p.running ? 'disabled' : ''} title="${escPipeline(expandTitle)}">CSV 추가${expandAvail ? ` (${expandAvail})` : ''}</button>`;
     const nextLine = nextRunText(snap);
     return `<div class="dash-pipeline">
         <p class="pipe-summary">남은 건수: ${escPipeline(remainingText(p))}</p>
@@ -288,11 +288,10 @@ async function bootstrapBacklog() {
 async function expandCsv(siteId) {
     const pipe = typeof pipelineForSite === 'function' ? pipelineForSite(siteId) : null;
     const avail = csvExpandAvail(pipelineBacklogSnap(pipe));
-    if (!avail) {
-        showToast('추가할 CSV 시드가 없습니다 (이미 모두 등록됨)');
-        return;
-    }
-    if (!confirm(`CSV에 시드 토픽 ${avail}건을 추가합니다. 계속할까요?`)) return;
+    const msg = avail > 0
+        ? `CSV에 시드 토픽 최대 ${avail}건을 추가합니다. 계속할까요?`
+        : 'CSV 시드 추가를 시도합니다 (이미 등록된 토픽은 건너뜁니다). 계속할까요?';
+    if (!confirm(msg)) return;
     const res = await fetch('/api/content/pipeline/csv-expand', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

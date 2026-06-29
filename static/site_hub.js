@@ -166,10 +166,10 @@ function renderContentBar(siteId) {
     const runDisabled = !(p?.available && !running);
     const csvTitle = expandAvail
         ? `CSV에 ${expandAvail}건 추가 가능 (시드 토픽)`
-        : '추가할 시드 없음 — 이미 모두 등록됨';
+        : '주간 시드 토픽 추가 (이미 있으면 스킵)';
 
     let html = `<button type="button" class="btn btn-ghost" onclick="refreshBacklog('${escHub(siteId)}')" ${running ? 'disabled' : ''}>건수 새로고침</button>`;
-    html += `<button type="button" class="btn btn-ghost" onclick="expandCsv('${escHub(siteId)}')" ${running || !expandAvail ? 'disabled' : ''} title="${escHub(csvTitle)}">CSV 추가${expandAvail ? ` (${expandAvail})` : ''}</button>`;
+    html += `<button type="button" class="btn btn-ghost" onclick="expandCsv('${escHub(siteId)}')" ${running ? 'disabled' : ''} title="${escHub(csvTitle)}">CSV 추가${expandAvail ? ` (${expandAvail})` : ''}</button>`;
     html += `<button type="button" class="btn" id="hub-run-pipeline" ${runDisabled ? 'disabled' : ''}
         onclick="runPipeline('${escHub(siteId)}', '${label}')">${escHub(runLabel)}</button>`;
     actions.innerHTML = html;
