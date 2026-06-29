@@ -145,7 +145,7 @@ function renderContentBar(siteId) {
         hint.innerHTML = generatableHtml(snap, siteId);
         hint.className = 'hub-load-hint generatable-summary';
     } else {
-        hint.textContent = `생성 가능: ${typeof remainingText === 'function' ? remainingText(p || {}) : '—'}`;
+        hint.textContent = `MD 대기: ${typeof mdPendingText === 'function' ? mdPendingText(snap, siteId) : '—'}`;
         hint.className = 'hub-load-hint';
     }
 
@@ -284,7 +284,7 @@ function updateWorkflowStrip(site, logs, pipe) {
     const cMeta = document.getElementById('wf-content-meta');
     if (cLabel) cLabel.textContent = typeof generatableText === 'function'
         ? generatableText(pipelineBacklogSnap(pipe), pipe?.site_id || '')
-        : (remain === '없음' ? '생성 가능 0건' : remain);
+        : (remain === '없음' ? 'MD 대기 0건' : remain);
     if (cMeta) cMeta.textContent = logs.content_due_label || '7일 주기';
     const cStep = document.getElementById('wf-content');
     if (cStep) {

@@ -463,13 +463,19 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     }
 
     if site_id == "okstats":
-        summary = f"인사이트 {content_n} · 가이드 {guide_n}"
+        ci = int(raw.get("csv_items") or 0)
+        cg = int(raw.get("csv_guides") or 0)
+        summary = f"인사이트 {content_n}/{ci} · 가이드 {guide_n}/{cg}"
     elif site_id == "starful.biz":
-        summary = f"가이드 {guide_n}"
+        ci = int(raw.get("csv_items") or 0)
+        summary = f"가이드 {guide_n}/{ci}" if ci else f"가이드 {guide_n}"
     elif site_id in ("jpcampus", "krcampus"):
-        summary = f"가이드 {guide_n}"
+        cg = int(raw.get("csv_guides") or 0)
+        summary = f"가이드 {guide_n}/{cg}" if cg else f"가이드 {guide_n}"
     elif site_id in ("okramen", "okonsen", "okcaddie"):
-        summary = f"아이템 {content_n} · 가이드 {guide_n}"
+        ci = int(raw.get("csv_items") or 0)
+        cg = int(raw.get("csv_guides") or 0)
+        summary = f"아이템 {content_n}/{ci} · 가이드 {guide_n}/{cg}"
     else:
         summary = f"콘텐츠 {content_n} · 가이드 {guide_n}"
 

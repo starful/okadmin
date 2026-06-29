@@ -17,25 +17,44 @@ function csvExpandAvail(snap) {
     return (exp.items_expandable || 0) + (exp.guides_expandable || 0);
 }
 
-/** Human-readable generatable content + guide counts (MD not yet built). */
-function generatableText(snap, siteId) {
+/** CSV rows still waiting for MD (pending / total in CSV). */
+function mdPendingText(snap, siteId) {
     if (!snap) return '—';
-    if (snap.summary) return snap.summary;
     const g = snap.generatable || {};
+    const csv = snap.csv || {};
+    const pending = (n, total) => (total != null && total !== '' ? `${n}/${total}` : `${n}`);
+
     const content = g.content || 0;
     const guides = g.guides || 0;
-    if (siteId === 'okstats') return `인사이트 ${content} · 가이드 ${guides}`;
-    if (siteId === 'starful.biz') return `가이드 ${guides}`;
-    if (siteId === 'jpcampus' || siteId === 'krcampus') return `가이드 ${guides}`;
-    if (siteId === 'okramen' || siteId === 'okonsen' || siteId === 'okcaddie') {
-        return `아이템 ${content} · 가이드 ${guides}`;
+    const csvItems = csv.items;
+    const csvGuides = csv.guides;
+
+    if (siteId === 'okstats') {
+        return `인사이트 ${pending(content, csvItems)} · 가이드 ${pending(guides, csvGuides)}`;
     }
-    return `콘텐츠 ${content} · 가이드 ${guides}`;
+    if (siteId === 'starful.biz') {
+        return `가이드 ${pending(guides, csvItems)}`;
+    }
+    if (siteId === 'jpcampus' || siteId === 'krcampus') {
+        return `가이드 ${pending(guides, csvGuides)}`;
+    }
+    if (siteId === 'okramen' || siteId === 'okonsen' || siteId === 'okcaddie') {
+        return `아이템 ${pending(content, csvItems)} · 가이드 ${pending(guides, csvGuides)}`;
+    }
+    return `콘텐츠 ${pending(content, csvItems)} · 가이드 ${pending(guides, csvGuides)}`;
+}
+
+function generatableText(snap, siteId) {
+    return mdPendingText(snap, siteId);
+}
+
+function mdPendingHtml(snap, siteId) {
+    const text = mdPendingText(snap, siteId);
+    return `<span class="gen-label" title="CSV에 있지만 MD가 아직 없는 건수 (앞=대기, 뒤=CSV 전체)">MD 대기</span> <span class="gen-values">${escPipeline(text)}</span>`;
 }
 
 function generatableHtml(snap, siteId) {
-    const text = generatableText(snap, siteId);
-    return `<span class="gen-label">생성 가능</span> <span class="gen-values">${escPipeline(text)}</span>`;
+    return mdPendingHtml(snap, siteId);
 }
 
 function csvExpandAdded(d) {
@@ -68,7 +87,7 @@ function backlogHtml(p) {
     const actions = (r, e) => `<div class="pipe-actions">${r}${e || ''}</div>`;
     if (!snap) {
         return `<div class="dash-pipeline">
-            <p class="pipe-summary generatable-summary"><span class="gen-label">생성 가능</span> <span class="gen-values">—</span></p>
+            <p class="pipe-summary generatable-summary"><span class="gen-label">MD 대기</span> <span class="gen-values">—</span></p>
             ${actions(refreshBtn(p.site_id, false), '')}
         </div>`;
     }

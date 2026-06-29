@@ -107,9 +107,9 @@ function assessSite(site, logs, pipe) {
     if (bl.stale && pipe) {
         reasons.push('백로그 미갱신 — 「건수 새로고침」 권장');
     } else if (bl.total > 0) {
-        reasons.push(`생성 가능 ${bl.text}`);
+        reasons.push(`MD 대기 ${bl.text}`);
     } else {
-        reasons.push('생성 대기 없음');
+        reasons.push('MD 대기 없음 (CSV 전부 완료)');
     }
 
     if (bl.csvSuggested) {
@@ -198,7 +198,7 @@ function contentDetail(site, logs, pipe, assessment) {
         return { mid: '생성·빌드 중…', due: 'run', dueText: '진행 중' };
     }
     const bl = assessment.bl;
-    const mid = `생성 가능 ${bl.text}`;
+    const mid = `MD 대기 ${bl.text}`;
     const dueText = logs.content_due_label || '—';
     return { mid, due: dueClass(logs.content_schedule), dueText };
 }
