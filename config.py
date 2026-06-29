@@ -211,7 +211,7 @@ CONTENT_JOBS: dict[str, list[dict[str, str]]] = {
     ],
 }
 
-# CSV 편집 (콘텐츠 페이지) — repo 상대 경로
+# CSV 편집 (콘텐츠 페이지) — okadmin data/topic_banks (site repo CSV는 레거시)
 CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
     "hatena": [
         {

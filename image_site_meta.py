@@ -12,8 +12,6 @@ from typing import Any
 from config import WORK_ROOT, get_service, repo_path, work_root_available
 from gsc_seo_worker import _parse_frontmatter, _write_frontmatter
 
-OKONSEN_CSV_REL = "script/csv/onsens.csv"
-
 # Sites with full meta panel + MD image_prompt editing in GCS tab
 SITE_META_KEYS = frozenset({"okonsen", "okramen", "okcaddie", "okstats", "krcampus", "starful_biz"})
 
@@ -156,12 +154,12 @@ def _write_starful_md_file(path: Path, meta: dict[str, Any], body: str) -> None:
     path.write_text(front + body.lstrip("\n"), encoding="utf-8")
 
 
-def _load_csv_index(site_key: str, csv_rel: str, *, id_field: str = "Name") -> dict[str, dict[str, str]]:
-    cfg = SITE_IMAGE_META[site_key]
-    svc = get_service(cfg["service_id"])
-    if not svc or not work_root_available():
-        return {}
-    csv_path = repo_path(svc) / csv_rel
+def _load_csv_index_from_path(
+    csv_path: Path,
+    site_key: str,
+    *,
+    id_field: str = "Name",
+) -> dict[str, dict[str, str]]:
     if not csv_path.is_file():
         return {}
     out: dict[str, dict[str, str]] = {}
@@ -196,12 +194,43 @@ def _load_csv_index(site_key: str, csv_rel: str, *, id_field: str = "Name") -> d
     return out
 
 
+def _topic_bank_csv_path(site_key: str) -> Path | None:
+    cfg = SITE_IMAGE_META.get(site_key) or {}
+    bank_id = cfg.get("topic_bank_id")
+    if not bank_id:
+        return None
+    service_id = cfg["service_id"]
+    if not work_root_available():
+        return None
+    svc = get_service(service_id)
+    if not svc:
+        return None
+    from topic_bank import bank_csv_path, ensure_bootstrapped
+
+    repo = repo_path(svc)
+    ensure_bootstrapped(service_id, repo)
+    path = bank_csv_path(service_id, bank_id)
+    return path if path.is_file() else None
+
+
+def _load_csv_index(site_key: str, csv_rel: str, *, id_field: str = "Name") -> dict[str, dict[str, str]]:
+    bank_path = _topic_bank_csv_path(site_key)
+    if bank_path is not None:
+        return _load_csv_index_from_path(bank_path, site_key, id_field=id_field)
+    cfg = SITE_IMAGE_META[site_key]
+    svc = get_service(cfg["service_id"])
+    if not svc or not work_root_available():
+        return {}
+    csv_path = repo_path(svc) / csv_rel
+    return _load_csv_index_from_path(csv_path, site_key, id_field=id_field)
+
+
 @lru_cache(maxsize=8)
 def _cached_csv_index(site_key: str) -> dict[str, dict[str, str]]:
     cfg = SITE_IMAGE_META.get(site_key) or {}
-    csv_rel = cfg.get("csv_rel")
-    if not csv_rel:
+    if not cfg.get("topic_bank_id") and not cfg.get("csv_rel"):
         return {}
+    csv_rel = cfg.get("csv_rel") or ""
     return _load_csv_index(site_key, csv_rel, id_field=cfg.get("csv_id_field", "Name"))
 
 
@@ -304,7 +333,7 @@ def site_image_meta(site_key: str, slug: str) -> dict[str, Any]:
     md_slug = _resolve_md_slug(site_key, slug, content_dir) if content_dir else slug
 
     csv_row: dict[str, str] = {}
-    if cfg.get("csv_rel"):
+    if cfg.get("topic_bank_id") or cfg.get("csv_rel"):
         csv_row = dict(_cached_csv_index(site_key).get(md_slug) or _cached_csv_index(site_key).get(slug) or {})
 
     md_meta: dict[str, Any] = {}
@@ -471,7 +500,7 @@ def enrich_okonsen_image_rows(rows: list[dict]) -> list[dict]:
 SITE_IMAGE_META: dict[str, dict[str, Any]] = {
     "okonsen": {
         "service_id": "okonsen",
-        "csv_rel": "script/csv/onsens.csv",
+        "topic_bank_id": "items",
         "content_dir": "app/content",
         "md_langs": ("en", "ko"),
         "name_label": "온천·료칸",
@@ -483,7 +512,7 @@ SITE_IMAGE_META: dict[str, dict[str, Any]] = {
     },
     "okramen": {
         "service_id": "okramen",
-        "csv_rel": "script/csv/ramens.csv",
+        "topic_bank_id": "items",
         "content_dir": "app/content",
         "md_langs": ("en", "ko"),
         "name_label": "라멘店",
@@ -495,7 +524,7 @@ SITE_IMAGE_META: dict[str, dict[str, Any]] = {
     },
     "okcaddie": {
         "service_id": "okcaddie",
-        "csv_rel": "script/csv/courses.csv",
+        "topic_bank_id": "items",
         "content_dir": "app/content",
         "md_langs": ("en", "ko"),
         "name_label": "ゴルフ場",
@@ -507,7 +536,7 @@ SITE_IMAGE_META: dict[str, dict[str, Any]] = {
     },
     "okstats": {
         "service_id": "okstats",
-        "csv_rel": "script/csv/insights.csv",
+        "topic_bank_id": "insights",
         "csv_id_field": "id",
         "content_dir": "app/content",
         "md_langs": ("en", "ko"),

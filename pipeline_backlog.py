@@ -230,9 +230,70 @@ def _jpcampus_backlog(repo: Path) -> dict[str, Any]:
     }
 
 
+def _krcampus_read_basic_names(md_path: Path) -> tuple[str, str]:
+    try:
+        text = md_path.read_text(encoding="utf-8")
+    except OSError:
+        return "", ""
+    if not text.startswith("---"):
+        return "", ""
+    end = text.find("---", 3)
+    if end < 0:
+        return "", ""
+    try:
+        data = json.loads(text[3:end].strip())
+    except json.JSONDecodeError:
+        return "", ""
+    basic = data.get("basic_info") or {}
+    return (basic.get("name_ko") or "").strip(), (basic.get("name_en") or "").strip()
+
+
+def _krcampus_name_index(content_dir: Path, prefix: str) -> tuple[set[str], set[str]]:
+    """name_ko and lowercased name_en from existing {prefix}_*.md (EN base, not _ja)."""
+    ko: set[str] = set()
+    en: set[str] = set()
+    if not content_dir.is_dir():
+        return ko, en
+    for md in content_dir.glob(f"{prefix}_*.md"):
+        if md.stem.endswith("_ja"):
+            continue
+        name_ko, name_en = _krcampus_read_basic_names(md)
+        if name_ko:
+            ko.add(name_ko)
+        if name_en:
+            en.add(name_en.lower())
+    return ko, en
+
+
+def _krcampus_csv_pending(
+    csv_path: Path,
+    *,
+    known_ko: set[str],
+    known_en: set[str],
+) -> int:
+    if not csv_path.is_file():
+        return 0
+    pending = 0
+    with csv_path.open(encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            name_ko = (row.get("name_ko") or "").strip()
+            name_en = (row.get("name_en") or "").strip()
+            if not name_ko and not name_en:
+                continue
+            if name_ko in known_ko:
+                continue
+            if name_en and name_en.lower() in known_en:
+                continue
+            pending += 1
+    return pending
+
+
 def _krcampus_backlog(repo: Path) -> dict[str, Any]:
     topics_path = repo / "data/guide_topics.csv"
+    schools_path = repo / "data/language_schools.csv"
+    univ_path = repo / "data/universities.csv"
     content_dir = repo / "app" / "content"
+
     guides_pending = 0
     ja_pending = 0
     if topics_path.is_file():
@@ -247,136 +308,40 @@ def _krcampus_backlog(repo: Path) -> dict[str, Any]:
                 ja = content_dir / f"guide_{slug}_ja.md"
                 if en.is_file() and not ja.is_file():
                     ja_pending += 1
+
+    school_ko, school_en = _krcampus_name_index(content_dir, "school")
+    univ_ko, univ_en = _krcampus_name_index(content_dir, "univ")
+    schools_pending = _krcampus_csv_pending(schools_path, known_ko=school_ko, known_en=school_en)
+    univs_pending = _krcampus_csv_pending(univ_path, known_ko=univ_ko, known_en=univ_en)
+
     return {
         "guides_topics": guides_pending,
         "korean_files": ja_pending,
+        "schools_pending": schools_pending,
+        "univs_pending": univs_pending,
+        "items_pairs": schools_pending + univs_pending,
         "csv_guides": _count_csv(topics_path, "slug"),
+        "csv_schools": _count_csv(schools_path, "name_ko"),
+        "csv_univs": _count_csv(univ_path, "name_ko"),
     }
 
 
 def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, int]:
-    """How many rows ensure_* would add (dry-run counts, no writes)."""
+    """How many rows topic bank would release (pending, capped by limits)."""
     from content_pipeline import (
-        DEFAULT_ITEM_SEEDS,
-        EXPAND_GUIDE_SEEDS,
-        JPCAMPUS_EXPAND_GUIDES,
-        KRCAMPUS_EXPAND_TOPIC_ROWS,
-        OKCAFE_EXPAND_SEEDS,
-        STARFUL_EXPAND_POSITIONS,
-        _bounded_limit,
         DEFAULT_CONTENT_LIMIT,
         DEFAULT_GUIDE_LIMIT,
         MAX_CONTENT_LIMIT,
         MAX_GUIDE_LIMIT,
-        _csv_coord_keys,
+        _bounded_limit,
+        pipeline_env_for_site,
     )
+    from topic_bank_pipeline import topic_bank_expand_preview
 
-    env = os.environ.copy()
+    env = pipeline_env_for_site(site_id)
     item_cap = _bounded_limit(env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
     guide_cap = _bounded_limit(env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
-
-    items_avail = 0
-    guides_avail = 0
-
-    if site_id in ("okramen", "okonsen", "okcaddie"):
-        rel = {"okramen": "script/csv/ramens.csv", "okonsen": "script/csv/onsens.csv", "okcaddie": "script/csv/courses.csv"}[
-            site_id
-        ]
-        items_path = repo / rel
-        keys = _csv_coord_keys(items_path)
-        for row in OKCAFE_EXPAND_SEEDS:
-            if items_avail >= item_cap:
-                break
-            lat = (row.get("Lat") or "").strip()
-            lng = (row.get("Lng") or "").strip()
-            if not lat or not lng:
-                continue
-            try:
-                key = f"{float(lat):.4f},{float(lng):.4f}"
-            except ValueError:
-                continue
-            if key not in keys:
-                items_avail += 1
-        guides_path = repo / "script/csv/guides.csv"
-        existing_ids = set()
-        if guides_path.is_file():
-            with guides_path.open(encoding="utf-8-sig") as f:
-                existing_ids = {(r.get("id") or "").strip().lower() for r in csv.DictReader(f)}
-        for row in EXPAND_GUIDE_SEEDS:
-            if guides_avail >= guide_cap:
-                break
-            rid = (row.get("id") or "").strip().lower()
-            if rid and rid not in existing_ids:
-                guides_avail += 1
-
-    elif site_id == "starful.biz":
-        path = repo / "scripts/data/positions.csv"
-        existing = set()
-        if path.is_file():
-            with path.open(encoding="utf-8-sig") as f:
-                existing = {(r.get("position_name") or "").strip().lower() for r in csv.DictReader(f)}
-        for name in STARFUL_EXPAND_POSITIONS:
-            if items_avail >= item_cap:
-                break
-            if name.lower() not in existing:
-                items_avail += 1
-
-    elif site_id == "jpcampus":
-        path = repo / "data/guide_topics.csv"
-        existing = set()
-        if path.is_file():
-            with path.open(encoding="utf-8-sig") as f:
-                existing = {(r.get("slug") or "").strip().lower() for r in csv.DictReader(f)}
-        for row in JPCAMPUS_EXPAND_GUIDES:
-            if guides_avail >= guide_cap:
-                break
-            slug = (row.get("slug") or "").strip().lower()
-            if slug and slug not in existing:
-                guides_avail += 1
-
-    elif site_id == "krcampus":
-        path = repo / "data/guide_topics.csv"
-        existing = set()
-        if path.is_file():
-            with path.open(encoding="utf-8-sig") as f:
-                existing = {(r.get("slug") or "").strip().lower() for r in csv.DictReader(f)}
-        for row in KRCAMPUS_EXPAND_TOPIC_ROWS:
-            if guides_avail >= guide_cap:
-                break
-            slug = (row.get("slug") or "").strip().lower()
-            if slug and slug not in existing:
-                guides_avail += 1
-
-    elif site_id == "okstats":
-        from content_pipeline import STATFACTS_GUIDE_EXPAND, STATFACTS_INSIGHT_EXPAND
-
-        insights_path = repo / "script/csv/insights.csv"
-        existing_insight_ids = set()
-        if insights_path.is_file():
-            with insights_path.open(encoding="utf-8-sig") as f:
-                existing_insight_ids = {
-                    (r.get("id") or "").strip().lower() for r in csv.DictReader(f)
-                }
-        for row in STATFACTS_INSIGHT_EXPAND:
-            if items_avail >= item_cap:
-                break
-            rid = (row.get("id") or "").strip().lower()
-            if rid and rid not in existing_insight_ids:
-                items_avail += 1
-
-        guides_path = repo / "script/csv/guides.csv"
-        existing_ids = set()
-        if guides_path.is_file():
-            with guides_path.open(encoding="utf-8-sig") as f:
-                existing_ids = {(r.get("id") or "").strip().lower() for r in csv.DictReader(f)}
-        for row in STATFACTS_GUIDE_EXPAND:
-            if guides_avail >= guide_cap:
-                break
-            rid = (row.get("id") or "").strip().lower()
-            if rid and rid not in existing_ids:
-                guides_avail += 1
-
-    return {"items_expandable": items_avail, "guides_expandable": guides_avail}
+    return topic_bank_expand_preview(site_id, repo, content_limit=item_cap, guide_limit=guide_cap)
 
 
 def compute_backlog(site_id: str) -> dict[str, Any]:
@@ -406,26 +371,23 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     korean_limit = _bounded_limit(env, "KOREAN_LIMIT", default=DEFAULT_KOREAN_LIMIT, ceiling=MAX_KOREAN_LIMIT)
 
     raw: dict[str, Any] = {}
-    if site_id == "okramen":
-        raw = _ok_dual_backlog(repo, items_rel="script/csv/ramens.csv", guides_rel="script/csv/guides.csv")
-    elif site_id == "okonsen":
-        raw = _ok_dual_backlog(repo, items_rel="script/csv/onsens.csv", guides_rel="script/csv/guides.csv")
-    elif site_id == "okcaddie":
-        raw = _ok_dual_backlog(repo, items_rel="script/csv/courses.csv", guides_rel="script/csv/guides.csv")
-    elif site_id == "starful.biz":
-        raw = _starful_backlog(repo)
-    elif site_id == "jpcampus":
-        raw = _jpcampus_backlog(repo)
-    elif site_id == "krcampus":
-        raw = _krcampus_backlog(repo)
-    elif site_id == "okstats":
-        raw = _okstats_backlog(repo)
+    from topic_bank_pipeline import topic_bank_backlog
+
+    bank_raw = topic_bank_backlog(site_id, repo)
+    if bank_raw:
+        raw = bank_raw
     elif site_id == "hatena":
         raw = {"note": "Hatena는 CSV 미처리 포스트 기준 — 별도 집계 없음"}
     else:
         raw = {}
 
     expand = _preview_csv_expand(site_id, repo)
+
+    from topic_bank import bank_stats
+    from topic_bank_pipeline import refresh_topic_state
+
+    refresh_topic_state(site_id, repo)
+    topic_stats = bank_stats(site_id)
 
     items_pairs = int(raw.get("items_pairs") or 0)
     guides_topics = int(raw.get("guides_topics") or raw.get("guides_md") or 0)
@@ -443,8 +405,13 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     if site_id == "starful.biz":
         content_n = 0
         guide_n = int(raw.get("guides_md") or 0)
-    elif site_id in ("jpcampus", "krcampus"):
+    elif site_id == "jpcampus":
         content_n = 0
+        guide_n = guides_topics
+    elif site_id == "krcampus":
+        schools_n = int(raw.get("schools_pending") or 0)
+        univs_n = int(raw.get("univs_pending") or 0)
+        content_n = schools_n + univs_n
         guide_n = guides_topics
     elif site_id == "okstats":
         content_n = items_pairs
@@ -456,11 +423,14 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         content_n = items_pairs
         guide_n = guides_topics
 
-    generatable = {
+    generatable: dict[str, Any] = {
         "content": content_n,
         "guides": guide_n,
         "total": content_n + guide_n,
     }
+    if site_id == "krcampus":
+        generatable["schools"] = int(raw.get("schools_pending") or 0)
+        generatable["univs"] = int(raw.get("univs_pending") or 0)
 
     if site_id == "okstats":
         ci = int(raw.get("csv_items") or 0)
@@ -469,9 +439,16 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     elif site_id == "starful.biz":
         ci = int(raw.get("csv_items") or 0)
         summary = f"가이드 {guide_n}/{ci}" if ci else f"가이드 {guide_n}"
-    elif site_id in ("jpcampus", "krcampus"):
+    elif site_id == "jpcampus":
         cg = int(raw.get("csv_guides") or 0)
         summary = f"가이드 {guide_n}/{cg}" if cg else f"가이드 {guide_n}"
+    elif site_id == "krcampus":
+        cg = int(raw.get("csv_guides") or 0)
+        cs = int(raw.get("csv_schools") or 0)
+        cu = int(raw.get("csv_univs") or 0)
+        sp = int(raw.get("schools_pending") or 0)
+        up = int(raw.get("univs_pending") or 0)
+        summary = f"가이드 {guide_n}/{cg} · 어학원 {sp}/{cs} · 대학 {up}/{cu}"
     elif site_id in ("okramen", "okonsen", "okcaddie"):
         ci = int(raw.get("csv_items") or 0)
         cg = int(raw.get("csv_guides") or 0)
@@ -479,15 +456,20 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     else:
         summary = f"콘텐츠 {content_n} · 가이드 {guide_n}"
 
+    csv_out: dict[str, Any] = {
+        "items": raw.get("csv_items"),
+        "guides": raw.get("csv_guides"),
+    }
+    if site_id == "krcampus":
+        csv_out["schools"] = raw.get("csv_schools")
+        csv_out["univs"] = raw.get("csv_univs")
+
     return {
         "ok": True,
         "site_id": site_id,
         "computed_at": datetime.now().replace(microsecond=0).isoformat(sep=" "),
         "generatable": generatable,
-        "csv": {
-            "items": raw.get("csv_items"),
-            "guides": raw.get("csv_guides"),
-        },
+        "csv": csv_out,
         "backlog": {
             "items_pairs": items_pairs,
             "items_files": raw.get("items_files", 0),
@@ -495,6 +477,8 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
             "guides_files": raw.get("guides_files", 0),
             "images": images,
             "korean_files": korean,
+            "schools_pending": raw.get("schools_pending", 0),
+            "univs_pending": raw.get("univs_pending", 0),
         },
         "next_run": {
             "items_pairs": next_items,
@@ -509,6 +493,7 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         "csv_expand": {
             **expand,
             "suggested": csv_refresh_suggested,
+            "topic_bank": topic_stats.get("banks") or {},
         },
         "summary": summary,
     }

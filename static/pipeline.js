@@ -35,8 +35,13 @@ function mdPendingText(snap, siteId) {
     if (siteId === 'starful.biz') {
         return `가이드 ${pending(guides, csvItems)}`;
     }
-    if (siteId === 'jpcampus' || siteId === 'krcampus') {
+    if (siteId === 'jpcampus') {
         return `가이드 ${pending(guides, csvGuides)}`;
+    }
+    if (siteId === 'krcampus') {
+        const schools = g.schools || 0;
+        const univs = g.univs || 0;
+        return `가이드 ${pending(guides, csvGuides)} · 어학원 ${pending(schools, csv.schools)} · 대학 ${pending(univs, csv.univs)}`;
     }
     if (siteId === 'okramen' || siteId === 'okonsen' || siteId === 'okcaddie') {
         return `아이템 ${pending(content, csvItems)} · 가이드 ${pending(guides, csvGuides)}`;

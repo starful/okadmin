@@ -12,6 +12,17 @@ from config import CONTENT_CSV_FILES, get_service, repo_path, work_root_availabl
 
 MAX_CSV_ROWS = 2000
 
+# CONTENT_CSV_FILES file_id → topic bank bank_id (when names differ)
+CSV_FILE_BANK_ALIASES: dict[str, dict[str, str]] = {
+    "okramen": {"ramens": "items"},
+    "okonsen": {"onsens": "items"},
+    "okcaddie": {"courses": "items"},
+}
+
+
+def _bank_id_for_file(site_id: str, file_id: str) -> str:
+    return CSV_FILE_BANK_ALIASES.get(site_id, {}).get(file_id, file_id)
+
 
 def list_csv_files() -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -49,6 +60,18 @@ def get_csv_spec(site_id: str, file_id: str) -> dict[str, Any] | None:
 
 
 def resolve_csv_path(site_id: str, file_id: str) -> Path | None:
+    from topic_bank import bank_csv_path, ensure_bootstrapped
+    from topic_bank_registry import banks_for_site
+
+    bank_id = _bank_id_for_file(site_id, file_id)
+    bank_ids = {s.bank_id for s in banks_for_site(site_id)}
+    if bank_id in bank_ids:
+        svc = get_service(site_id)
+        if svc and work_root_available():
+            ensure_bootstrapped(site_id, repo_path(svc))
+            bank = bank_csv_path(site_id, bank_id)
+            if bank.is_file() or bank.parent.exists():
+                return bank
     spec = get_csv_spec(site_id, file_id)
     svc = get_service(site_id)
     if not spec or not svc or not work_root_available():
@@ -80,6 +103,11 @@ def load_csv(site_id: str, file_id: str) -> dict[str, Any]:
     spec = get_csv_spec(site_id, file_id)
     if not spec:
         return {"error": "unknown csv file"}
+    svc = get_service(site_id)
+    if svc and work_root_available():
+        from topic_bank import ensure_bootstrapped
+
+        ensure_bootstrapped(site_id, repo_path(svc))
     path = resolve_csv_path(site_id, file_id)
     if path is None:
         return {"error": "WORK_ROOT unavailable or invalid path"}
@@ -158,6 +186,21 @@ def save_csv(
     writer.writeheader()
     writer.writerows(normalized)
     path.write_text(buf.getvalue(), encoding="utf-8-sig")
+
+    from topic_bank import STATUS_PENDING, _state_key, load_state, row_key, save_state
+    from topic_bank_registry import banks_for_site
+
+    for bank_spec in banks_for_site(site_id):
+        if bank_spec.bank_id == _bank_id_for_file(site_id, file_id):
+            state = load_state(site_id)
+            rows_state: dict[str, str] = dict(state.get("rows") or {})
+            for row in normalized:
+                key = row_key(bank_spec, row)
+                if key:
+                    rows_state.setdefault(_state_key(bank_spec, key), STATUS_PENDING)
+            state["rows"] = rows_state
+            save_state(site_id, state)
+            break
 
     return {
         "ok": True,

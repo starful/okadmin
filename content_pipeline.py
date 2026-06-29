@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from config import get_service, repo_path, work_root_available
+from topic_bank_registry import banks_for_site
 
 MIN_ITEM_ROWS = 8
 MIN_GUIDE_ROWS = 3
@@ -856,62 +857,9 @@ def _append_csv_rows(path: Path, headers: list[str], rows: list[dict[str, str]])
 
 
 def ensure_okcafejp_csv(repo: Path, logf) -> dict[str, Any]:
-    """Add CSV rows when items/guides are insufficient; weekly Lat/Lng expansion."""
-    items_path = repo / "script/csv/items.csv"
-    guides_path = repo / "script/csv/guides.csv"
-    out: dict[str, Any] = {"seeded_items": 0, "seeded_guides": 0, "expanded_items": 0, "messages": []}
+    from topic_bank_pipeline import topic_bank_sync_only
 
-    n_items = _count_csv_rows(items_path, required_col="Name")
-    if n_items < MIN_ITEM_ROWS:
-        added = _append_csv_rows(items_path, ITEM_HEADERS, DEFAULT_ITEM_SEEDS)
-        out["seeded_items"] = added
-        msg = f"items.csv: {n_items}행 → 시드 {added}행 추가 (최소 {MIN_ITEM_ROWS}행 목표)"
-        out["messages"].append(msg)
-        logf.write(msg + "\n")
-    else:
-        logf.write(f"items.csv: {n_items}행 (시드 생략)\n")
-
-    expand_limit = _bounded_limit(
-        os.environ,
-        "CONTENT_LIMIT",
-        default=DEFAULT_CONTENT_LIMIT,
-        ceiling=MAX_CONTENT_LIMIT,
-    )
-    pool = DEFAULT_ITEM_SEEDS + OKCAFE_EXPAND_SEEDS
-    expanded = _append_csv_rows_by_coord(items_path, ITEM_HEADERS, pool, max_add=expand_limit)
-    out["expanded_items"] = expanded
-    if expanded:
-        msg = f"items.csv: 주간 확장 +{expanded}행 (좌표 시드, Places 후 생성)"
-        out["messages"].append(msg)
-        logf.write(msg + "\n")
-
-    n_guides = _count_csv_rows(guides_path, required_col="topic_en")
-    if n_guides < MIN_GUIDE_ROWS:
-        added = _append_csv_rows(guides_path, GUIDE_HEADERS, DEFAULT_GUIDE_SEEDS)
-        out["seeded_guides"] = added
-        msg = f"guides.csv: {n_guides}행 → 시드 {added}행 추가"
-        out["messages"].append(msg)
-        logf.write(msg + "\n")
-    else:
-        logf.write(f"guides.csv: {n_guides}행 (시드 생략)\n")
-
-    guide_expand_limit = _bounded_limit(
-        os.environ,
-        "GUIDE_LIMIT",
-        default=DEFAULT_GUIDE_LIMIT,
-        ceiling=MAX_GUIDE_LIMIT,
-    )
-    g_added = _append_csv_rows_limited(
-        guides_path, GUIDE_HEADERS, EXPAND_GUIDE_SEEDS, key_col="id", max_add=guide_expand_limit
-    )
-    if g_added:
-        msg = f"guides.csv: 주간 가이드 토픽 +{g_added}행"
-        out["messages"].append(msg)
-        logf.write(msg + "\n")
-
-    out["item_rows"] = _count_csv_rows(items_path, required_col="Name")
-    out["guide_rows"] = _count_csv_rows(guides_path, required_col="topic_en")
-    return out
+    return topic_bank_sync_only("okcafejp", repo, logf)
 
 
 def _run_step(
@@ -1017,6 +965,26 @@ def _merge_pipeline_env(repo: Path) -> dict[str, str]:
     return env
 
 
+def ensure_site_csv_from_bank(site_id: str, repo: Path, logf) -> dict[str, Any]:
+    from topic_bank_pipeline import topic_bank_sync_only
+
+    return topic_bank_sync_only(site_id, repo, logf)
+
+
+def _places_fetch_argv(site_id: str, repo: Path) -> list[str]:
+    from topic_bank import ensure_bootstrapped, queue_path
+
+    ensure_bootstrapped(site_id, repo)
+    q = queue_path(site_id, "items")
+    return [
+        "python3",
+        "script/fetch_items_from_places.py",
+        "--input",
+        str(q),
+        "--in-place",
+    ]
+
+
 def ensure_dual_csv(
     repo: Path,
     logf,
@@ -1117,159 +1085,27 @@ def ensure_dual_csv(
 
 
 def ensure_starful_csv(repo: Path, logf) -> dict[str, Any]:
-    path = repo / "scripts/data/positions.csv"
-    headers = ["position_name"]
-    seeds = [{"position_name": t} for t in ("AI Engineer", "Product Manager", "Data Analyst", "DevOps Engineer", "UX Designer", "Backend Developer", "Cloud Architect", "Security Engineer", "Technical Writer", "QA Engineer")]
-    n = _count_csv_rows(path, required_col="position_name")
-    out: dict[str, Any] = {"messages": [], "expanded": 0}
-    if n < 15:
-        added = _append_csv_rows(path, headers, seeds)
-        out["seeded"] = added
-        logf.write(f"positions.csv: {n}행 → +{added}행\n")
-    else:
-        logf.write(f"positions.csv: {n}행 (시드 생략)\n")
-    expand_limit = _bounded_limit(
-        os.environ,
-        "CONTENT_LIMIT",
-        default=DEFAULT_CONTENT_LIMIT,
-        ceiling=MAX_CONTENT_LIMIT,
-    )
-    expanded = _append_csv_rows_limited(
-        path,
-        headers,
-        [{"position_name": t} for t in STARFUL_EXPAND_POSITIONS],
-        key_col="position_name",
-        max_add=expand_limit,
-    )
-    out["expanded"] = expanded
-    if expanded:
-        logf.write(f"positions.csv: 주간 확장 +{expanded}행\n")
-    return out
+    from topic_bank_pipeline import topic_bank_sync_only
+
+    return topic_bank_sync_only("starful.biz", repo, logf)
 
 
 def ensure_hatena_csv(repo: Path, logf) -> dict[str, Any]:
-    out: dict[str, Any] = {"messages": []}
-    py_path = repo / "csv/python.csv"
-    if _count_csv_rows(py_path, required_col="lib_name") < 5:
-        added = _append_csv_rows(py_path, ["lib_name"], [{"lib_name": x} for x in ("NumPy", "Pandas", "FastAPI", "Pydantic", "httpx")])
-        logf.write(f"python.csv: +{added}행\n")
-        out["messages"].append(f"python +{added}")
-    cloud_path = repo / "csv/cloud.csv"
-    if _count_csv_rows(cloud_path, required_col="Topic") < 5:
-        topics = [
-            {"Topic": "AWS Lambda vs GCP Cloud Functions vs Azure Functions"},
-            {"Topic": "Amazon S3 vs Google Cloud Storage vs Azure Blob Storage"},
-            {"Topic": "AWS RDS vs Cloud SQL vs Azure Database for PostgreSQL"},
-            {"Topic": "Amazon EKS vs GKE vs AKS comparison"},
-            {"Topic": "CloudFront vs Cloud CDN vs Azure CDN"},
-        ]
-        added = _append_csv_rows(cloud_path, ["Topic"], topics)
-        logf.write(f"cloud.csv: +{added}행\n")
-        out["messages"].append(f"cloud +{added}")
-    pos_path = repo / "csv/positions.csv"
-    if not pos_path.is_file() or _count_csv_rows(pos_path, required_col="position_name") < 3:
-        added = _append_csv_rows(pos_path, ["position_name"], [{"position_name": "Site Reliability Engineer"}, {"position_name": "Platform Engineer"}, {"position_name": "MLOps Engineer"}])
-        logf.write(f"positions.csv: +{added}행\n")
-    return out
+    from topic_bank_pipeline import topic_bank_sync_only
+
+    return topic_bank_sync_only("hatena", repo, logf)
 
 
 def ensure_jpcampus_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    path = repo / "data/guide_topics.csv"
-    headers = ["slug", "category", "title", "description", "prompt"]
-    seeds = [
-        {"slug": "cost-seed", "category": "Budget", "title": "1-Year Study Cost in Japan", "description": "Budget overview", "prompt": "Write a realistic 1-year study cost guide for Tokyo."},
-        {"slug": "visa-seed", "category": "Visa", "title": "Student Visa Steps", "description": "Visa guide", "prompt": "Step-by-step student visa guide for Japan."},
-        {"slug": "housing-seed", "category": "Housing", "title": "Student Housing Options", "description": "Housing compare", "prompt": "Compare dorm, share house, and apartment for students."},
-    ]
-    n = _count_csv_rows(path, required_col="slug")
-    out: dict[str, Any] = {"expanded": 0}
-    if n < MIN_GUIDE_ROWS:
-        added = _append_csv_rows(path, headers, seeds)
-        logf.write(f"guide_topics.csv: {n}행 → +{added}행\n")
-        out["seeded"] = added
-    else:
-        logf.write(f"guide_topics.csv: {n}행 (시드 생략)\n")
-    expand_limit = _bounded_limit(
-        env or os.environ,
-        "GUIDE_LIMIT",
-        default=DEFAULT_GUIDE_LIMIT,
-        ceiling=MAX_GUIDE_LIMIT,
-    )
-    expanded = _append_csv_rows_limited(
-        path, headers, JPCAMPUS_EXPAND_GUIDES, key_col="slug", max_add=expand_limit
-    )
-    out["expanded"] = expanded
-    if expanded:
-        logf.write(f"guide_topics.csv: 주간 확장 +{expanded}행\n")
-    else:
-        logf.write("guide_topics.csv: 추가할 확장 시드 없음\n")
-    return out
+    from topic_bank_pipeline import topic_bank_sync_only
+
+    return topic_bank_sync_only("jpcampus", repo, logf)
 
 
 def ensure_krcampus_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    """Ensure guide_topics + language_schools + universities CSV seeds."""
-    guides_path = repo / "data/guide_topics.csv"
-    schools_path = repo / "data/language_schools.csv"
-    univ_path = repo / "data/universities.csv"
-    out: dict[str, Any] = {"expanded": 0}
+    from topic_bank_pipeline import topic_bank_sync_only
 
-    guide_headers = ["slug", "category", "title", "description", "prompt"]
-    guide_seeds = [
-        {
-            "slug": "visa",
-            "category": "Visa",
-            "title": "Student Visa Guide for Korea (D-2 and D-4)",
-            "description": "Step-by-step visa guide.",
-            "prompt": "Write a Korea student visa guide for D-2 and D-4.",
-        },
-    ]
-    n = _count_csv_rows(guides_path, required_col="slug")
-    if n < MIN_GUIDE_ROWS:
-        added = _append_csv_rows(guides_path, guide_headers, guide_seeds)
-        logf.write(f"guide_topics.csv: +{added}행\n")
-        out["seeded_guides"] = added
-
-    school_headers = ["name_ko", "name_en", "region", "city"]
-    school_seeds = [
-        {
-            "name_ko": "연세대학교 한국어학당",
-            "name_en": "Yonsei Korean Language Institute",
-            "region": "Seoul",
-            "city": "Seoul",
-        },
-    ]
-    sn = _count_csv_rows(schools_path, required_col="name_ko")
-    if sn < 1:
-        added = _append_csv_rows(schools_path, school_headers, school_seeds)
-        logf.write(f"language_schools.csv: +{added}행\n")
-        out["seeded_schools"] = added
-
-    univ_headers = ["name_ko", "name_en", "region"]
-    univ_seeds = [
-        {"name_ko": "서울대학교", "name_en": "Seoul National University", "region": "Seoul"},
-    ]
-    un = _count_csv_rows(univ_path, required_col="name_ko")
-    if un < 1:
-        added = _append_csv_rows(univ_path, univ_headers, univ_seeds)
-        logf.write(f"universities.csv: +{added}행\n")
-        out["seeded_univs"] = added
-
-    expand_limit = _bounded_limit(
-        env or os.environ,
-        "GUIDE_LIMIT",
-        default=DEFAULT_GUIDE_LIMIT,
-        ceiling=MAX_GUIDE_LIMIT,
-    )
-    expanded = _append_csv_rows_limited(
-        guides_path, guide_headers, KRCAMPUS_EXPAND_TOPIC_ROWS, key_col="slug", max_add=expand_limit
-    )
-    out["expanded"] = expanded
-    if expanded:
-        logf.write(f"guide_topics.csv: 주간 확장 +{expanded}행\n")
-    else:
-        logf.write("guide_topics.csv: 추가할 확장 시드 없음\n")
-
-    return out
+    return topic_bank_sync_only("krcampus", repo, logf)
 
 
 def _execute_pipeline(
@@ -1533,8 +1369,8 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
             extra.append(
                 (
                     "places",
-                    "Places → items.csv",
-                    ["python3", "script/fetch_items_from_places.py", "--input", "script/csv/items.csv", "--in-place"],
+                    "Places → topic queue",
+                    _places_fetch_argv(site_id, repo),
                     600,
                 )
             )
@@ -1547,17 +1383,7 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
 
     if site_id in ("oksushi",):
         def ensure(repo_p: Path, logf):
-            return ensure_dual_csv(
-                repo_p,
-                logf,
-                items_rel="script/csv/items.csv",
-                guides_rel="script/csv/guides.csv",
-                item_headers=ITEM_HEADERS,
-                guide_headers=GUIDE_HEADERS,
-                item_seeds=DEFAULT_ITEM_SEEDS,
-                guide_seeds=DEFAULT_GUIDE_SEEDS,
-                expand_coords=OKCAFE_EXPAND_SEEDS,
-            )
+            return ensure_site_csv_from_bank("oksushi", repo_p, logf)
 
         steps = _ok_series_content_steps(
             env,
@@ -1567,24 +1393,8 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
         return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okramen":
-        ramen_seeds = [
-            {"Name": "Ichiran Shinjuku", "Lat": "35.6909", "Lng": "139.7018", "Address": "Tokyo, Shinjuku", "Thumbnail": "", "Features": "Tonkotsu", "Agoda": ""},
-            {"Name": "Ippudo Ginza", "Lat": "35.6711", "Lng": "139.7662", "Address": "Tokyo, Chuo", "Thumbnail": "", "Features": "Tonkotsu", "Agoda": ""},
-        ]
-        ramen_headers = ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"]
-
         def ensure(repo_p: Path, logf):
-            return ensure_dual_csv(
-                repo_p,
-                logf,
-                items_rel="script/csv/ramens.csv",
-                guides_rel="script/csv/guides.csv",
-                item_headers=ramen_headers,
-                guide_headers=GUIDE_HEADERS,
-                item_seeds=ramen_seeds,
-                guide_seeds=DEFAULT_GUIDE_SEEDS,
-                expand_coords=OKCAFE_EXPAND_SEEDS,
-            )
+            return ensure_site_csv_from_bank("okramen", repo_p, logf)
 
         limit = env["CONTENT_LIMIT"]
         steps = _ok_series_content_steps(
@@ -1597,24 +1407,8 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
         return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okonsen":
-        onsen_headers = ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"]
-        onsen_seeds = [
-            {"Name": "Hakone Ten-yu", "Lat": "35.2393", "Lng": "139.0456", "Address": "Hakone", "Thumbnail": "", "Features": "Family bath", "Agoda": ""},
-            {"Name": "Gora Kadan", "Lat": "35.2492", "Lng": "139.0465", "Address": "Hakone", "Thumbnail": "", "Features": "Ryokan onsen", "Agoda": ""},
-        ]
-
         def ensure(repo_p: Path, logf):
-            return ensure_dual_csv(
-                repo_p,
-                logf,
-                items_rel="script/csv/onsens.csv",
-                guides_rel="script/csv/guides.csv",
-                item_headers=onsen_headers,
-                guide_headers=GUIDE_HEADERS,
-                item_seeds=onsen_seeds,
-                guide_seeds=DEFAULT_GUIDE_SEEDS,
-                expand_coords=OKCAFE_EXPAND_SEEDS,
-            )
+            return ensure_site_csv_from_bank("okonsen", repo_p, logf)
 
         limit = env["CONTENT_LIMIT"]
         steps = _ok_series_content_steps(
@@ -1626,24 +1420,8 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
         return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okcaddie":
-        course_headers = ["Name", "Lat", "Lng", "Address", "Features", "Booking"]
-        course_seeds = [
-            {"Name": "Sample Golf Club", "Lat": "35.0", "Lng": "135.0", "Address": "Hyogo", "Features": "Public", "Booking": ""},
-        ]
-
         def ensure(repo_p: Path, logf):
-            return ensure_dual_csv(
-                repo_p,
-                logf,
-                items_rel="script/csv/courses.csv",
-                guides_rel="script/csv/guides.csv",
-                item_headers=course_headers,
-                guide_headers=GUIDE_HEADERS,
-                item_seeds=course_seeds,
-                guide_seeds=DEFAULT_GUIDE_SEEDS,
-                item_col="Name",
-                expand_coords=OKCAFE_EXPAND_SEEDS,
-            )
+            return ensure_site_csv_from_bank("okcaddie", repo_p, logf)
 
         limit = env["CONTENT_LIMIT"]
         steps = _ok_series_content_steps(
@@ -1655,34 +1433,8 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
         return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okstats":
-        insight_headers = [
-            "id",
-            "topic",
-            "intervention",
-            "outcome",
-            "effect_min",
-            "effect_max",
-            "effect_unit",
-            "categories",
-            "confidence",
-            "keywords",
-        ]
-
         def ensure(repo_p: Path, logf):
-            return ensure_dual_csv(
-                repo_p,
-                logf,
-                items_rel="script/csv/insights.csv",
-                guides_rel="script/csv/guides.csv",
-                item_headers=insight_headers,
-                guide_headers=GUIDE_HEADERS,
-                item_seeds=[],
-                guide_seeds=[],
-                item_col="id",
-                expand_coords=[],
-                item_expand_seeds=STATFACTS_INSIGHT_EXPAND,
-                guide_expand_seeds=STATFACTS_GUIDE_EXPAND,
-            )
+            return ensure_site_csv_from_bank("okstats", repo_p, logf)
 
         steps = [
             ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
@@ -1928,7 +1680,11 @@ def pipeline_env_for_site(site_id: str) -> dict[str, str]:
     repo = repo_path(svc)
     if not repo.is_dir():
         return {}
-    return _merge_pipeline_env(repo)
+    env = _merge_pipeline_env(repo)
+    from topic_queue_env import queue_env_for_site
+
+    env.update(queue_env_for_site(site_id, sync=True))
+    return env
 
 
 def pipeline_run_caps(site_id: str) -> dict[str, Any]:
@@ -1972,7 +1728,7 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
         ]
     elif site_id == "okstats":
         parts = [
-            {"label": "인사이트", "cap": f"CSV {item_n}행 · 최대 {item_n} MD", "note": "insights.csv → AI"},
+            {"label": "인사이트", "cap": f"큐 {item_n}행 · 최대 {item_n} MD", "note": "토픽뱅크 → AI"},
             {"label": "가이드", "cap": f"토픽 {guide_n}개", "note": "없는 .md만"},
             {"label": "이미지", "cap": "Imagen + optimize", "note": "신규 MD만"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
@@ -2002,7 +1758,7 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
         ]
     elif site_id == "krcampus":
         parts = [
-            {"label": "가이드 AI", "cap": f"토픽 {guide_n}개", "note": "guide_topics.csv"},
+            {"label": "가이드 AI", "cap": f"토픽 {guide_n}개", "note": "토픽뱅크 큐"},
             {"label": "어학원", "cap": "language_schools.csv", "note": "AI school_*.md"},
             {"label": "대학", "cap": "universities.csv", "note": "AI univ_*.md"},
             {"label": "日本語", "cap": f"최대 {korean_n} MD", "note": "없는 *_ja.md"},
@@ -2183,6 +1939,8 @@ def _call_ensure_csv(ensure_fn, repo: Path, logf, env: dict[str, str]) -> dict[s
 
 
 def _csv_expand_rows_added(info: dict[str, Any]) -> int:
+    if "rows_added" in info:
+        return int(info.get("rows_added") or 0)
     return int(info.get("expanded") or 0) + int(info.get("expanded_items") or 0) + int(info.get("expanded_guides") or 0)
 
 
@@ -2213,92 +1971,26 @@ def run_csv_expand(site_id: str) -> dict[str, Any]:
     logf = _Log()
     env = pipeline_env_for_site(site_id)
 
-    if site_id == "okcafejp":
-        info = ensure_okcafejp_csv(repo, logf)
-    elif site_id == "oksushi":
-        info = ensure_dual_csv(
-            repo,
-            logf,
-            items_rel="script/csv/items.csv",
-            guides_rel="script/csv/guides.csv",
-            item_headers=ITEM_HEADERS,
-            guide_headers=GUIDE_HEADERS,
-            item_seeds=DEFAULT_ITEM_SEEDS,
-            guide_seeds=DEFAULT_GUIDE_SEEDS,
-            expand_coords=OKCAFE_EXPAND_SEEDS,
-        )
-    elif site_id == "okramen":
-        ramen_headers = ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"]
-        ramen_seeds = [
-            {"Name": "Ichiran Shinjuku", "Lat": "35.6909", "Lng": "139.7018", "Address": "Tokyo, Shinjuku", "Thumbnail": "", "Features": "Tonkotsu", "Agoda": ""},
-            {"Name": "Ippudo Ginza", "Lat": "35.6711", "Lng": "139.7662", "Address": "Tokyo, Chuo", "Thumbnail": "", "Features": "Tonkotsu", "Agoda": ""},
-        ]
-        info = ensure_dual_csv(
-            repo, logf,
-            items_rel="script/csv/ramens.csv", guides_rel="script/csv/guides.csv",
-            item_headers=ramen_headers, guide_headers=GUIDE_HEADERS,
-            item_seeds=ramen_seeds, guide_seeds=DEFAULT_GUIDE_SEEDS,
-            expand_coords=OKCAFE_EXPAND_SEEDS,
-        )
-    elif site_id == "okonsen":
-        onsen_headers = ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"]
-        onsen_seeds = [
-            {"Name": "Hakone Ten-yu", "Lat": "35.2393", "Lng": "139.0456", "Address": "Hakone", "Thumbnail": "", "Features": "Family bath", "Agoda": ""},
-        ]
-        info = ensure_dual_csv(
-            repo, logf,
-            items_rel="script/csv/onsens.csv", guides_rel="script/csv/guides.csv",
-            item_headers=onsen_headers, guide_headers=GUIDE_HEADERS,
-            item_seeds=onsen_seeds, guide_seeds=DEFAULT_GUIDE_SEEDS,
-            expand_coords=OKCAFE_EXPAND_SEEDS,
-        )
-    elif site_id == "okcaddie":
-        course_headers = ["Name", "Lat", "Lng", "Address", "Features", "Booking"]
-        course_seeds = [{"Name": "Sample Golf Club", "Lat": "35.0", "Lng": "135.0", "Address": "Hyogo", "Features": "Public", "Booking": ""}]
-        info = ensure_dual_csv(
-            repo, logf,
-            items_rel="script/csv/courses.csv", guides_rel="script/csv/guides.csv",
-            item_headers=course_headers, guide_headers=GUIDE_HEADERS,
-            item_seeds=course_seeds, guide_seeds=DEFAULT_GUIDE_SEEDS,
-            item_col="Name", expand_coords=OKCAFE_EXPAND_SEEDS,
-        )
-    elif site_id == "starful.biz":
-        info = ensure_starful_csv(repo, logf)
-    elif site_id == "jpcampus":
-        info = ensure_jpcampus_csv(repo, logf, env=env)
-    elif site_id == "krcampus":
-        info = ensure_krcampus_csv(repo, logf, env=env)
-    elif site_id == "hatena":
-        info = ensure_hatena_csv(repo, logf)
-    elif site_id == "okstats":
-        insight_headers = [
-            "id",
-            "topic",
-            "intervention",
-            "outcome",
-            "effect_min",
-            "effect_max",
-            "effect_unit",
-            "categories",
-            "confidence",
-            "keywords",
-        ]
-        info = ensure_dual_csv(
-            repo,
-            logf,
-            items_rel="script/csv/insights.csv",
-            guides_rel="script/csv/guides.csv",
-            item_headers=insight_headers,
-            guide_headers=GUIDE_HEADERS,
-            item_seeds=[],
-            guide_seeds=[],
-            item_col="id",
-            expand_coords=[],
-            item_expand_seeds=STATFACTS_INSIGHT_EXPAND,
-            guide_expand_seeds=STATFACTS_GUIDE_EXPAND,
-        )
-    else:
-        return {"ok": False, "error": f"no CSV expand for {site_id}"}
+    if not banks_for_site(site_id):
+        return {"ok": False, "error": f"no topic bank for {site_id}"}
+
+    from topic_bank_pipeline import topic_bank_release_and_sync
+
+    content_limit = _bounded_limit(
+        env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
+    )
+    guide_limit = _bounded_limit(env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
+    info = topic_bank_release_and_sync(
+        site_id,
+        repo,
+        logf,
+        content_limit=content_limit,
+        guide_limit=guide_limit,
+    )
+    messages.extend(info.get("messages") or [])
+    for bank_id, n in (info.get("released") or {}).items():
+        if n:
+            messages.append(f"토픽뱅크 {bank_id}: +{n}행 (pending→queued)")
 
     with open(log_path, "a", encoding="utf-8") as lf:
         lf.write(f"\n[{datetime.now():%F %T}] CSV expand (manual)\n")
