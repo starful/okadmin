@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,16 @@ DEPLOY_LOG_DIR = LOG_DIR if LOG_DIR.is_dir() else OKADMIN_ROOT / "logs"
 
 # job_id -> {proc, log_path, site_id, started_at}
 _DEPLOY_JOBS: dict[str, dict[str, Any]] = {}
+
+SITEMAP_BUILD_COMMANDS: dict[str, list[str]] = {
+    "krcampus": ["python3", "scripts/build_data.py"],
+    "jpcampus": ["python3", "scripts/build_data.py"],
+    "okramen": ["python3", "script/build_data.py"],
+    "okonsen": ["python3", "script/build_data.py"],
+    "okcaddie": ["python3", "script/build_data.py"],
+    "okstats": ["python3", "script/build_data.py"],
+    "starful.biz": ["python3", "scripts/build_data.py"],
+}
 
 
 def _run_git(repo_path: Path, args: list[str], *, timeout: int = GIT_TIMEOUT) -> subprocess.CompletedProcess:
@@ -114,6 +125,11 @@ def deploy_script_path(repo_path: Path) -> Path | None:
     return script if script.is_file() else None
 
 
+def sitemap_build_command(site_id: str) -> list[str] | None:
+    cmd = SITEMAP_BUILD_COMMANDS.get(site_id)
+    return list(cmd) if cmd else None
+
+
 def start_deploy(
     repo_path: Path,
     *,
@@ -121,6 +137,7 @@ def start_deploy(
     mode: str = "deploy-only",
     with_git: bool = False,
     with_deploy: bool = False,
+    include_build_data: bool = True,
 ) -> dict:
     script = deploy_script_path(repo_path)
     if not script:
@@ -133,11 +150,19 @@ def start_deploy(
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = DEPLOY_LOG_DIR / f"deploy-{site_id}-{ts}.log"
 
-    cmd = ["bash", str(script), flag]
+    deploy_cmd = ["bash", str(script), flag]
     if with_git:
-        cmd.append("--with-git")
+        deploy_cmd.append("--with-git")
     if with_deploy:
-        cmd.append("--with-deploy")
+        deploy_cmd.append("--with-deploy")
+    build_cmd = sitemap_build_command(site_id) if include_build_data else None
+    if build_cmd:
+        command_line = f"{shlex.join(build_cmd)} && {shlex.join(deploy_cmd)}"
+        cmd = ["bash", "-lc", command_line]
+        start_msg = "build_data + deploy 시작"
+    else:
+        cmd = deploy_cmd
+        start_msg = "배포 시작"
     try:
         log_f = open(log_path, "w", encoding="utf-8")
         proc = subprocess.Popen(
@@ -159,6 +184,7 @@ def start_deploy(
         "mode": mode,
         "with_git": with_git,
         "with_deploy": with_deploy,
+        "include_build_data": include_build_data,
     }
     _prune_deploy_jobs()
 
@@ -170,7 +196,7 @@ def start_deploy(
         "command": cmd,
         "log_path": str(log_path),
         "mode": mode,
-        "message": f"배포 시작 (PID {proc.pid}) · 로그 tail 확인",
+        "message": f"{start_msg} (PID {proc.pid}) · 로그 tail 확인",
     }
 
 

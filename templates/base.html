@@ -36,6 +36,53 @@
         .badge-dirty { background: #422; color: #f88; }
         .badge-clean { background: #242; color: #8f8; }
         #toast { position: fixed; bottom: 20px; right: 20px; background: var(--accent); color: #000; padding: 10px 20px; border-radius: 5px; font-weight: bold; display: none; z-index: 1000; }
+        #hub-busy { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.72); backdrop-filter: blur(2px); }
+        #hub-busy[hidden] { display: none !important; }
+        .hub-busy-card { background: var(--surf); border: 1px solid var(--border); border-radius: 14px; padding: 28px 32px; max-width: 360px; text-align: center; box-shadow: 0 16px 48px rgba(0,0,0,.5); }
+        .hub-busy-spinner { width: 32px; height: 32px; margin: 0 auto 16px; border: 3px solid #333; border-top-color: var(--accent); border-radius: 50%; animation: hub-spin .8s linear infinite; }
+        @keyframes hub-spin { to { transform: rotate(360deg); } }
+        #hub-busy-msg { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.5; color: var(--text); }
+        .hub-busy-sub { margin: 8px 0 0; font-size: 11px; color: var(--muted); font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+        .hub-results-overlay {
+            display: none; position: fixed; inset: 0; z-index: 2100;
+            background: rgba(0,0,0,.72); align-items: flex-start; justify-content: center;
+            padding: 40px 16px 16px;
+        }
+        .hub-results-overlay.open { display: flex; }
+        .hub-results-modal {
+            width: min(640px, 100%); max-height: calc(100vh - 56px); display: flex; flex-direction: column;
+            background: var(--surf); border: 1px solid var(--accent); border-radius: 12px;
+            box-shadow: 0 12px 40px rgba(0,0,0,.55);
+        }
+        .hub-results-modal.progress { border-color: #666; }
+        .hub-results-modal.progress .hub-res-foot { display: none; }
+        .hub-results-modal .hub-res-head {
+            padding: 16px 18px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+        }
+        .hub-results-modal .hub-res-head h3 { margin: 0 0 6px; font-size: 15px; }
+        .hub-results-modal .hub-res-meta { margin: 0; font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+        .hub-results-modal .hub-res-body {
+            padding: 12px 18px; overflow: auto; flex: 1; min-height: 0;
+        }
+        .hub-results-modal .hub-res-foot {
+            padding: 12px 18px; border-top: 1px solid var(--border);
+            display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0;
+        }
+        .hub-progress-pulse { color: #fa0; margin: 0 0 8px; font-weight: 700; }
+        .hub-modal-phases { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 11px; font-weight: 700; }
+        .hub-phase { color: #555; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); }
+        .hub-phase.active { color: #000; background: var(--accent); border-color: var(--accent); }
+        .hub-phase.done { color: #8f8; border-color: #363; }
+        .hub-phase-arrow { color: #444; }
+        .hub-modal-lines { margin: 0 0 10px; padding-left: 18px; font-family: ui-monospace, monospace; font-size: 11px; color: #ccc; line-height: 1.5; }
+        .hub-modal-lines .created-highlight { color: var(--accent); font-weight: 700; }
+        .hub-modal-log-label { margin: 10px 0 4px; font-size: 10px; color: #666; }
+        .hub-modal-log {
+            margin: 0; max-height: 180px; overflow: auto; background: #000; border: 1px solid var(--border);
+            padding: 8px 10px; color: #8a8; font-size: 10px; font-family: ui-monospace, monospace;
+            white-space: pre-wrap; word-break: break-word;
+        }
+        .hub-modal-log { max-height: 240px; }
         .warn { background: #332200; border: 1px solid #664400; padding: 12px; border-radius: 8px; font-size: 12px; margin-bottom: 16px; }
     </style>
     {% block head %}{% endblock %}
@@ -57,11 +104,49 @@
         {% block content %}{% endblock %}
     </main>
     <div id="toast"></div>
+    <div id="hub-busy" hidden aria-live="polite" aria-busy="true">
+        <div class="hub-busy-card">
+            <div class="hub-busy-spinner" aria-hidden="true"></div>
+            <p id="hub-busy-msg">처리 중…</p>
+            <p class="hub-busy-sub" id="hub-busy-sub">잠시만 기다려 주세요</p>
+        </div>
+    </div>
+    <div id="hub-results-overlay" class="hub-results-overlay" role="dialog" aria-modal="true" aria-labelledby="hub-results-title">
+        <div class="hub-results-modal">
+            <div class="hub-res-head">
+                <h3 id="hub-results-title">작업 결과</h3>
+                <p class="hub-res-meta" id="hub-results-meta">—</p>
+            </div>
+            <div class="hub-res-body" id="hub-results-body"></div>
+            <div class="hub-res-foot">
+                <button type="button" class="btn btn-ghost" id="hub-results-close">닫기</button>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='hub_modal.js') }}"></script>
     <script>
         function showToast(m) {
             const t = document.getElementById('toast');
             t.innerText = m; t.style.display = 'block';
             setTimeout(() => t.style.display = 'none', 3000);
+        }
+
+        function showBusy(message, subMessage) {
+            const el = document.getElementById('hub-busy');
+            const msg = document.getElementById('hub-busy-msg');
+            const sub = document.getElementById('hub-busy-sub');
+            if (!el) return;
+            if (msg) msg.textContent = message || '처리 중…';
+            if (sub) {
+                sub.textContent = subMessage || '잠시만 기다려 주세요';
+                sub.style.display = subMessage === '' ? 'none' : '';
+            }
+            el.hidden = false;
+        }
+
+        function hideBusy() {
+            const el = document.getElementById('hub-busy');
+            if (el) el.hidden = true;
         }
 
         function escapeHtmlOps(s) {

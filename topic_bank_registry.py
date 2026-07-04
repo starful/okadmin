@@ -19,7 +19,6 @@ class BankSpec:
 
 
 GUIDE_HEADERS = ("id", "topic_en", "topic_ko", "keywords")
-ITEM_HEADERS = ("Name", "Lat", "Lng", "Address", "Features", "Agoda")
 RAMEN_HEADERS = ("Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda")
 ONSEN_HEADERS = RAMEN_HEADERS
 COURSE_HEADERS = ("Name", "Lat", "Lng", "Address", "Features", "Booking")
@@ -38,6 +37,7 @@ INSIGHT_HEADERS = (
 CAMPUS_GUIDE_HEADERS = ("slug", "category", "title", "description", "prompt")
 SCHOOL_HEADERS = ("name_ko", "name_en", "region", "city")
 UNIV_HEADERS = ("name_ko", "name_en", "region")
+JP_UNIV_HEADERS = ("name_ja", "name_en", "region")
 
 SITE_BANKS: dict[str, tuple[BankSpec, ...]] = {
     "okstats": (
@@ -56,14 +56,6 @@ SITE_BANKS: dict[str, tuple[BankSpec, ...]] = {
         BankSpec("items", COURSE_HEADERS, "Name", "coord", "script/csv/courses.csv"),
         BankSpec("guides", GUIDE_HEADERS, "id", "id", "script/csv/guides.csv", "guide"),
     ),
-    "okcafejp": (
-        BankSpec("items", ITEM_HEADERS, "Name", "coord", "script/csv/items.csv"),
-        BankSpec("guides", GUIDE_HEADERS, "id", "id", "script/csv/guides.csv", "guide"),
-    ),
-    "oksushi": (
-        BankSpec("items", ITEM_HEADERS, "Name", "coord", "script/csv/items.csv"),
-        BankSpec("guides", GUIDE_HEADERS, "id", "id", "script/csv/guides.csv", "guide"),
-    ),
     "starful.biz": (
         BankSpec("positions", ("position_name",), "position_name", "name", "scripts/data/positions.csv"),
     ),
@@ -75,6 +67,13 @@ SITE_BANKS: dict[str, tuple[BankSpec, ...]] = {
             "slug",
             "data/guide_topics.csv",
             "guide",
+        ),
+        BankSpec(
+            "universities",
+            JP_UNIV_HEADERS,
+            "name_ja",
+            "name",
+            "data/univ_list_100.csv",
         ),
     ),
     "krcampus": (

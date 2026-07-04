@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from config import get_service, repo_path
 from topic_bank import (
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_QUEUED,
+    append_expand_to_bank,
     ensure_bootstrapped,
     load_state,
     read_bank,
@@ -29,13 +33,86 @@ def _item_slug(name: str) -> str:
     return _ITEM_SLUG_RE.sub("", name.lower().replace(" ", "_").replace("'", ""))
 
 
+def _read_univ_md_names(md_path: Path) -> tuple[str, str, str]:
+    try:
+        text = md_path.read_text(encoding="utf-8")
+    except OSError:
+        return "", "", ""
+    if not text.startswith("---"):
+        return "", "", ""
+    end = text.find("---", 3)
+    if end < 0:
+        return "", "", ""
+    raw = text[3:end].strip()
+    basic: dict[str, Any] = {}
+    try:
+        if raw.startswith("{"):
+            data = json.loads(raw)
+            basic = data.get("basic_info") or {}
+        else:
+            data = yaml.safe_load(raw) or {}
+            if isinstance(data, dict):
+                bi = data.get("basic_info")
+                basic = bi if isinstance(bi, dict) else {}
+    except (json.JSONDecodeError, yaml.YAMLError):
+        return "", "", ""
+    ja = (basic.get("name_ja") or "").strip()
+    ko = (basic.get("name_ko") or "").strip()
+    en = (basic.get("name_en") or "").strip().lower()
+    return ja, ko, en
+
+
+@lru_cache(maxsize=8)
+def _univ_name_index(content_dir_str: str) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    content_dir = Path(content_dir_str)
+    ja: set[str] = set()
+    ko: set[str] = set()
+    en: set[str] = set()
+    if not content_dir.is_dir():
+        return frozenset(), frozenset(), frozenset()
+    for md in content_dir.glob("univ_*.md"):
+        if md.stem.endswith(("_kr", "_ja")):
+            continue
+        mja, mko, men = _read_univ_md_names(md)
+        if mja:
+            ja.add(mja)
+        if mko:
+            ko.add(mko)
+        if men:
+            en.add(men)
+    return frozenset(ja), frozenset(ko), frozenset(en)
+
+
+def _univ_row_done(repo: Path, row: dict[str, str]) -> bool:
+    content_dir = repo / "app" / "content"
+    name_ja = (row.get("name_ja") or "").strip()
+    name_ko = (row.get("name_ko") or "").strip()
+    name_en = (row.get("name_en") or "").strip().lower()
+    if not name_ja and not name_ko and not name_en:
+        return False
+    ja_set, ko_set, en_set = _univ_name_index(str(content_dir))
+    if name_ja and name_ja in ja_set:
+        return True
+    if name_ko and name_ko in ko_set:
+        return True
+    if name_en and name_en in en_set:
+        return True
+    if name_ko:
+        slug = _item_slug(name_ko)
+        if (content_dir / f"univ_{slug}.md").is_file():
+            return True
+    return False
+
+
 def _is_row_done(site_id: str, repo: Path, spec: BankSpec, row: dict[str, str]) -> bool:
     content_dir = repo / "app" / "content"
     guides_dir = content_dir / "guides"
 
     if spec.bank_id == "insights":
         iid = (row.get("id") or "").strip()
-        return bool(iid) and (content_dir / f"{iid}_en.md").is_file()
+        if not iid or iid.startswith("#"):
+            return False
+        return (content_dir / f"{iid}_en.md").is_file()
 
     if spec.bank_id == "guides":
         gid = (row.get("id") or "").strip()
@@ -62,11 +139,7 @@ def _is_row_done(site_id: str, repo: Path, spec: BankSpec, row: dict[str, str]) 
         )
 
     if spec.bank_id == "universities":
-        ko = (row.get("name_ko") or "").strip()
-        if not ko:
-            return False
-        slug = _item_slug(ko)
-        return (content_dir / f"univ_{slug}.md").is_file()
+        return _univ_row_done(repo, row)
 
     if spec.bank_id in ("items",) or spec.key_kind == "coord":
         name = (row.get("Name") or row.get("name") or "").strip()
@@ -107,6 +180,57 @@ def refresh_topic_state(site_id: str, repo: Path) -> dict[str, Any]:
     )
 
 
+def _bank_row_count(site_id: str, bank_id: str) -> int:
+    spec = next((s for s in banks_for_site(site_id) if s.bank_id == bank_id), None)
+    if not spec:
+        return 0
+    return sum(1 for row in read_bank(site_id, bank_id) if row_key(spec, row))
+
+
+def prepare_topics_for_generation(
+    site_id: str,
+    repo: Path,
+    logf: Any,
+    *,
+    content_limit: int,
+    guide_limit: int,
+) -> dict[str, Any]:
+    """One-shot prep before generation: expand pool → bank, refresh MD state."""
+    from topic_bank import append_expand_to_bank
+
+    ensure_bootstrapped(site_id, repo)
+    appended = append_expand_to_bank(
+        site_id,
+        content_limit=content_limit,
+        guide_limit=guide_limit,
+    )
+    for bank_id, n in (appended.get("by_bank") or {}).items():
+        if n and logf:
+            logf.write(f"토픽뱅크 {bank_id}: 시드 +{n}행\n")
+    refresh_topic_state(site_id, repo)
+    by_bank = appended.get("by_bank") or {}
+    expanded_items = sum(
+        by_bank.get(spec.bank_id, 0)
+        for spec in banks_for_site(site_id)
+        if spec.limit_kind == "content"
+    )
+    expanded_guides = sum(
+        by_bank.get(spec.bank_id, 0)
+        for spec in banks_for_site(site_id)
+        if spec.limit_kind == "guide"
+    )
+    added = int(appended.get("added") or 0)
+    return {
+        "rows_added": added,
+        "bank_rows_added": added,
+        "bank_appended": by_bank,
+        "expanded": added,
+        "expanded_items": expanded_items,
+        "expanded_guides": expanded_guides,
+        "messages": [],
+    }
+
+
 def topic_bank_release_and_sync(
     site_id: str,
     repo: Path,
@@ -115,23 +239,78 @@ def topic_bank_release_and_sync(
     content_limit: int,
     guide_limit: int,
 ) -> dict[str, Any]:
+    """Manual CSV expand: append expand seeds (same as generation prep)."""
+    return prepare_topics_for_generation(
+        site_id,
+        repo,
+        logf,
+        content_limit=content_limit,
+        guide_limit=guide_limit,
+    )
+
+
+def topic_bank_release_queues(
+    site_id: str,
+    repo: Path,
+    logf: Any,
+    *,
+    content_limit: int,
+    guide_limit: int,
+    content_limit_each: bool = False,
+    school_limit: int | None = None,
+    university_limit: int | None = None,
+) -> dict[str, Any]:
+    """Refresh MD state, release up to N pending rows per bank, sync queue CSVs."""
     ensure_bootstrapped(site_id, repo)
-    release = release_site(site_id, content_limit=content_limit, guide_limit=guide_limit)
-    sync = sync_queues(site_id, logf)
     refresh_topic_state(site_id, repo)
-    by_bank = release.get("by_bank") or {}
-    rows_added = int(release.get("released") or 0)
-    expanded_guides = sum(by_bank.get(spec.bank_id, 0) for spec in banks_for_site(site_id) if spec.limit_kind == "guide")
-    expanded_items = sum(by_bank.get(spec.bank_id, 0) for spec in banks_for_site(site_id) if spec.limit_kind == "content")
-    return {
-        "rows_added": rows_added,
-        "released": by_bank,
-        "expanded": rows_added,
-        "expanded_items": expanded_items,
-        "expanded_guides": expanded_guides,
-        "messages": sync.get("messages") or [],
-        "synced": sync.get("synced") or {},
+    rel = release_site(
+        site_id,
+        content_limit=content_limit,
+        guide_limit=guide_limit,
+        content_limit_each=content_limit_each,
+        school_limit=school_limit,
+        university_limit=university_limit,
+    )
+    by_bank = rel.get("by_bank") or {}
+    if logf and rel.get("released"):
+        parts = [f"{bid} +{n}" for bid, n in by_bank.items() if n]
+        logf.write(f"큐 release: {', '.join(parts) or '0'}\n")
+    active_banks: set[str] | None = None
+    bank_limits: dict[str, int] | None = None
+    if school_limit is not None or university_limit is not None:
+        active_banks = set()
+        bank_limits = {
+            "guide_topics": guide_limit,
+            "guides": guide_limit,
+            "language_schools": school_limit if school_limit is not None else 0,
+            "universities": university_limit if university_limit is not None else 0,
+        }
+        if guide_limit > 0:
+            active_banks.add("guide_topics")
+            active_banks.add("guides")
+        if school_limit is not None and school_limit > 0:
+            active_banks.add("language_schools")
+        if university_limit is not None and university_limit > 0:
+            active_banks.add("universities")
+    sync = sync_queues(site_id, logf, active_banks=active_banks, bank_limits=bank_limits)
+    synced = sync.get("synced") or {}
+    out: dict[str, Any] = {
+        "messages": list(sync.get("messages") or []),
+        "synced": synced,
+        "released": rel.get("released") or 0,
+        "released_by_bank": by_bank,
+        "expanded_items": 0,
+        "expanded_guides": 0,
     }
+    for spec in banks_for_site(site_id):
+        n = int(synced.get(spec.bank_id) or 0)
+        if spec.limit_kind == "guide":
+            out["expanded_guides"] = max(out.get("expanded_guides", 0), n)
+            if spec.bank_id in ("guides", "guide_topics"):
+                out["guide_rows"] = n
+        else:
+            out["expanded_items"] = max(out.get("expanded_items", 0), n)
+    return out
 
 
 def topic_bank_sync_only(site_id: str, repo: Path, logf: Any) -> dict[str, Any]:
@@ -192,16 +371,13 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
     state = load_state(site_id)
     rows_state: dict[str, str] = state.get("rows") or {}
 
-    def _pending_for_bank(bank_id: str, *, need_md: Any) -> tuple[int, int]:
+    def _missing_md_for_bank(bank_id: str, *, need_md: Any) -> tuple[int, int]:
         spec = next(s for s in banks_for_site(site_id) if s.bank_id == bank_id)
         topics = 0
         files = 0
         for row in read_bank(site_id, bank_id):
             key = row_key(spec, row)
             if not key:
-                continue
-            st = rows_state.get(_state_key(spec, key), "")
-            if st not in (STATUS_QUEUED, STATUS_FAILED):
                 continue
             miss = int(need_md(spec, row))
             if miss:
@@ -232,8 +408,8 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             ko = guides_dir / f"{gid}_ko.md"
             return int(not en.is_file()) + int(not ko.is_file())
 
-        ip, iff = _pending_for_bank("items", need_md=item_miss)
-        gp, gf = _pending_for_bank("guides", need_md=guide_miss)
+        ip, iff = _missing_md_for_bank("items", need_md=item_miss)
+        gp, gf = _missing_md_for_bank("guides", need_md=guide_miss)
         images = 0
         if content_dir.is_dir():
             for md in content_dir.glob("*_en.md"):
@@ -249,15 +425,17 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             "guides_topics": gp,
             "guides_files": gf,
             "images": images,
-            "csv_items": _released_row_count(site_id, "items"),
-            "csv_guides": _released_row_count(site_id, "guides"),
+            "csv_items": _bank_row_count(site_id, "items"),
+            "csv_guides": _bank_row_count(site_id, "guides"),
         }
 
     if site_id == "okstats":
 
         def insight_miss(spec: BankSpec, row: dict[str, str]) -> bool:
             iid = (row.get("id") or "").strip()
-            return bool(iid) and not (content_dir / f"{iid}_en.md").is_file()
+            if not iid or iid.startswith("#"):
+                return False
+            return not (content_dir / f"{iid}_en.md").is_file()
 
         def guide_miss(spec: BankSpec, row: dict[str, str]) -> bool:
             gid = (row.get("id") or "").strip()
@@ -265,8 +443,8 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
                 return False
             return not any((guides_dir / f"{gid}{suf}.md").is_file() for suf in ("", "_en"))
 
-        ip, iff = _pending_for_bank("insights", need_md=insight_miss)
-        gp, gf = _pending_for_bank("guides", need_md=guide_miss)
+        ip, iff = _missing_md_for_bank("insights", need_md=insight_miss)
+        gp, gf = _missing_md_for_bank("guides", need_md=guide_miss)
         images = 0
         if content_dir.is_dir():
             for md in content_dir.glob("*_en.md"):
@@ -280,8 +458,8 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             "guides_topics": gp,
             "guides_files": gf,
             "images": images,
-            "csv_items": _released_row_count(site_id, "insights"),
-            "csv_guides": _released_row_count(site_id, "guides"),
+            "csv_items": _bank_row_count(site_id, "insights"),
+            "csv_guides": _bank_row_count(site_id, "guides"),
         }
 
     if site_id == "starful.biz":
@@ -294,9 +472,6 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
         for row in read_bank(site_id, "positions"):
             key = row_key(spec, row)
             if not key:
-                continue
-            st = rows_state.get(_state_key(spec, key), "")
-            if st not in (STATUS_QUEUED, STATUS_FAILED):
                 continue
             pos = (row.get("position_name") or "").strip()
             if not pos:
@@ -312,7 +487,7 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
         return {
             "guides_md": pending,
             "images": images,
-            "csv_items": _released_row_count(site_id, "positions"),
+            "csv_items": _bank_row_count(site_id, "positions"),
         }
 
     if site_id == "jpcampus":
@@ -323,9 +498,6 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             key = row_key(spec, row)
             if not key:
                 continue
-            st = rows_state.get(_state_key(spec, key), "")
-            if st not in (STATUS_QUEUED, STATUS_FAILED):
-                continue
             slug = (row.get("slug") or "").strip()
             if not slug:
                 continue
@@ -335,10 +507,32 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             kr = content_dir / f"guide_{slug}_kr.md"
             if en.is_file() and not kr.is_file():
                 korean_pending += 1
+
+        univ_ja, _, univ_en = _univ_name_index(str(content_dir))
+
+        univs_pending = 0
+        uspec = next(s for s in banks_for_site(site_id) if s.bank_id == "universities")
+        for row in read_bank(site_id, "universities"):
+            key = row_key(uspec, row)
+            if not key:
+                continue
+            name_ja = (row.get("name_ja") or "").strip()
+            name_en = (row.get("name_en") or "").strip()
+            if not name_ja and not name_en:
+                continue
+            if name_ja in univ_ja:
+                continue
+            if name_en and name_en.lower() in univ_en:
+                continue
+            univs_pending += 1
+
         return {
             "guides_topics": guides_pending,
             "korean_files": korean_pending,
-            "csv_guides": _released_row_count(site_id, "guide_topics"),
+            "univs_pending": univs_pending,
+            "items_pairs": univs_pending,
+            "csv_guides": _bank_row_count(site_id, "guide_topics"),
+            "csv_univs": _bank_row_count(site_id, "universities"),
         }
 
     if site_id == "krcampus":
@@ -382,9 +576,6 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             key = row_key(spec, row)
             if not key:
                 continue
-            st = rows_state.get(_state_key(spec, key), "")
-            if st not in (STATUS_QUEUED, STATUS_FAILED):
-                continue
             slug = (row.get("slug") or "").strip()
             if not slug:
                 continue
@@ -404,9 +595,6 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             for row in read_bank(site_id, bank_id):
                 key = row_key(bspec, row)
                 if not key:
-                    continue
-                st = rows_state.get(_state_key(bspec, key), "")
-                if st not in (STATUS_QUEUED, STATUS_FAILED):
                     continue
                 name_ko = (row.get("name_ko") or "").strip()
                 name_en = (row.get("name_en") or "").strip()
@@ -428,9 +616,9 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             "schools_pending": schools_pending,
             "univs_pending": univs_pending,
             "items_pairs": schools_pending + univs_pending,
-            "csv_guides": _released_row_count(site_id, "guide_topics"),
-            "csv_schools": _released_row_count(site_id, "language_schools"),
-            "csv_univs": _released_row_count(site_id, "universities"),
+            "csv_guides": _bank_row_count(site_id, "guide_topics"),
+            "csv_schools": _bank_row_count(site_id, "language_schools"),
+            "csv_univs": _bank_row_count(site_id, "universities"),
         }
 
     return {}

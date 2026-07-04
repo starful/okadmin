@@ -1,4 +1,4 @@
-"""Read/write site content CSV files under WORK_ROOT (okcafejp, hatena, …)."""
+"""Read/write site content CSV files under WORK_ROOT."""
 from __future__ import annotations
 
 import csv

@@ -6,6 +6,63 @@ from typing import Any
 from topic_bank_registry import banks_for_site
 
 
+def bootstrap_seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
+    """Minimum rows for a new topic bank — weekly expand pool is CSV 추가 only."""
+    from content_pipeline import DEFAULT_GUIDE_SEEDS, DEFAULT_ITEM_SEEDS
+
+    out: dict[str, list[dict[str, str]]] = {}
+
+    if site_id == "okstats":
+        out["insights"] = []
+        out["guides"] = []
+
+    elif site_id in ("okramen", "okonsen", "okcaddie"):
+        out["items"] = list(DEFAULT_ITEM_SEEDS)
+        out["guides"] = list(DEFAULT_GUIDE_SEEDS)
+        if site_id == "okramen":
+            out["items"] = [
+                {"Name": "Ichiran Shinjuku", "Lat": "35.6909", "Lng": "139.7018", "Address": "Tokyo, Shinjuku", "Thumbnail": "", "Features": "Tonkotsu", "Agoda": ""},
+                {"Name": "Ippudo Ginza", "Lat": "35.6711", "Lng": "139.7662", "Address": "Tokyo, Chuo", "Thumbnail": "", "Features": "Tonkotsu", "Agoda": ""},
+            ]
+        elif site_id == "okonsen":
+            out["items"] = [
+                {"Name": "Hakone Ten-yu", "Lat": "35.2393", "Lng": "139.0456", "Address": "Hakone", "Thumbnail": "", "Features": "Family bath", "Agoda": ""},
+                {"Name": "Gora Kadan", "Lat": "35.2492", "Lng": "139.0465", "Address": "Hakone", "Thumbnail": "", "Features": "Ryokan onsen", "Agoda": ""},
+            ]
+        elif site_id == "okcaddie":
+            out["items"] = [{"Name": "Sample Golf Club", "Lat": "35.0", "Lng": "135.0", "Address": "Hyogo", "Features": "Public", "Booking": ""}]
+
+    elif site_id == "starful.biz":
+        base = ["AI Engineer", "Product Manager", "Data Analyst", "DevOps Engineer", "UX Designer",
+                "Backend Developer", "Cloud Architect", "Security Engineer", "Technical Writer", "QA Engineer"]
+        out["positions"] = [{"position_name": t} for t in base]
+
+    elif site_id == "jpcampus":
+        out["guide_topics"] = [
+            {"slug": "cost-seed", "category": "Budget", "title": "1-Year Study Cost in Japan", "description": "Budget overview", "prompt": "Write a realistic 1-year study cost guide for Tokyo."},
+            {"slug": "visa-seed", "category": "Visa", "title": "Student Visa Steps", "description": "Visa guide", "prompt": "Step-by-step student visa guide for Japan."},
+            {"slug": "housing-seed", "category": "Housing", "title": "Student Housing Options", "description": "Housing compare", "prompt": "Compare dorm, share house, and apartment for students."},
+        ]
+
+    elif site_id == "krcampus":
+        out["guide_topics"] = [{"slug": "visa", "category": "Visa", "title": "Student Visa Guide for Korea (D-2 and D-4)", "description": "Step-by-step visa guide.", "prompt": "Write a Korea student visa guide for D-2 and D-4."}]
+        out["language_schools"] = [{"name_ko": "연세대학교 한국어학당", "name_en": "Yonsei Korean Language Institute", "region": "Seoul", "city": "Seoul"}]
+        out["universities"] = [{"name_ko": "서울대학교", "name_en": "Seoul National University", "region": "Seoul"}]
+
+    elif site_id == "hatena":
+        out["python"] = [{"lib_name": x} for x in ("NumPy", "Pandas", "FastAPI", "Pydantic", "httpx")]
+        out["cloud"] = [
+            {"Topic": "AWS Lambda vs GCP Cloud Functions vs Azure Functions"},
+            {"Topic": "Amazon S3 vs Google Cloud Storage vs Azure Blob Storage"},
+            {"Topic": "AWS RDS vs Cloud SQL vs Azure Database for PostgreSQL"},
+            {"Topic": "Amazon EKS vs GKE vs AKS comparison"},
+            {"Topic": "CloudFront vs Cloud CDN vs Azure CDN"},
+        ]
+        out["positions"] = [{"position_name": x} for x in ("Site Reliability Engineer", "Platform Engineer", "MLOps Engineer")]
+
+    return out
+
+
 def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
     from content_pipeline import (
         DEFAULT_GUIDE_SEEDS,
@@ -13,7 +70,7 @@ def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
         EXPAND_GUIDE_SEEDS,
         JPCAMPUS_EXPAND_GUIDES,
         KRCAMPUS_EXPAND_TOPIC_ROWS,
-        OKCAFE_EXPAND_SEEDS,
+        POI_EXPAND_SEEDS,
         STARFUL_EXPAND_POSITIONS,
         STATFACTS_GUIDE_EXPAND,
         STATFACTS_INSIGHT_EXPAND,
@@ -25,8 +82,8 @@ def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
         out["insights"] = list(STATFACTS_INSIGHT_EXPAND)
         out["guides"] = list(STATFACTS_GUIDE_EXPAND)
 
-    elif site_id in ("okramen", "okonsen", "okcaddie", "okcafejp", "oksushi"):
-        out["items"] = list(DEFAULT_ITEM_SEEDS) + list(OKCAFE_EXPAND_SEEDS)
+    elif site_id in ("okramen", "okonsen", "okcaddie"):
+        out["items"] = list(DEFAULT_ITEM_SEEDS) + list(POI_EXPAND_SEEDS)
         out["guides"] = list(DEFAULT_GUIDE_SEEDS) + list(EXPAND_GUIDE_SEEDS)
         if site_id == "okramen":
             out["items"] = [
@@ -48,7 +105,7 @@ def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
                     "Features": "Tonkotsu",
                     "Agoda": "",
                 },
-            ] + list(OKCAFE_EXPAND_SEEDS)
+            ] + list(POI_EXPAND_SEEDS)
         elif site_id == "okonsen":
             out["items"] = [
                 {
@@ -69,7 +126,7 @@ def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
                     "Features": "Ryokan onsen",
                     "Agoda": "",
                 },
-            ] + list(OKCAFE_EXPAND_SEEDS)
+            ] + list(POI_EXPAND_SEEDS)
         elif site_id == "okcaddie":
             out["items"] = [
                 {
@@ -80,7 +137,7 @@ def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
                     "Features": "Public",
                     "Booking": "",
                 },
-            ] + list(OKCAFE_EXPAND_SEEDS)
+            ] + list(POI_EXPAND_SEEDS)
 
     elif site_id == "starful.biz":
         base = [
@@ -158,6 +215,41 @@ def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
             {"position_name": "Platform Engineer"},
             {"position_name": "MLOps Engineer"},
         ]
+
+    _append_extra_seeds(site_id, out)
+    return out
+
+
+def expand_pool_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
+    """Rows eligible for weekly CSV 추가 (append to bank if not already present)."""
+    from content_pipeline import (
+        EXPAND_GUIDE_SEEDS,
+        JPCAMPUS_EXPAND_GUIDES,
+        KRCAMPUS_EXPAND_TOPIC_ROWS,
+        POI_EXPAND_SEEDS,
+        STARFUL_EXPAND_POSITIONS,
+        STATFACTS_GUIDE_EXPAND,
+        STATFACTS_INSIGHT_EXPAND,
+    )
+
+    out: dict[str, list[dict[str, str]]] = {}
+
+    if site_id == "okstats":
+        out["insights"] = list(STATFACTS_INSIGHT_EXPAND)
+        out["guides"] = list(STATFACTS_GUIDE_EXPAND)
+
+    elif site_id in ("okramen", "okonsen", "okcaddie"):
+        out["items"] = list(POI_EXPAND_SEEDS)
+        out["guides"] = list(EXPAND_GUIDE_SEEDS)
+
+    elif site_id == "starful.biz":
+        out["positions"] = [{"position_name": t} for t in STARFUL_EXPAND_POSITIONS]
+
+    elif site_id == "jpcampus":
+        out["guide_topics"] = list(JPCAMPUS_EXPAND_GUIDES)
+
+    elif site_id == "krcampus":
+        out["guide_topics"] = list(KRCAMPUS_EXPAND_TOPIC_ROWS)
 
     _append_extra_seeds(site_id, out)
     return out

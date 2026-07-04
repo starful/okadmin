@@ -2,6 +2,54 @@
 {% block title %}홈{% endblock %}
 {% block head %}
 <style>
+.ai-spend-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+@media (max-width: 720px) { .ai-spend-panel { grid-template-columns: 1fr; } }
+.ai-spend-card {
+    background: var(--surf); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px;
+}
+.ai-spend-card.over { border-color: #c44; }
+.ai-spend-card.warn { border-color: #a80; }
+.ai-spend-card.danger { border-color: #c66; }
+.ai-spend-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.ai-spend-title { font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.ai-spend-title.gemini { color: #8cf; }
+.ai-spend-title.imagen { color: #c9f; }
+.ai-spend-nums { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 700; }
+.ai-spend-bar { height: 6px; background: #222; border-radius: 3px; overflow: hidden; margin: 8px 0 6px; }
+.ai-spend-bar > span { display: block; height: 100%; border-radius: 3px; transition: width .3s; }
+.ai-spend-bar.ok > span { background: #6a6; }
+.ai-spend-bar.warn > span { background: #ca3; }
+.ai-spend-bar.danger > span { background: #e85; }
+.ai-spend-bar.over > span { background: #f44; }
+.ai-spend-sub { font-size: 10px; color: #666; line-height: 1.4; }
+.ai-spend-today { font-size: 11px; color: #888; margin: 0 0 10px; }
+.ai-spend-today strong { color: #ccc; font-weight: 700; }
+.ai-spend-daily {
+    display: flex; align-items: flex-end; gap: 2px;
+    height: 56px; margin-top: 4px; padding-top: 4px;
+    border-top: 1px solid #2a2a2a;
+}
+.ai-spend-day {
+    flex: 1 1 0; min-width: 0; max-width: 14px;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+    gap: 2px; cursor: default;
+}
+.ai-spend-day > span {
+    display: block; width: 100%; min-height: 2px;
+    border-radius: 2px 2px 0 0; background: #333;
+    transition: height .2s;
+}
+.ai-spend-day.has > span { background: #555; }
+.ai-spend-day.gemini.has > span { background: #48a; }
+.ai-spend-day.imagen.has > span { background: #85a; }
+.ai-spend-day.today > span { background: #8cf; box-shadow: 0 0 0 1px #8cf8; }
+.ai-spend-day.imagen.today > span { background: #c9f; box-shadow: 0 0 0 1px #c9f8; }
+.ai-spend-day > em {
+    font-style: normal; font-size: 8px; color: #444; line-height: 1;
+}
+.ai-spend-day.today > em { color: #aaa; font-weight: 700; }
+.ai-spend-day-label { font-size: 9px; color: #555; margin: 6px 0 0; }
 </style>
 {% endblock %}
 {% block content %}
@@ -10,6 +58,7 @@
 {% if not work_root_ok %}
 <div class="warn">WORK_ROOT 없음 — 콘텐츠·Git 비활성</div>
 {% endif %}
+<div id="ai-spend-panel" class="ai-spend-panel" hidden></div>
 <div class="dash-toolbar-home">
     <button type="button" class="btn btn-ghost btn-sm" id="btn-refresh-backlog" onclick="refreshAllBacklog()">백로그 새로고침</button>
     <p class="hint">백로그·due·Git·마지막 실행을 보고 지금/대기/스킵을 표시합니다</p>
@@ -25,6 +74,60 @@ const DUE_WEIGHT = { overdue: 40, never: 35, today: 28, soon: 12, ok: 0 };
 
 function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+}
+
+function renderDailyChart(daily, maxYen, cls) {
+    if (!daily || !daily.length) {
+        return '<p class="ai-spend-day-label">日別 — まだデータなし</p>';
+    }
+    const max = Math.max(maxYen || 0, ...daily.map(d => d.yen || 0), 1);
+    const bars = daily.map(d => {
+        const yen = Number(d.yen) || 0;
+        const h = yen ? Math.max(6, Math.round(yen / max * 44)) : 2;
+        const dayCls = ['ai-spend-day', cls, yen ? 'has' : '', d.is_today ? 'today' : ''].filter(Boolean).join(' ');
+        const tip = `${d.date}: ¥${yen.toLocaleString()}`;
+        return `<div class="${dayCls}" title="${escapeHtml(tip)}"><span style="height:${h}px"></span><em>${d.day}</em></div>`;
+    }).join('');
+    return `<p class="ai-spend-day-label">日別 (1–${daily.length}日)</p><div class="ai-spend-daily">${bars}</div>`;
+}
+
+function renderAiSpend(data) {
+    const panel = document.getElementById('ai-spend-panel');
+    if (!panel || !data) return;
+    const blocks = [
+        { key: 'gemini', label: 'Gemini', cls: 'gemini', suffix: '推定' },
+        { key: 'imagen', label: 'Imagen', cls: 'imagen', suffix: '画像' },
+    ];
+    panel.innerHTML = blocks.map(({ key, label, cls, suffix }) => {
+        const b = data[key] || {};
+        const pct = Math.min(100, Number(b.percent) || 0);
+        const level = b.level || 'ok';
+        const over = data.over_budget && data.over_budget[key];
+        const extra = key === 'imagen' && b.images ? ` · ${b.images}枚` : '';
+        const todayYen = Number(b.today_yen) || 0;
+        return `<div class="ai-spend-card ${level}${over ? ' over' : ''}">
+            <div class="ai-spend-head">
+                <span class="ai-spend-title ${cls}">${label} ${suffix} · ${escapeHtml(data.month || '')}</span>
+                <span class="ai-spend-nums">¥${(b.estimated_yen || 0).toLocaleString()} / ¥${(b.budget_yen || 0).toLocaleString()}</span>
+            </div>
+            <div class="ai-spend-bar ${level}"><span style="width:${pct}%"></span></div>
+            <p class="ai-spend-sub">${pct}% · 残り ¥${(b.remaining_yen || 0).toLocaleString()}${extra}${over ? ' · 予算超過' : ''}</p>
+            <p class="ai-spend-today">今日 <strong>¥${todayYen.toLocaleString()}</strong></p>
+            ${renderDailyChart(b.daily, b.daily_max_yen, cls)}
+        </div>`;
+    }).join('');
+    if (data.note) {
+        panel.innerHTML += `<p class="ai-spend-sub" style="grid-column:1/-1;margin:0">${escapeHtml(data.note)}</p>`;
+    }
+    panel.hidden = false;
+}
+
+async function loadAiSpend() {
+    try {
+        const res = await fetch('/api/content/ai-spend');
+        if (!res.ok) return;
+        renderAiSpend(await res.json());
+    } catch (_) {}
 }
 
 function dueClass(schedule) {
@@ -144,7 +247,9 @@ function assessSite(site, logs, pipe) {
     } else if (gscUrgent || gscSoon) {
         action = 'GSC·SEO 확인';
     } else if (bl.csvSuggested) {
-        action = 'CSV 추가 후 생성 검토';
+        action = (typeof isAiQueueSite === 'function' && isAiQueueSite(site.id))
+            ? '목록 추가 후 생성 검토'
+            : 'CSV 추가 후 생성 검토';
     } else if (bl.total === 0 && cStat === 'ok' && gStat === 'ok' && !git.dirty) {
         action = '지금은 패스 가능';
         verdict = 'skip';
@@ -303,7 +408,11 @@ async function loadHome() {
     const loading = document.getElementById('loading');
     try {
         if (typeof refreshBacklog === 'function') {
-            await refreshBacklog(null, { silent: true });
+            try {
+                await refreshBacklog(null, { silent: true });
+            } catch (_) {
+                /* backlog refresh is optional on home load */
+            }
         }
         const [sitesRes, logsRes, pipesRes] = await Promise.all([
             fetch('/api/sites'),
@@ -317,6 +426,7 @@ async function loadHome() {
         try { pipelines = await pipesRes.json(); } catch (_) {}
         loading.style.display = 'none';
         renderSitesGrid(sites, logData, pipelines);
+        loadAiSpend();
     } catch (_) {
         loading.textContent = '로드 실패';
     }

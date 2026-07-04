@@ -48,10 +48,14 @@ function initSiteHub(siteId, initialSection, siteColor) {
 
     wireHubEmbedIframes();
     (async () => {
-        if (typeof refreshBacklog === 'function') {
-            await refreshBacklog(siteId, { silent: true });
+        try {
+            if (typeof refreshBacklog === 'function') {
+                await refreshBacklog(siteId, { silent: true });
+            }
+            await loadPipelines();
+        } catch (_) {
+            /* backlog/pipeline fetch failed — still render controls */
         }
-        await loadPipelines();
         renderContentBar(siteId);
         loadSiteWorkflow(siteId);
     })();
@@ -155,12 +159,17 @@ function renderContentBar(siteId) {
         ? (p.phase === 'deploy' ? '② 배포 중…' : '① 생성 중…')
         : '콘텐츠 생성';
     const runDisabled = !(p?.available && !running);
-    const csvTitle = expandAvail
-        ? `CSV에 ${expandAvail}건 추가 가능 (시드 토픽)`
-        : '주간 시드 토픽 추가 (이미 있으면 스킵)';
-
     let html = `<button type="button" class="btn btn-ghost" onclick="refreshBacklog('${escHub(siteId)}')" ${running ? 'disabled' : ''}>건수 새로고침</button>`;
-    html += `<button type="button" class="btn btn-ghost" onclick="expandCsv('${escHub(siteId)}')" ${running ? 'disabled' : ''} title="${escHub(csvTitle)}">CSV 추가${expandAvail ? ` (${expandAvail})` : ''}</button>`;
+    if (typeof isAiQueueSite === 'function' && isAiQueueSite(siteId)) {
+        const contentLabel = typeof aiQueueContentLabel === 'function' ? aiQueueContentLabel(siteId) : '아이템';
+        html += aiQueueInputs(siteId, snap, running);
+        html += `<button type="button" class="btn btn-ghost" onclick="expandCsv('${escHub(siteId)}')" ${running ? 'disabled' : ''} title="AI가 ${escHub(contentLabel)}·가이드 주제를 목록에 추가">목록 추가</button>`;
+    } else {
+        const csvTitle = expandAvail
+            ? `CSV에 ${expandAvail}건 추가 가능 (시드 토픽)`
+            : '주간 시드 토픽 추가 (이미 있으면 스킵)';
+        html += `<button type="button" class="btn btn-ghost" onclick="expandCsv('${escHub(siteId)}')" ${running ? 'disabled' : ''} title="${escHub(csvTitle)}">CSV 추가${expandAvail ? ` (${expandAvail})` : ''}</button>`;
+    }
     html += `<button type="button" class="btn" id="hub-run-pipeline" ${runDisabled ? 'disabled' : ''}
         onclick="runPipeline('${escHub(siteId)}', '${label}')">${escHub(runLabel)}</button>`;
     actions.innerHTML = html;
@@ -282,9 +291,15 @@ function updateWorkflowStrip(site, logs, pipe) {
 
     const cLabel = document.getElementById('wf-content-label');
     const cMeta = document.getElementById('wf-content-meta');
-    if (cLabel) cLabel.textContent = typeof generatableText === 'function'
-        ? generatableText(pipelineBacklogSnap(pipe), pipe?.site_id || '')
-        : (remain === '없음' ? 'MD 대기 0건' : remain);
+    if (cLabel) {
+        const siteId = pipe?.site_id || '';
+        const raw = typeof generatableText === 'function'
+            ? generatableText(pipelineBacklogSnap(pipe), siteId)
+            : (remain === '없음' ? '0건' : remain);
+        cLabel.textContent = (typeof isAiQueueSite === 'function' && isAiQueueSite(siteId))
+            ? `생성 가능 ${raw}`
+            : (raw === '—' ? 'MD 대기 0건' : raw);
+    }
     if (cMeta) cMeta.textContent = logs.content_due_label || '7일 주기';
     const cStep = document.getElementById('wf-content');
     if (cStep) {

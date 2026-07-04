@@ -1,4 +1,4 @@
-"""One-click content pipelines (okcafejp: seed CSV → generate → build)."""
+"""One-click content pipelines (topic bank → generate → build)."""
 from __future__ import annotations
 
 import csv
@@ -22,10 +22,16 @@ DEFAULT_CONTENT_LIMIT = 6
 DEFAULT_GUIDE_LIMIT = 3
 DEFAULT_HATENA_MAX_POSTS = 6
 DEFAULT_KOREAN_LIMIT = 6
+DEFAULT_JAPANESE_LIMIT = 3
 MAX_CONTENT_LIMIT = 50
 MAX_GUIDE_LIMIT = 20
 MAX_HATENA_MAX_POSTS = 20
 MAX_KOREAN_LIMIT = 30
+MAX_JAPANESE_LIMIT = 20
+MAX_SCHOOL_LIMIT = 15
+MAX_UNIVERSITY_LIMIT = 15
+DEFAULT_KRCAMPUS_SCHOOL_LIMIT = 3
+DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT = 3
 
 # Tokyo cafe seeds when items.csv is nearly empty
 DEFAULT_ITEM_SEEDS: list[dict[str, str]] = [
@@ -95,8 +101,8 @@ DEFAULT_ITEM_SEEDS: list[dict[str, str]] = [
     },
 ]
 
-# Weekly expansion: new Lat/Lng seeds for Places → item_generator (deduped by coordinates).
-OKCAFE_EXPAND_SEEDS: list[dict[str, str]] = [
+# Legacy expand pool for okramen / okonsen / okcaddie (seed CSV 추가; AI 목록 추가가 우선).
+POI_EXPAND_SEEDS: list[dict[str, str]] = [
     {"Name": "Yokohama Minato Mirai Cafe", "Lat": "35.4564", "Lng": "139.6340", "Address": "Kanagawa, Yokohama", "Features": "Waterfront | Wi-Fi", "Agoda": ""},
     {"Name": "Kamakura Komachi Drip", "Lat": "35.3192", "Lng": "139.5503", "Address": "Kanagawa, Kamakura", "Features": "Historic street | Matcha", "Agoda": ""},
     {"Name": "Nagoya Sakae Espresso", "Lat": "35.1709", "Lng": "136.9066", "Address": "Aichi, Nagoya", "Features": "City center | House roast", "Agoda": ""},
@@ -856,10 +862,16 @@ def _append_csv_rows(path: Path, headers: list[str], rows: list[dict[str, str]])
     return added
 
 
-def ensure_okcafejp_csv(repo: Path, logf) -> dict[str, Any]:
-    from topic_bank_pipeline import topic_bank_sync_only
+_STEP_FAILURE_MARKERS = (
+    "❌ CSV file not found:",
+    "Traceback (most recent call last):",
+)
 
-    return topic_bank_sync_only("okcafejp", repo, logf)
+
+def _step_output_indicates_failure(text: str) -> bool:
+    if not text:
+        return False
+    return any(marker in text for marker in _STEP_FAILURE_MARKERS)
 
 
 def _run_step(
@@ -896,13 +908,12 @@ def _run_step(
     if proc.stderr:
         logf.write(proc.stderr)
     logf.flush()
-    ok = proc.returncode == 0
+    combined_out = (proc.stdout or "") + (proc.stderr or "")
+    ok = proc.returncode == 0 and not _step_output_indicates_failure(combined_out)
     err_tail = ""
     if not ok:
-        combined = (proc.stderr or "") + "\n" + (proc.stdout or "")
-        lines = [ln for ln in combined.splitlines() if ln.strip()]
+        lines = [ln for ln in combined_out.splitlines() if ln.strip()]
         err_tail = "\n".join(lines[-12:])
-    combined_out = (proc.stdout or "") + (proc.stderr or "")
     return {
         "ok": ok,
         "label": label,
@@ -917,8 +928,11 @@ def _merge_pipeline_env(repo: Path) -> dict[str, str]:
     for key in (
         "CONTENT_LIMIT",
         "GUIDE_LIMIT",
+        "SCHOOL_LIMIT",
+        "UNIVERSITY_LIMIT",
         "HATENA_MAX_POSTS",
         "KOREAN_LIMIT",
+        "JAPANESE_LIMIT",
         "GEMINI_API_KEY",
         "GEMINI_MODEL",
         "GOOGLE_PLACES_API_KEY",
@@ -933,6 +947,8 @@ def _merge_pipeline_env(repo: Path) -> dict[str, str]:
                 env[key] = str(DEFAULT_HATENA_MAX_POSTS)
             elif key == "KOREAN_LIMIT":
                 env[key] = str(DEFAULT_KOREAN_LIMIT)
+            elif key == "JAPANESE_LIMIT":
+                env[key] = str(DEFAULT_JAPANESE_LIMIT)
     repo_env = repo / ".env"
     if repo_env.is_file():
         try:
@@ -965,10 +981,44 @@ def _merge_pipeline_env(repo: Path) -> dict[str, str]:
     return env
 
 
-def ensure_site_csv_from_bank(site_id: str, repo: Path, logf) -> dict[str, Any]:
+def ensure_okstats_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
+    """Sync topic bank state only — queue growth is via 목록 추가 (AI)."""
+    from topic_bank_pipeline import topic_bank_sync_only
+
+    return topic_bank_sync_only("okstats", repo, logf)
+
+
+def ensure_poi_site_csv(site_id: str, repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
+    """Sync topic bank state only — queue growth is via 목록 추가 (AI)."""
     from topic_bank_pipeline import topic_bank_sync_only
 
     return topic_bank_sync_only(site_id, repo, logf)
+
+
+def ensure_topic_bank_sync_only(site_id: str, repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
+    """Sync topic bank state only — queue growth is via 목록 추가 (AI)."""
+    from topic_bank_pipeline import topic_bank_sync_only
+
+    return topic_bank_sync_only(site_id, repo, logf)
+
+
+def ensure_site_csv_from_bank(site_id: str, repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
+    from topic_bank_pipeline import prepare_topics_for_generation
+
+    env = env or {}
+    content_limit = _bounded_limit(
+        env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
+    )
+    guide_limit = _bounded_limit(
+        env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
+    )
+    return prepare_topics_for_generation(
+        site_id,
+        repo,
+        logf,
+        content_limit=content_limit,
+        guide_limit=guide_limit,
+    )
 
 
 def _places_fetch_argv(site_id: str, repo: Path) -> list[str]:
@@ -1084,28 +1134,35 @@ def ensure_dual_csv(
     return out
 
 
-def ensure_starful_csv(repo: Path, logf) -> dict[str, Any]:
-    from topic_bank_pipeline import topic_bank_sync_only
-
-    return topic_bank_sync_only("starful.biz", repo, logf)
+def ensure_starful_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
+    return ensure_topic_bank_sync_only("starful.biz", repo, logf, env=env)
 
 
-def ensure_hatena_csv(repo: Path, logf) -> dict[str, Any]:
-    from topic_bank_pipeline import topic_bank_sync_only
-
-    return topic_bank_sync_only("hatena", repo, logf)
+def ensure_hatena_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
+    return ensure_site_csv_from_bank("hatena", repo, logf, env=env)
 
 
 def ensure_jpcampus_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    from topic_bank_pipeline import topic_bank_sync_only
-
-    return topic_bank_sync_only("jpcampus", repo, logf)
+    return ensure_topic_bank_sync_only("jpcampus", repo, logf, env=env)
 
 
 def ensure_krcampus_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    from topic_bank_pipeline import topic_bank_sync_only
+    from topic_bank_pipeline import topic_bank_release_queues
 
-    return topic_bank_sync_only("krcampus", repo, logf)
+    env = env or {}
+    guide_limit = _int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT)
+    school_limit = _int_env_allow_zero(env, "SCHOOL_LIMIT", DEFAULT_KRCAMPUS_SCHOOL_LIMIT)
+    university_limit = _int_env_allow_zero(env, "UNIVERSITY_LIMIT", DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT)
+    return topic_bank_release_queues(
+        "krcampus",
+        repo,
+        logf,
+        content_limit=0,
+        guide_limit=guide_limit,
+        school_limit=school_limit,
+        university_limit=university_limit,
+        content_limit_each=False,
+    )
 
 
 def _execute_pipeline(
@@ -1127,9 +1184,19 @@ def _execute_pipeline(
 
     with open(log_path, "a", encoding="utf-8") as logf:
         logf.write(f"\n\n{'#' * 60}\n# {site_id} pipeline {datetime.now():%F %T}\n")
+        if site_id == "krcampus":
+            logf.write(
+                "run limits: "
+                f"guides={env.get('GUIDE_LIMIT', '?')} "
+                f"schools={env.get('SCHOOL_LIMIT', '?')} "
+                f"universities={env.get('UNIVERSITY_LIMIT', '?')}\n"
+            )
         if ensure_fn:
             seed_info = _call_ensure_csv(ensure_fn, repo, logf, env)
             steps_out.append({"step": "ensure_csv", "ok": True, **seed_info})
+            from topic_queue_env import queue_env_for_site
+
+            env.update(queue_env_for_site(site_id, sync=False))
 
         for step_id, label, argv, timeout in extra_steps:
             r = _run_step(repo, logf, label=label, argv=argv, env=env, timeout=timeout)
@@ -1140,6 +1207,13 @@ def _execute_pipeline(
         for step_id, label, argv, timeout in steps:
             r = _run_step(repo, logf, label=label, argv=argv, env=env, timeout=timeout)
             steps_out.append({"step": step_id, **r})
+            if r.get("ok"):
+                try:
+                    from ai_spend import record_pipeline_step
+
+                    record_pipeline_step(site_id, step_id, env, r.get("output") or "")
+                except Exception:
+                    pass
             if not r["ok"]:
                 return _fail(site_id, steps_out, r, log_path)
 
@@ -1178,6 +1252,7 @@ def _content_generation_warning(steps: list[dict[str, Any]]) -> str | None:
     """True when generate steps ran OK but logs suggest zero new MD/posts."""
     gen_ids = {
         "guides",
+        "universities",
         "items",
         "guides_md",
         "py",
@@ -1355,60 +1430,30 @@ def _run_ok_site_pipeline(
     )
 
 
-def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
-    env = _merge_pipeline_env(repo)
+def _pipeline_for_site(site_id: str, repo: Path, env: dict[str, str] | None = None) -> dict[str, Any]:
+    env = env or pipeline_env_for_site(site_id)
     optional: list[tuple[str, str, list[str], int]] = []
     extra: list[tuple[str, str, list[str], int]] = []
     steps: list[tuple[str, str, list[str], int]] = []
 
-    if site_id == "okcafejp":
-        def ensure(repo_p: Path, logf):
-            return ensure_okcafejp_csv(repo_p, logf)
-
-        if env.get("GOOGLE_PLACES_API_KEY"):
-            extra.append(
-                (
-                    "places",
-                    "Places → topic queue",
-                    _places_fetch_argv(site_id, repo),
-                    600,
-                )
-            )
-        steps = _ok_series_content_steps(
-            env,
-            site_id,
-            item_step=("items", "item_generator", _item_incomplete_argv(env), 3600),
-        )
-        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps, extra_steps=extra)
-
-    if site_id in ("oksushi",):
-        def ensure(repo_p: Path, logf):
-            return ensure_site_csv_from_bank("oksushi", repo_p, logf)
-
-        steps = _ok_series_content_steps(
-            env,
-            site_id,
-            item_step=("items", "item_generator", _item_incomplete_argv(env), 3600),
-        )
-        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
-
     if site_id == "okramen":
-        def ensure(repo_p: Path, logf):
-            return ensure_site_csv_from_bank("okramen", repo_p, logf)
+        def ensure(repo_p: Path, logf, env=None):
+            return ensure_poi_site_csv("okramen", repo_p, logf, env=env)
 
         limit = env["CONTENT_LIMIT"]
-        steps = _ok_series_content_steps(
-            env,
-            site_id,
-            item_step=("items", "ramen_generator", ["python3", "script/ramen_generator.py", limit], 3600),
-            guide_first=False,
-            image_step=("images", "generate_images", ["python3", "script/generate_images.py"], 2400),
-        )
+        steps = [
+            ("items", "ramen_generator", ["python3", "script/ramen_generator.py", limit], 3600),
+            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
+            ("images_places", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
+            ("images", "generate_images", ["python3", "script/generate_images.py"], 2400),
+            ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
+            ("build", "build_data", ["python3", "script/build_data.py"], 600),
+        ]
         return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okonsen":
-        def ensure(repo_p: Path, logf):
-            return ensure_site_csv_from_bank("okonsen", repo_p, logf)
+        def ensure(repo_p: Path, logf, env=None):
+            return ensure_poi_site_csv("okonsen", repo_p, logf, env=env)
 
         limit = env["CONTENT_LIMIT"]
         steps = _ok_series_content_steps(
@@ -1420,8 +1465,8 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
         return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okcaddie":
-        def ensure(repo_p: Path, logf):
-            return ensure_site_csv_from_bank("okcaddie", repo_p, logf)
+        def ensure(repo_p: Path, logf, env=None):
+            return ensure_poi_site_csv("okcaddie", repo_p, logf, env=env)
 
         limit = env["CONTENT_LIMIT"]
         steps = _ok_series_content_steps(
@@ -1433,8 +1478,8 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
         return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
 
     if site_id == "okstats":
-        def ensure(repo_p: Path, logf):
-            return ensure_site_csv_from_bank("okstats", repo_p, logf)
+        def ensure(repo_p: Path, logf, env=None):
+            return ensure_okstats_csv(repo_p, logf, env=env)
 
         steps = [
             ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
@@ -1472,28 +1517,51 @@ def _pipeline_for_site(site_id: str, repo: Path) -> dict[str, Any]:
         return _execute_pipeline(site_id, repo, ensure_fn=ensure_hatena_csv, steps=steps, env=env)
 
     if site_id == "jpcampus":
-        steps = [
-            ("guides", "AI guides", ["python3", "scripts/2.generate_ai_guides.py"], 3600),
-            ("korean", "Korean content", ["python3", "scripts/3.create_korean_content.py"], 3600),
-            ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
-            ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
-        ]
+        guide_n = _int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT)
+        university_n = _int_env_allow_zero(env, "UNIVERSITY_LIMIT", DEFAULT_CONTENT_LIMIT)
+        steps = []
+        if guide_n > 0:
+            steps.append(("guides", "AI guides", ["python3", "scripts/2.generate_ai_guides.py"], 3600))
+        if university_n > 0:
+            steps.append(
+                ("universities", "universities", ["python3", "scripts/1.collect_universities.py"], 3600)
+            )
+        steps.extend(
+            [
+                ("korean", "Korean content", ["python3", "scripts/3.create_korean_content.py"], 3600),
+                ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
+                ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
+            ]
+        )
         optional = [
             ("seo", "seo_guard", ["python3", "scripts/seo_guard.py"], 300),
         ]
         return _execute_pipeline(site_id, repo, ensure_fn=ensure_jpcampus_csv, steps=steps, env=env, optional_steps=optional)
 
     if site_id == "krcampus":
-        steps = [
-            ("guides", "AI guides", ["python3", "scripts/2.generate_ai_guides.py"], 3600),
-            ("schools", "language schools", ["python3", "scripts/1.collect_language_schools.py"], 3600),
-            ("universities", "universities", ["python3", "scripts/1.collect_universities.py"], 3600),
-            ("japanese", "Japanese content", ["python3", "scripts/3.create_japanese_content.py"], 3600),
-            ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
-            ("images", "fetch_images", ["python3", "scripts/fetch_images.py"], 2400),
-            ("images_opt", "optimize_images", ["python3", "scripts/optimize_images.py"], 900),
-            ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
-        ]
+        guide_n = _int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT)
+        school_n = _int_env_allow_zero(env, "SCHOOL_LIMIT", DEFAULT_KRCAMPUS_SCHOOL_LIMIT)
+        university_n = _int_env_allow_zero(env, "UNIVERSITY_LIMIT", DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT)
+        steps = []
+        if guide_n > 0:
+            steps.append(("guides", "AI guides", ["python3", "scripts/2.generate_ai_guides.py"], 3600))
+        if school_n > 0:
+            steps.append(
+                ("schools", "language schools", ["python3", "scripts/1.collect_language_schools.py"], 3600)
+            )
+        if university_n > 0:
+            steps.append(
+                ("universities", "universities", ["python3", "scripts/1.collect_universities.py"], 3600)
+            )
+        steps.extend(
+            [
+                ("japanese", "Japanese native", ["python3", "scripts/3.generate_japanese_native.py"], 3600),
+                ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
+                ("images", "fetch_images", ["python3", "scripts/fetch_images.py"], 2400),
+                ("images_opt", "optimize_images", ["python3", "scripts/optimize_images.py"], 900),
+                ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
+            ]
+        )
         optional = [
             ("seo", "seo_guard", ["python3", "scripts/seo_guard.py"], 300),
         ]
@@ -1545,6 +1613,7 @@ def run_post_pipeline_deploy(
         mode="deploy-only",
         with_git=with_git,
         with_deploy=with_deploy,
+        include_build_data=False,
     )
     if not started.get("ok"):
         return started
@@ -1566,7 +1635,13 @@ def run_post_pipeline_deploy(
     return final
 
 
-def run_pipeline(site_id: str) -> dict[str, Any]:
+def run_pipeline(
+    site_id: str,
+    *,
+    guide_count: int | None = None,
+    school_count: int | None = None,
+    university_count: int | None = None,
+) -> dict[str, Any]:
     if not work_root_available():
         return {"ok": False, "error": "WORK_ROOT not available"}
     svc = get_service(site_id)
@@ -1575,11 +1650,43 @@ def run_pipeline(site_id: str) -> dict[str, Any]:
     repo = repo_path(svc)
     if not repo.is_dir():
         return {"ok": False, "error": f"missing repo {repo}"}
-    return _pipeline_for_site(site_id, repo)
+    env = pipeline_env_for_site(site_id, krcampus_defaults=False)
+    try:
+        from ai_spend import spend_preflight
 
-
-def run_okcafejp_pipeline() -> dict[str, Any]:
-    return run_pipeline("okcafejp")
+        pf = spend_preflight()
+        if pf.get("block_gemini"):
+            return {"ok": False, "error": pf.get("message") or "Gemini 월 예산 초과", "ai_spend": pf.get("summary")}
+    except Exception:
+        pass
+    if site_id == "krcampus":
+        if any(x is not None for x in (guide_count, school_count, university_count)):
+            guide_count = 0 if guide_count is None else guide_count
+            school_count = 0 if school_count is None else school_count
+            university_count = 0 if university_count is None else university_count
+        limits = _apply_krcampus_run_limits(
+            env,
+            guide_count=guide_count,
+            school_count=school_count,
+            university_count=university_count,
+        )
+        if limits["guide"] == limits["school"] == limits["university"] == 0:
+            return {
+                "ok": False,
+                "error": "가이드·어학원·대학 중 1개 이상 입력하세요",
+            }
+    elif site_id == "jpcampus" and (guide_count is not None or university_count is not None):
+        g = _user_run_limit(guide_count, default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
+        u = _user_run_limit(
+            university_count,
+            default=DEFAULT_CONTENT_LIMIT,
+            ceiling=MAX_UNIVERSITY_LIMIT,
+        )
+        if g == u == 0:
+            return {"ok": False, "error": "가이드·대학 중 1개 이상 입력하세요"}
+        env["GUIDE_LIMIT"] = str(g)
+        env["UNIVERSITY_LIMIT"] = str(u)
+    return _pipeline_for_site(site_id, repo, env=env)
 
 
 def _fail(site_id: str, steps: list, last: dict, log_path: Path) -> dict[str, Any]:
@@ -1607,6 +1714,27 @@ def _int_env(env: dict[str, str], key: str, default: int) -> int:
         return int(str(env.get(key, default)).strip() or default)
     except (TypeError, ValueError):
         return default
+
+
+def _int_env_allow_zero(env: dict[str, str], key: str, default: int) -> int:
+    raw = env.get(key)
+    if raw is None:
+        return default
+    try:
+        return max(0, int(str(raw).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
+def _user_run_limit(
+    explicit: int | None,
+    *,
+    default: int,
+    ceiling: int,
+) -> int:
+    if explicit is not None:
+        return min(max(0, int(explicit)), ceiling)
+    return min(max(0, default), ceiling)
 
 
 def _bounded_limit(
@@ -1669,9 +1797,44 @@ def _sanitize_pipeline_limits(env: dict[str, str]) -> None:
             ceiling=MAX_KOREAN_LIMIT,
         )
     )
+    env["JAPANESE_LIMIT"] = str(
+        _bounded_limit(
+            env,
+            "JAPANESE_LIMIT",
+            default=DEFAULT_JAPANESE_LIMIT,
+            ceiling=MAX_JAPANESE_LIMIT,
+        )
+    )
 
 
-def pipeline_env_for_site(site_id: str) -> dict[str, str]:
+def _apply_krcampus_run_limits(
+    env: dict[str, str],
+    *,
+    guide_count: int | None = None,
+    school_count: int | None = None,
+    university_count: int | None = None,
+) -> dict[str, int]:
+    """KR Campus per-run caps from UI (0 = skip that step)."""
+    guide_n = _user_run_limit(guide_count, default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
+    school_n = _user_run_limit(
+        school_count,
+        default=DEFAULT_KRCAMPUS_SCHOOL_LIMIT,
+        ceiling=MAX_SCHOOL_LIMIT,
+    )
+    university_n = _user_run_limit(
+        university_count,
+        default=DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT,
+        ceiling=MAX_UNIVERSITY_LIMIT,
+    )
+    env["GUIDE_LIMIT"] = str(guide_n)
+    env["SCHOOL_LIMIT"] = str(school_n)
+    env["UNIVERSITY_LIMIT"] = str(university_n)
+    env["CONTENT_LIMIT"] = str(max(school_n, university_n))
+    env["JAPANESE_LIMIT"] = str(max(guide_n, school_n, university_n))
+    return {"guide": guide_n, "school": school_n, "university": university_n}
+
+
+def pipeline_env_for_site(site_id: str, *, krcampus_defaults: bool = True) -> dict[str, str]:
     if not work_root_available():
         return {}
     svc = get_service(site_id)
@@ -1683,7 +1846,9 @@ def pipeline_env_for_site(site_id: str) -> dict[str, str]:
     env = _merge_pipeline_env(repo)
     from topic_queue_env import queue_env_for_site
 
-    env.update(queue_env_for_site(site_id, sync=True))
+    env.update(queue_env_for_site(site_id, sync=False))
+    if site_id == "krcampus" and krcampus_defaults:
+        _apply_krcampus_run_limits(env)
     return env
 
 
@@ -1701,6 +1866,9 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
     )
     korean_n = _bounded_limit(
         env, "KOREAN_LIMIT", default=DEFAULT_KOREAN_LIMIT, ceiling=MAX_KOREAN_LIMIT
+    )
+    japanese_n = _bounded_limit(
+        env, "JAPANESE_LIMIT", default=DEFAULT_JAPANESE_LIMIT, ceiling=MAX_JAPANESE_LIMIT
     )
     parts: list[dict[str, str]] = []
 
@@ -1751,17 +1919,20 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
     elif site_id == "jpcampus":
         parts = [
             {"label": "가이드 AI", "cap": f"토픽 {guide_n}개", "note": "없는 가이드"},
+            {"label": "대학", "cap": "univ_list_100.csv", "note": "AI univ_*.md"},
             {"label": "한국어", "cap": f"원본 {korean_n}건 · 최대 {korean_n} MD", "note": "없는 *_kr.md만"},
             {"label": "featured", "cap": "토픽별 고정", "note": ""},
             {"label": "빌드", "cap": "build_data 1회", "note": "seo_guard 선택"},
             {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
         ]
     elif site_id == "krcampus":
+        school_n = _int_env_allow_zero(env, "SCHOOL_LIMIT", DEFAULT_KRCAMPUS_SCHOOL_LIMIT)
+        university_n = _int_env_allow_zero(env, "UNIVERSITY_LIMIT", DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT)
         parts = [
-            {"label": "가이드 AI", "cap": f"토픽 {guide_n}개", "note": "토픽뱅크 큐"},
-            {"label": "어학원", "cap": "language_schools.csv", "note": "AI school_*.md"},
-            {"label": "대학", "cap": "universities.csv", "note": "AI univ_*.md"},
-            {"label": "日本語", "cap": f"최대 {korean_n} MD", "note": "없는 *_ja.md"},
+            {"label": "가이드 EN", "cap": f"토픽 {guide_n}개", "note": "토픽뱅크 큐"},
+            {"label": "어학원 EN", "cap": f"최대 {school_n}개", "note": "language_schools 큐"},
+            {"label": "대학 EN", "cap": f"최대 {university_n}개", "note": "universities 큐"},
+            {"label": "日本語", "cap": f"종류별 {japanese_n}개", "note": "신규 *_ja 네이티브"},
             {"label": "이미지", "cap": "Places + default 복사 + optimize", "note": "school/univ MD"},
             {"label": "빌드", "cap": "build_data", "note": ""},
             {"label": "GCS", "cap": "krcampus/", "note": "생성 후"},
@@ -1941,11 +2112,19 @@ def _call_ensure_csv(ensure_fn, repo: Path, logf, env: dict[str, str]) -> dict[s
 def _csv_expand_rows_added(info: dict[str, Any]) -> int:
     if "rows_added" in info:
         return int(info.get("rows_added") or 0)
-    return int(info.get("expanded") or 0) + int(info.get("expanded_items") or 0) + int(info.get("expanded_guides") or 0)
+    bank = int(info.get("bank_rows_added") or 0)
+    return bank + int(info.get("expanded") or 0) + int(info.get("expanded_items") or 0) + int(info.get("expanded_guides") or 0)
 
 
-def run_csv_expand(site_id: str) -> dict[str, Any]:
-    """Run ensure_* CSV seed/expansion only (no content generation)."""
+def run_csv_expand(
+    site_id: str,
+    *,
+    insight_count: int | None = None,
+    guide_count: int | None = None,
+    school_count: int | None = None,
+    university_count: int | None = None,
+) -> dict[str, Any]:
+    """Run CSV seed/expansion only (no content generation)."""
     if not work_root_available():
         return {"ok": False, "error": "WORK_ROOT not available"}
     svc = get_service(site_id)
@@ -1969,28 +2148,120 @@ def run_csv_expand(site_id: str) -> dict[str, Any]:
             pass
 
     logf = _Log()
-    env = pipeline_env_for_site(site_id)
 
     if not banks_for_site(site_id):
         return {"ok": False, "error": f"no topic bank for {site_id}"}
 
-    from topic_bank_pipeline import topic_bank_release_and_sync
+    if site_id == "okstats":
+        from statfacts_topic_ai import (
+            DEFAULT_GUIDE_COUNT,
+            DEFAULT_INSIGHT_COUNT,
+            append_statfacts_topics,
+        )
 
-    content_limit = _bounded_limit(
-        env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
-    )
-    guide_limit = _bounded_limit(env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
-    info = topic_bank_release_and_sync(
-        site_id,
-        repo,
-        logf,
-        content_limit=content_limit,
-        guide_limit=guide_limit,
-    )
-    messages.extend(info.get("messages") or [])
-    for bank_id, n in (info.get("released") or {}).items():
-        if n:
-            messages.append(f"토픽뱅크 {bank_id}: +{n}행 (pending→queued)")
+        i_n = insight_count if insight_count is not None else DEFAULT_INSIGHT_COUNT
+        g_n = guide_count if guide_count is not None else DEFAULT_GUIDE_COUNT
+        info = append_statfacts_topics(
+            site_id,
+            repo,
+            logf,
+            insight_count=i_n,
+            guide_count=g_n,
+        )
+        if not info.get("ok"):
+            return info
+        messages.extend(info.get("messages") or [])
+    elif site_id in ("okramen", "okonsen", "okcaddie"):
+        from poi_topic_ai import (
+            DEFAULT_GUIDE_COUNT,
+            DEFAULT_ITEM_COUNT,
+            append_poi_topics,
+        )
+
+        item_n = insight_count if insight_count is not None else DEFAULT_ITEM_COUNT
+        g_n = guide_count if guide_count is not None else DEFAULT_GUIDE_COUNT
+        info = append_poi_topics(
+            site_id,
+            repo,
+            logf,
+            item_count=item_n,
+            guide_count=g_n,
+        )
+        if not info.get("ok"):
+            return info
+        messages.extend(info.get("messages") or [])
+    elif site_id == "starful.biz":
+        from starful_topic_ai import DEFAULT_POSITION_COUNT, append_starful_positions
+
+        p_n = insight_count if insight_count is not None else DEFAULT_POSITION_COUNT
+        info = append_starful_positions(site_id, repo, logf, position_count=p_n)
+        if not info.get("ok"):
+            return info
+        messages.extend(info.get("messages") or [])
+    elif site_id == "jpcampus":
+        from campus_topic_ai import (
+            DEFAULT_GUIDE_COUNT,
+            DEFAULT_UNIVERSITY_COUNT,
+            append_jpcampus_topics,
+        )
+
+        g_n = guide_count if guide_count is not None else DEFAULT_GUIDE_COUNT
+        u_n = university_count if university_count is not None else DEFAULT_UNIVERSITY_COUNT
+        info = append_jpcampus_topics(
+            site_id,
+            repo,
+            logf,
+            guide_count=g_n,
+            university_count=u_n,
+        )
+        if not info.get("ok"):
+            return info
+        messages.extend(info.get("messages") or [])
+    elif site_id == "krcampus":
+        from campus_topic_ai import (
+            DEFAULT_GUIDE_COUNT,
+            DEFAULT_SCHOOL_COUNT,
+            DEFAULT_UNIVERSITY_COUNT,
+            append_krcampus_topics,
+        )
+
+        g_n = guide_count if guide_count is not None else DEFAULT_GUIDE_COUNT
+        s_n = school_count if school_count is not None else DEFAULT_SCHOOL_COUNT
+        u_n = university_count if university_count is not None else DEFAULT_UNIVERSITY_COUNT
+        info = append_krcampus_topics(
+            site_id,
+            repo,
+            logf,
+            guide_count=g_n,
+            school_count=s_n,
+            university_count=u_n,
+        )
+        if not info.get("ok"):
+            return info
+        messages.extend(info.get("messages") or [])
+    elif site_id == "hatena":
+        from topic_bank_pipeline import topic_bank_release_and_sync
+
+        env = pipeline_env_for_site(site_id)
+        content_limit = _bounded_limit(
+            env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
+        )
+        guide_limit = _bounded_limit(
+            env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
+        )
+        info = topic_bank_release_and_sync(
+            site_id,
+            repo,
+            logf,
+            content_limit=content_limit,
+            guide_limit=guide_limit,
+        )
+        messages.extend(info.get("messages") or [])
+        for bank_id, n in (info.get("bank_appended") or {}).items():
+            if n:
+                messages.append(f"토픽뱅크 {bank_id}: 시드 +{n}행")
+    else:
+        return {"ok": False, "error": f"목록 추가 미지원: {site_id}"}
 
     with open(log_path, "a", encoding="utf-8") as lf:
         lf.write(f"\n[{datetime.now():%F %T}] CSV expand (manual)\n")
@@ -1998,6 +2269,13 @@ def run_csv_expand(site_id: str) -> dict[str, Any]:
             lf.write(line + "\n")
 
     rows_added = _csv_expand_rows_added(info)
+    if site_id in ("okstats", "okramen", "okonsen", "okcaddie", "starful.biz", "jpcampus", "krcampus"):
+        try:
+            from ai_spend import record_topic_seed
+
+            record_topic_seed(site_id)
+        except Exception:
+            pass
     return {"ok": True, "site_id": site_id, "rows_added": rows_added, "messages": messages, **info}
 
 
@@ -2008,6 +2286,6 @@ CONTENT_PIPELINES: dict[str, dict[str, str]] = {
     "okstats": {"label": "StatFacts", "description": "인사이트 AI + 가이드 · Imagen · build · GCS"},
     "starful.biz": {"label": "Starful Biz", "description": "포지션 가이드 · 이미지 · build · GCS"},
     "hatena": {"label": "Hatena · okpy", "description": "Python / Cloud 포스트"},
-    "jpcampus": {"label": "JP Campus", "description": "가이드 · 한국어 · featured · build"},
+    "jpcampus": {"label": "JP Campus", "description": "가이드 · 대학 · 한국어 · featured · build"},
     "krcampus": {"label": "KR Campus", "description": "韓国留学 · 가이드 · 어학원/대학 · EN/JA · build"},
 }

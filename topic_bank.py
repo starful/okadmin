@@ -75,7 +75,7 @@ def row_key(spec: BankSpec, row: dict[str, str]) -> str | None:
         val = (row.get(spec.key_col) or "").strip()
         return val.lower() if val else None
     val = (row.get(spec.key_col) or "").strip()
-    if not val:
+    if not val or val.startswith("#"):
         return None
     return val.lower()
 
@@ -142,6 +142,103 @@ def _append_bank_rows(site_id: str, spec: BankSpec, new_rows: list[dict[str, str
     return len(after - before)
 
 
+def _bank_keys(site_id: str, spec: BankSpec) -> set[str]:
+    return {k for r in read_bank(site_id, spec.bank_id) if (k := row_key(spec, r))}
+
+
+def _append_bank_rows_limited(
+    site_id: str,
+    spec: BankSpec,
+    new_rows: list[dict[str, str]],
+    *,
+    max_add: int,
+) -> int:
+    if max_add <= 0 or not new_rows:
+        return 0
+    keys = _bank_keys(site_id, spec)
+    to_add: list[dict[str, str]] = []
+    for row in new_rows:
+        if len(to_add) >= max_add:
+            break
+        key = row_key(spec, row)
+        if not key or key in keys:
+            continue
+        to_add.append({h: (row.get(h) or "") for h in spec.headers})
+        keys.add(key)
+    return _append_bank_rows(site_id, spec, to_add)
+
+
+def append_expand_to_bank(
+    site_id: str,
+    *,
+    content_limit: int,
+    guide_limit: int,
+) -> dict[str, Any]:
+    """Append expand-pool rows to topic banks (new rows start as pending)."""
+    from topic_bank_seeds import expand_pool_for_site
+
+    pool = expand_pool_for_site(site_id)
+    added_by_bank: dict[str, int] = {}
+    content_left = content_limit
+    guide_left = guide_limit
+    for spec in banks_for_site(site_id):
+        rows = pool.get(spec.bank_id) or []
+        if not rows:
+            continue
+        if spec.limit_kind == "guide":
+            cap = guide_left
+        else:
+            cap = content_left
+        n = _append_bank_rows_limited(site_id, spec, rows, max_add=cap)
+        added_by_bank[spec.bank_id] = n
+        if spec.limit_kind == "guide":
+            guide_left -= n
+        else:
+            content_left -= n
+    total = sum(added_by_bank.values())
+    return {"added": total, "by_bank": added_by_bank}
+
+
+def _pool_expandable_count(site_id: str, bank_id: str, pool_rows: list[dict[str, str]]) -> int:
+    spec = next((s for s in banks_for_site(site_id) if s.bank_id == bank_id), None)
+    if not spec or not pool_rows:
+        return 0
+    keys = _bank_keys(site_id, spec)
+    n = 0
+    for row in pool_rows:
+        if not isinstance(row, dict):
+            continue
+        key = row_key(spec, row)
+        if key and key not in keys:
+            n += 1
+    return n
+
+
+def count_expandable(site_id: str, limits: dict[str, int]) -> dict[str, int]:
+    """How many rows CSV 추가 could append+release per bank (capped by limits)."""
+    from topic_bank_seeds import expand_pool_for_site
+
+    pending = count_pending(site_id)
+    pool = expand_pool_for_site(site_id)
+    out: dict[str, int] = {}
+    content_cap = limits.get("content", 0)
+    guide_cap = limits.get("guide", 0)
+    content_used = 0
+    guide_used = 0
+    for spec in banks_for_site(site_id):
+        p = pending.get(spec.bank_id, 0)
+        pool_n = _pool_expandable_count(site_id, spec.bank_id, pool.get(spec.bank_id) or [])
+        total = p + pool_n
+        if spec.limit_kind == "guide":
+            avail = min(total, max(0, guide_cap - guide_used))
+            guide_used += avail
+        else:
+            avail = min(total, max(0, content_cap - content_used))
+            content_used += avail
+        out[spec.bank_id] = avail
+    return out
+
+
 def count_pending(site_id: str, bank_id: str | None = None) -> dict[str, int]:
     state = load_state(site_id)
     rows_state: dict[str, str] = state.get("rows") or {}
@@ -158,26 +255,6 @@ def count_pending(site_id: str, bank_id: str | None = None) -> dict[str, int]:
             if rows_state.get(sk, STATUS_PENDING) == STATUS_PENDING:
                 pending += 1
         out[spec.bank_id] = pending
-    return out
-
-
-def count_expandable(site_id: str, limits: dict[str, int]) -> dict[str, int]:
-    """How many rows could be released per bank given caps."""
-    pending = count_pending(site_id)
-    out: dict[str, int] = {}
-    content_cap = limits.get("content", 0)
-    guide_cap = limits.get("guide", 0)
-    content_used = 0
-    guide_used = 0
-    for spec in banks_for_site(site_id):
-        p = pending.get(spec.bank_id, 0)
-        if spec.limit_kind == "guide":
-            avail = min(p, max(0, guide_cap - guide_used))
-            guide_used += avail
-        else:
-            avail = min(p, max(0, content_cap - content_used))
-            content_used += avail
-        out[spec.bank_id] = avail
     return out
 
 
@@ -227,21 +304,37 @@ def release_site(
     *,
     content_limit: int,
     guide_limit: int,
+    content_limit_each: bool = False,
+    school_limit: int | None = None,
+    university_limit: int | None = None,
 ) -> dict[str, Any]:
+    """Move pending bank rows to queued (cap per guide bank; content banks share or per-bank)."""
     state = load_state(site_id)
     released_by_bank: dict[str, int] = {}
     content_left = content_limit
     guide_left = guide_limit
+    school_left = school_limit if school_limit is not None else content_left
+    university_left = university_limit if university_limit is not None else content_left
     for spec in banks_for_site(site_id):
         if spec.limit_kind == "guide":
             cap = guide_left
+        elif spec.bank_id == "language_schools" and school_limit is not None:
+            cap = school_left
+        elif spec.bank_id == "universities" and university_limit is not None:
+            cap = university_left
+        elif content_limit_each:
+            cap = content_limit
         else:
             cap = content_left
         rows, state = release_rows(site_id, spec, limit=cap, state=state)
         released_by_bank[spec.bank_id] = len(rows)
         if spec.limit_kind == "guide":
             guide_left -= len(rows)
-        else:
+        elif spec.bank_id == "language_schools" and school_limit is not None:
+            school_left -= len(rows)
+        elif spec.bank_id == "universities" and university_limit is not None:
+            university_left -= len(rows)
+        elif not content_limit_each:
             content_left -= len(rows)
     save_state(site_id, state)
     total = sum(released_by_bank.values())
@@ -262,12 +355,24 @@ def _rows_for_queue(site_id: str, spec: BankSpec, state: dict[str, Any]) -> list
     return out
 
 
-def sync_queues(site_id: str, logf: Any | None = None) -> dict[str, Any]:
+def sync_queues(
+    site_id: str,
+    logf: Any | None = None,
+    *,
+    active_banks: set[str] | None = None,
+    bank_limits: dict[str, int] | None = None,
+) -> dict[str, Any]:
     """Write queued/failed rows to okadmin pipeline queue CSVs (no site repo)."""
     state = load_state(site_id)
     out: dict[str, Any] = {"synced": {}, "messages": []}
     for spec in banks_for_site(site_id):
-        rows = _rows_for_queue(site_id, spec, state)
+        if active_banks is not None and spec.bank_id not in active_banks:
+            rows: list[dict[str, str]] = []
+        else:
+            rows = _rows_for_queue(site_id, spec, state)
+            cap = (bank_limits or {}).get(spec.bank_id)
+            if cap is not None:
+                rows = rows[: max(0, cap)]
         dest = queue_path(site_id, spec.bank_id)
         _write_csv_rows(dest, spec.headers, rows)
         out["synced"][spec.bank_id] = len(rows)
@@ -379,7 +484,7 @@ def bootstrap_site(site_id: str, repo: Path | None, seed_rows: dict[str, list[di
 
 
 def ensure_bootstrapped(site_id: str, repo: Path | None) -> None:
-    from topic_bank_seeds import seeds_for_site
+    from topic_bank_seeds import bootstrap_seeds_for_site
 
     specs = banks_for_site(site_id)
     if not specs:
@@ -387,4 +492,4 @@ def ensure_bootstrapped(site_id: str, repo: Path | None) -> None:
     missing = any(not _bank_path(site_id, s.bank_id).is_file() for s in specs)
     state_missing = not _state_path(site_id).is_file()
     if missing or state_missing:
-        bootstrap_site(site_id, repo, seeds_for_site(site_id))
+        bootstrap_site(site_id, repo, bootstrap_seeds_for_site(site_id))

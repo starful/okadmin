@@ -19,10 +19,8 @@
     .summary-lines { list-style: none; margin: 0; padding: 0; font-size: 12px; line-height: 1.6; }
     .summary-lines li { padding: 2px 0; color: #ccc; }
     .summary-lines li.created-highlight { color: #8cf; font-weight: 700; }
-    .log-snippet { margin-top: 8px; padding: 10px 12px; background: #000; border: 1px solid var(--border); border-radius: 8px; font-family: 'DM Mono'; font-size: 10px; color: #8a8; white-space: pre-wrap; min-height: 48px; }
     .log-label { font-family: 'DM Mono'; font-size: 10px; color: #666; margin: 12px 0 4px; }
-    .log-full { margin-top: 12px; }
-    .log-full pre { margin: 4px 0 0; padding: 10px; background: #000; border: 1px solid var(--border); border-radius: 8px; font-size: 10px; color: #666; white-space: pre-wrap; min-height: 80px; }
+    .log-full pre { margin: 4px 0 0; padding: 10px; background: #000; border: 1px solid var(--border); border-radius: 8px; font-size: 10px; color: #8a8; white-space: pre-wrap; min-height: 96px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -89,10 +87,8 @@
         <ul class="summary-lines" id="summary-lines">
             <li style="color:#666">「콘텐츠 생성」 실행 시 여기에 표시됩니다.</li>
         </ul>
-        <p class="log-label" id="log-label">파이프라인 로그</p>
-        <div class="log-snippet" id="log-snippet">—</div>
         <div class="log-full" id="log-full">
-            <p class="log-label" style="margin-top:14px">상세 로그</p>
+            <p class="log-label" id="log-label">상세 로그</p>
             <pre id="log-full-text">—</pre>
         </div>
     </div>

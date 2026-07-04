@@ -113,6 +113,14 @@ def list_pipelines():
     return jsonify(items)
 
 
+@content_bp.route("/ai-spend")
+@requires_auth
+def ai_spend_summary():
+    from ai_spend import spend_summary
+
+    return jsonify(spend_summary())
+
+
 @content_bp.route("/pipeline/backlog/refresh", methods=["POST"])
 @requires_auth
 def pipeline_backlog_refresh():
@@ -139,12 +147,31 @@ def pipeline_csv_expand():
         return jsonify({"error": "unknown pipeline"}), 400
     if _pipeline_running.get(site_id):
         return jsonify({"error": "pipeline already running"}), 409
-    expand = run_csv_expand(site_id)
+    insight_count = data.get("insight_count")
+    guide_count = data.get("guide_count")
+    school_count = data.get("school_count")
+    university_count = data.get("university_count")
+    expand = run_csv_expand(
+        site_id,
+        insight_count=insight_count,
+        guide_count=guide_count,
+        school_count=school_count,
+        university_count=university_count,
+    )
     if not expand.get("ok"):
         return jsonify(expand), 400
     backlog = refresh_backlog_snapshot(site_id)
     expand["backlog"] = backlog
     return jsonify(expand)
+
+
+def _optional_nonneg_int(data: dict, key: str) -> int | None:
+    if key not in data:
+        return None
+    try:
+        return max(0, int(data[key]))
+    except (TypeError, ValueError):
+        return None
 
 
 @content_bp.route("/pipeline/run", methods=["POST"])
@@ -161,11 +188,20 @@ def pipeline_run():
 
     import threading
 
+    guide_count = _optional_nonneg_int(data, "guide_count")
+    school_count = _optional_nonneg_int(data, "school_count")
+    university_count = _optional_nonneg_int(data, "university_count")
+
     def worker():
         _pipeline_running[site_id] = True
         _pipeline_phase[site_id] = "generate"
         try:
-            result = run_pipeline(site_id)
+            result = run_pipeline(
+                site_id,
+                guide_count=guide_count,
+                school_count=school_count,
+                university_count=university_count,
+            )
             if result.get("ok"):
                 _pipeline_phase[site_id] = "deploy"
 

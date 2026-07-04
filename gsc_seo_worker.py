@@ -233,7 +233,7 @@ def resolve_content_files(site_id: str, url: str) -> list[Path]:
 
     segment = path.rstrip("/").split("/")[-1] if path != "/" else ""
 
-    # /item/{id} → {id}.md (oksushi, okcafejp, …)
+    # /item/{id} → {id}.md
     m_item = re.search(r"/item/([^/?#]+)", norm_path)
     if m_item:
         slug = m_item.group(1)
@@ -430,7 +430,7 @@ def run_seo_jobs(
 
     picked: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for raw_url in urls[:20]:
+    for raw_url in urls[:15]:
         url = (raw_url or "").strip()
         if not url or url in seen:
             continue
@@ -594,7 +594,7 @@ def delete_url_content_files(site_id: str, urls: list[str]) -> dict[str, Any]:
         return {"error": f"unknown site: {site_id}"}
 
     results: list[dict[str, Any]] = []
-    for raw in urls[:20]:
+    for raw in urls[:15]:
         url = (raw or "").strip()
         if not url:
             continue

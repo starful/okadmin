@@ -80,7 +80,7 @@ def gsc_run_seo():
     raw_urls = body.get("urls") or []
     if isinstance(raw_urls, str):
         raw_urls = [raw_urls]
-    urls = [str(u).strip() for u in raw_urls if u and str(u).strip()][:20]
+    urls = [str(u).strip() for u in raw_urls if u and str(u).strip()][:15]
     if not urls:
         return jsonify({"error": "urls required — 표에서 URL을 선택하세요"}), 400
     apply_files = True
@@ -110,6 +110,14 @@ def gsc_run_seo():
         for r in results
     )
     write_gsc_seo_run(site_id, result, ok=seo_ok)
+    if seo_ok:
+        try:
+            from ai_spend import record_gsc_seo
+
+            applied = [r for r in results if r.get("status") in ("applied", "no_changes", "pending")]
+            record_gsc_seo(site_id, len(applied) or len(urls))
+        except Exception:
+            pass
     result["calendar_event"] = record_gsc_seo_calendar(site_id, result)
     result["calendar_skipped"] = result["calendar_event"] is None
     result["suggested_commit_message"] = seo_commit_message(site_id, result)
@@ -132,7 +140,7 @@ def gsc_delete_files():
     raw_urls = body.get("urls") or []
     if isinstance(raw_urls, str):
         raw_urls = [raw_urls]
-    urls = [str(u).strip() for u in raw_urls if u and str(u).strip()][:20]
+    urls = [str(u).strip() for u in raw_urls if u and str(u).strip()][:15]
     if not urls:
         return jsonify({"error": "urls required"}), 400
     if not work_root_available():

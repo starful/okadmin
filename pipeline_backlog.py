@@ -326,7 +326,7 @@ def _krcampus_backlog(repo: Path) -> dict[str, Any]:
     }
 
 
-def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, int]:
+def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, Any]:
     """How many rows topic bank would release (pending, capped by limits)."""
     from content_pipeline import (
         DEFAULT_CONTENT_LIMIT,
@@ -336,6 +336,70 @@ def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, int]:
         _bounded_limit,
         pipeline_env_for_site,
     )
+
+    if site_id == "okstats":
+        from statfacts_topic_ai import DEFAULT_GUIDE_COUNT, DEFAULT_INSIGHT_COUNT
+
+        return {
+            "items_expandable": DEFAULT_INSIGHT_COUNT,
+            "guides_expandable": DEFAULT_GUIDE_COUNT,
+            "statfacts_ai_queue": True,
+            "ai_queue": True,
+            "default_insights": DEFAULT_INSIGHT_COUNT,
+            "default_guides": DEFAULT_GUIDE_COUNT,
+        }
+
+    if site_id in ("okramen", "okonsen", "okcaddie"):
+        from poi_topic_ai import DEFAULT_GUIDE_COUNT, DEFAULT_ITEM_COUNT
+
+        return {
+            "items_expandable": DEFAULT_ITEM_COUNT,
+            "guides_expandable": DEFAULT_GUIDE_COUNT,
+            "ai_queue": True,
+            "default_items": DEFAULT_ITEM_COUNT,
+            "default_guides": DEFAULT_GUIDE_COUNT,
+        }
+
+    if site_id == "starful.biz":
+        from starful_topic_ai import DEFAULT_POSITION_COUNT
+
+        return {
+            "items_expandable": DEFAULT_POSITION_COUNT,
+            "guides_expandable": 0,
+            "ai_queue": True,
+            "queue_mode": "positions",
+            "default_positions": DEFAULT_POSITION_COUNT,
+        }
+
+    if site_id == "jpcampus":
+        from campus_topic_ai import DEFAULT_GUIDE_COUNT, DEFAULT_UNIVERSITY_COUNT
+
+        return {
+            "items_expandable": DEFAULT_UNIVERSITY_COUNT,
+            "guides_expandable": DEFAULT_GUIDE_COUNT,
+            "ai_queue": True,
+            "queue_mode": "jpcampus",
+            "default_guides": DEFAULT_GUIDE_COUNT,
+            "default_universities": DEFAULT_UNIVERSITY_COUNT,
+        }
+
+    if site_id == "krcampus":
+        from campus_topic_ai import (
+            DEFAULT_GUIDE_COUNT,
+            DEFAULT_SCHOOL_COUNT,
+            DEFAULT_UNIVERSITY_COUNT,
+        )
+
+        return {
+            "items_expandable": DEFAULT_SCHOOL_COUNT + DEFAULT_UNIVERSITY_COUNT,
+            "guides_expandable": DEFAULT_GUIDE_COUNT,
+            "ai_queue": True,
+            "queue_mode": "krcampus",
+            "default_guides": DEFAULT_GUIDE_COUNT,
+            "default_schools": DEFAULT_SCHOOL_COUNT,
+            "default_universities": DEFAULT_UNIVERSITY_COUNT,
+        }
+
     from topic_bank_pipeline import topic_bank_expand_preview
 
     env = pipeline_env_for_site(site_id)
@@ -399,14 +463,39 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     next_korean = min(korean_limit, korean) if korean else 0
 
     content_empty = items_pairs == 0 and guides_topics == 0 and korean == 0
+    if site_id == "starful.biz":
+        content_empty = int(raw.get("guides_md") or 0) == 0
+    elif site_id == "jpcampus":
+        content_empty = (
+            int(raw.get("guides_topics") or 0) == 0
+            and int(raw.get("univs_pending") or 0) == 0
+        )
+    elif site_id == "krcampus":
+        content_empty = (
+            int(raw.get("guides_topics") or 0) == 0
+            and int(raw.get("schools_pending") or 0) == 0
+            and int(raw.get("univs_pending") or 0) == 0
+        )
     expand_avail = expand.get("items_expandable", 0) + expand.get("guides_expandable", 0)
-    csv_refresh_suggested = content_empty and expand_avail > 0
+    if site_id in (
+        "okstats",
+        "okramen",
+        "okonsen",
+        "okcaddie",
+        "starful.biz",
+        "jpcampus",
+        "krcampus",
+    ):
+        csv_refresh_suggested = content_empty
+    else:
+        csv_refresh_suggested = content_empty and expand_avail > 0
 
     if site_id == "starful.biz":
         content_n = 0
         guide_n = int(raw.get("guides_md") or 0)
     elif site_id == "jpcampus":
-        content_n = 0
+        univs_n = int(raw.get("univs_pending") or 0)
+        content_n = univs_n
         guide_n = guides_topics
     elif site_id == "krcampus":
         schools_n = int(raw.get("schools_pending") or 0)
@@ -431,28 +520,37 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     if site_id == "krcampus":
         generatable["schools"] = int(raw.get("schools_pending") or 0)
         generatable["univs"] = int(raw.get("univs_pending") or 0)
+        generatable["total"] = guide_n + generatable["schools"] + generatable["univs"]
+    elif site_id == "starful.biz":
+        generatable["total"] = guide_n
+    elif site_id == "jpcampus":
+        generatable["univs"] = int(raw.get("univs_pending") or 0)
+        generatable["total"] = guide_n + generatable["univs"]
 
     if site_id == "okstats":
-        ci = int(raw.get("csv_items") or 0)
-        cg = int(raw.get("csv_guides") or 0)
-        summary = f"인사이트 {content_n}/{ci} · 가이드 {guide_n}/{cg}"
+        total_gen = content_n + guide_n
+        summary = f"생성 가능 {total_gen}건 (인사이트 {content_n} · 가이드 {guide_n})"
+    elif site_id == "okramen":
+        total_gen = content_n + guide_n
+        summary = f"생성 가능 {total_gen}건 (라멘 {content_n} · 가이드 {guide_n})"
+    elif site_id == "okonsen":
+        total_gen = content_n + guide_n
+        summary = f"생성 가능 {total_gen}건 (온천 {content_n} · 가이드 {guide_n})"
+    elif site_id == "okcaddie":
+        total_gen = content_n + guide_n
+        summary = f"생성 가능 {total_gen}건 (코스 {content_n} · 가이드 {guide_n})"
     elif site_id == "starful.biz":
-        ci = int(raw.get("csv_items") or 0)
-        summary = f"가이드 {guide_n}/{ci}" if ci else f"가이드 {guide_n}"
+        total_gen = guide_n
+        summary = f"생성 가능 {total_gen}건 (포지션 {guide_n})"
     elif site_id == "jpcampus":
-        cg = int(raw.get("csv_guides") or 0)
-        summary = f"가이드 {guide_n}/{cg}" if cg else f"가이드 {guide_n}"
+        univs_n = int(raw.get("univs_pending") or 0)
+        total_gen = guide_n + univs_n
+        summary = f"생성 가능 {total_gen}건 (가이드 {guide_n} · 대학 {univs_n})"
     elif site_id == "krcampus":
-        cg = int(raw.get("csv_guides") or 0)
-        cs = int(raw.get("csv_schools") or 0)
-        cu = int(raw.get("csv_univs") or 0)
-        sp = int(raw.get("schools_pending") or 0)
-        up = int(raw.get("univs_pending") or 0)
-        summary = f"가이드 {guide_n}/{cg} · 어학원 {sp}/{cs} · 대학 {up}/{cu}"
-    elif site_id in ("okramen", "okonsen", "okcaddie"):
-        ci = int(raw.get("csv_items") or 0)
-        cg = int(raw.get("csv_guides") or 0)
-        summary = f"아이템 {content_n}/{ci} · 가이드 {guide_n}/{cg}"
+        schools_n = int(raw.get("schools_pending") or 0)
+        univs_n = int(raw.get("univs_pending") or 0)
+        total_gen = guide_n + schools_n + univs_n
+        summary = f"생성 가능 {total_gen}건 (가이드 {guide_n} · 어학원 {schools_n} · 대학 {univs_n})"
     else:
         summary = f"콘텐츠 {content_n} · 가이드 {guide_n}"
 
@@ -462,6 +560,8 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     }
     if site_id == "krcampus":
         csv_out["schools"] = raw.get("csv_schools")
+        csv_out["univs"] = raw.get("csv_univs")
+    elif site_id == "jpcampus":
         csv_out["univs"] = raw.get("csv_univs")
 
     return {

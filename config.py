@@ -189,6 +189,11 @@ CONTENT_JOBS: dict[str, list[dict[str, str]]] = {
             "command": "python3 scripts/2.generate_ai_guides.py",
         },
         {
+            "id": "collect_universities",
+            "label": "대학 수집",
+            "command": "python3 scripts/1.collect_universities.py",
+        },
+        {
             "id": "korean_content",
             "label": "한국어 콘텐츠",
             "command": "python3 scripts/3.create_korean_content.py",
@@ -289,6 +294,12 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
             "label": "guide_topics.csv",
             "rel_path": "data/guide_topics.csv",
             "headers": ["slug", "category", "title", "description", "prompt"],
+        },
+        {
+            "id": "universities",
+            "label": "univ_list_100.csv",
+            "rel_path": "data/univ_list_100.csv",
+            "headers": ["name_ja", "name_en", "region"],
         },
     ],
     "krcampus": [
