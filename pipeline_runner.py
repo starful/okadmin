@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from pipeline_limits import SITE_GCS_BUCKETS, SITE_GCS_IMAGE_DIRS
+from generation_result import last_generation_result
 from topic_bank_registry import banks_for_site
 
 Step = tuple[str, str, list[str], int]
@@ -188,13 +189,17 @@ def _run_step(
     if not ok:
         lines = [ln for ln in combined_out.splitlines() if ln.strip()]
         err_tail = "\n".join(lines[-12:])
-    return {
+    result: dict[str, Any] = {
         "ok": ok,
         "label": label,
         "exit_code": proc.returncode,
         "error": err_tail if not ok else "",
         "output": combined_out[-8000:],
     }
+    gen_result = last_generation_result(combined_out)
+    if gen_result:
+        result["generation_result"] = gen_result
+    return result
 def execute_pipeline(
     site_id: str,
     repo: Path,
@@ -289,16 +294,7 @@ def execute_pipeline(
 
 
 def _content_generation_warning(steps: list[dict[str, Any]]) -> str | None:
-    """True when generate steps ran OK but logs suggest zero new MD/posts."""
-    for step in steps:
-        if step.get("step") != "items" or not step.get("ok"):
-            continue
-        text = (step.get("output") or "").lower()
-        if text and any(p in text for p in _CONTENT_ZERO_PATTERNS) and not any(
-            re.search(p, text) for p in _CONTENT_GEN_PATTERNS
-        ):
-            return "아이템 신규 0건 (큐에 이미 완료된 항목이 남았는지 확인)"
-
+    """True when generate steps ran OK but produced zero new content."""
     gen_ids = {
         "guides",
         "universities",
@@ -307,13 +303,54 @@ def _content_generation_warning(steps: list[dict[str, Any]]) -> str | None:
         "py",
         "cloud",
         "korean",
+        "schools",
     }
+    structured_steps = [s for s in steps if s.get("step") in gen_ids and s.get("ok")]
+    if structured_steps and all(s.get("generation_result") for s in structured_steps):
+        saw_zero = False
+        saw_gen = False
+        for step in structured_steps:
+            gr = step.get("generation_result") or {}
+            generated = int(gr.get("generated") or 0)
+            topics = int(gr.get("topics") or 0)
+            failed = int(gr.get("failed") or 0)
+            if generated > 0:
+                saw_gen = True
+            elif topics == 0 and failed == 0:
+                saw_zero = True
+            elif topics > 0 and generated == 0:
+                return f"{step.get('label') or step.get('step')}: 생성 시도 {topics}건, 성공 0건"
+        if saw_zero and not saw_gen:
+            return "이번 실행에서 신규 콘텐츠 0건 (백로그 없음 또는 이미 완료)"
+        return None
+
+    for step in steps:
+        if step.get("step") != "items" or not step.get("ok"):
+            continue
+        gr = step.get("generation_result")
+        if gr:
+            if int(gr.get("generated") or 0) == 0 and int(gr.get("topics") or 0) == 0:
+                return "아이템 신규 0건 (큐에 이미 완료된 항목이 남았는지 확인)"
+            continue
+        text = (step.get("output") or "").lower()
+        if text and any(p in text for p in _CONTENT_ZERO_PATTERNS) and not any(
+            re.search(p, text) for p in _CONTENT_GEN_PATTERNS
+        ):
+            return "아이템 신규 0건 (큐에 이미 완료된 항목이 남았는지 확인)"
+
     gen_steps = [s for s in steps if s.get("step") in gen_ids and s.get("ok")]
     if not gen_steps:
         return None
     saw_zero = False
     saw_gen = False
     for step in gen_steps:
+        gr = step.get("generation_result")
+        if gr:
+            if int(gr.get("generated") or 0) > 0:
+                saw_gen = True
+            elif int(gr.get("topics") or 0) == 0:
+                saw_zero = True
+            continue
         text = (step.get("output") or "").lower()
         if not text:
             continue

@@ -191,4 +191,9 @@ def merge_pipeline_env(repo: Path) -> dict[str, str]:
         except ImportError:
             pass
     sanitize_pipeline_limits(env)
+    okadmin_root = Path(__file__).resolve().parent
+    existing = env.get("PYTHONPATH", "")
+    okadmin_str = str(okadmin_root)
+    if okadmin_str not in existing.split(os.pathsep):
+        env["PYTHONPATH"] = okadmin_str + (os.pathsep + existing if existing else "")
     return env
