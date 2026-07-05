@@ -124,6 +124,7 @@ async function loadSiteWorkflow(siteId) {
     try { sites = await sitesRes.json(); } catch (_) {}
     try { logData = await logsRes.json(); } catch (_) {}
     try { pipelines = await pipesRes.json(); } catch (_) {}
+    if (Array.isArray(pipelines)) window.__pipelines = pipelines;
 
     const site = sites.find(s => s.id === siteId);
     const logs = (logData.sites || {})[siteId] || {};

@@ -9,7 +9,7 @@ from typing import Any
 from config_gemini import ensure_gemini_api_key
 from statfacts_topic_ai import _clamp_count, _gemini_json
 from topic_bank import _append_bank_rows, read_bank
-from topic_bank_pipeline import _read_univ_md_names
+from content_done import _read_univ_md_names
 from topic_bank_registry import banks_for_site
 
 DEFAULT_GUIDE_COUNT = 3
