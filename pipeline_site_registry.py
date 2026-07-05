@@ -187,15 +187,23 @@ def pipeline_for_site(site_id: str, repo: Path, env: dict[str, str]) -> dict[str
             steps.append(
                 ("universities", "universities", ["python3", "scripts/1.collect_universities.py"], 3600)
             )
-        steps.extend(
-            [
-                ("japanese", "Japanese native", ["python3", "scripts/3.generate_japanese_native.py"], 3600),
-                ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
-                ("images", "fetch_images", ["python3", "scripts/fetch_images.py"], 2400),
-                ("images_opt", "optimize_images", ["python3", "scripts/optimize_images.py"], 900),
-                ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
-            ]
-        )
+        with_ja = env.get("CONTENT_PIPELINE_WITH_JA", "0").strip().lower() in ("1", "true", "yes")
+        post_en = [
+            ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
+            (
+                "images",
+                "fetch_images",
+                ["python3", "scripts/fetch_images.py", "--missing"],
+                2400,
+            ),
+            ("images_opt", "optimize_images", ["python3", "scripts/optimize_images.py"], 900),
+            ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
+        ]
+        if with_ja:
+            steps.append(
+                ("japanese", "Japanese translate", ["python3", "scripts/3.generate_japanese_native.py"], 3600)
+            )
+        steps.extend(post_en)
         optional = [("seo", "seo_guard", ["python3", "scripts/seo_guard.py"], 300)]
         return execute_pipeline(
             site_id,

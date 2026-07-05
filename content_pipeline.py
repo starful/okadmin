@@ -984,7 +984,7 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
             {"label": "가이드 EN", "cap": f"토픽 {guide_n}개", "note": "토픽뱅크 큐"},
             {"label": "어학원 EN", "cap": f"최대 {school_n}개", "note": "language_schools 큐"},
             {"label": "대학 EN", "cap": f"최대 {university_n}개", "note": "universities 큐"},
-            {"label": "日本語", "cap": f"종류별 {japanese_n}개", "note": "신규 *_ja 네이티브"},
+            {"label": "日本語", "cap": f"종류별 {japanese_n}개", "note": "별도 실행(CONTENT_PIPELINE_WITH_JA=1)"},
             {"label": "이미지", "cap": "Places + default 복사 + optimize", "note": "school/univ MD"},
             {"label": "빌드", "cap": "build_data", "note": ""},
             {"label": "GCS", "cap": "krcampus/", "note": "생성 후"},
