@@ -188,6 +188,7 @@ def pipeline_run():
 
     import threading
 
+    insight_count = _optional_nonneg_int(data, "insight_count")
     guide_count = _optional_nonneg_int(data, "guide_count")
     school_count = _optional_nonneg_int(data, "school_count")
     university_count = _optional_nonneg_int(data, "university_count")
@@ -198,6 +199,7 @@ def pipeline_run():
         try:
             result = run_pipeline(
                 site_id,
+                insight_count=insight_count,
                 guide_count=guide_count,
                 school_count=school_count,
                 university_count=university_count,

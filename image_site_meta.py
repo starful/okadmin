@@ -10,31 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from config import WORK_ROOT, get_service, repo_path, work_root_available
+from content_slugs import caddie_safe_name, csv_safe_name, okonsen_safe_name
 from gsc_seo_worker import _parse_frontmatter, _write_frontmatter
 
 # Sites with full meta panel + MD image_prompt editing in GCS tab
 SITE_META_KEYS = frozenset({"okonsen", "okramen", "okcaddie", "okstats", "krcampus", "starful_biz"})
-
-
-def okonsen_safe_name(name: str) -> str:
-    return name.lower().replace(" ", "_").replace("'", "").replace(",", "")
-
-
-def caddie_safe_name(name: str) -> str:
-    return (
-        name.lower()
-        .replace(" ", "_")
-        .replace("'", "")
-        .replace(",", "")
-        .replace("&", "and")
-        .replace(".", "")
-    )
-
-
-def _csv_safe_name(site_key: str, name: str) -> str:
-    if site_key == "okcaddie":
-        return caddie_safe_name(name)
-    return okonsen_safe_name(name)
 
 
 def _meta_slug(site_key: str, slug: str) -> str:
@@ -169,7 +149,7 @@ def _load_csv_index_from_path(
                 name = (row.get("Name") or "").strip()
                 if not name:
                     continue
-                key = _csv_safe_name(site_key, name)
+                key = csv_safe_name(site_key, name)
                 out[key] = {
                     "name": name,
                     "lat": (row.get("Lat") or "").strip(),

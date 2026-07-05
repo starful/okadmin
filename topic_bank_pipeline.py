@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -24,13 +23,9 @@ from topic_bank import (
     sync_state_from_repo,
     _state_key,
 )
+from content_slugs import content_item_slug, poi_item_slug
+from pipeline_specs import POI_SITES
 from topic_bank_registry import BankSpec, banks_for_site
-
-_ITEM_SLUG_RE = re.compile(r"[^a-z0-9_]")
-
-
-def _item_slug(name: str) -> str:
-    return _ITEM_SLUG_RE.sub("", name.lower().replace(" ", "_").replace("'", ""))
 
 
 def _read_univ_md_names(md_path: Path) -> tuple[str, str, str]:
@@ -98,7 +93,7 @@ def _univ_row_done(repo: Path, row: dict[str, str]) -> bool:
     if name_en and name_en in en_set:
         return True
     if name_ko:
-        slug = _item_slug(name_ko)
+        slug = poi_item_slug(name_ko)
         if (content_dir / f"univ_{slug}.md").is_file():
             return True
     return False
@@ -133,7 +128,7 @@ def _is_row_done(site_id: str, repo: Path, spec: BankSpec, row: dict[str, str]) 
         ko = (row.get("name_ko") or "").strip()
         if not ko:
             return False
-        slug = _item_slug(ko)
+        slug = poi_item_slug(ko)
         return (content_dir / f"school_{slug}.md").is_file() or any(
             content_dir.glob(f"school_*{slug}*.md")
         )
@@ -145,7 +140,7 @@ def _is_row_done(site_id: str, repo: Path, spec: BankSpec, row: dict[str, str]) 
         name = (row.get("Name") or row.get("name") or "").strip()
         if not name:
             return False
-        slug = _item_slug(name)
+        slug = content_item_slug(site_id, name)
         en = content_dir / f"{slug}_en.md"
         ko = content_dir / f"{slug}_ko.md"
         return en.is_file() and ko.is_file()
@@ -389,13 +384,13 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
     guides_dir = content_dir / "guides"
     images_dir = repo / "app" / "static" / "images"
 
-    if site_id in ("okramen", "okonsen", "okcaddie"):
+    if site_id in POI_SITES:
 
         def item_miss(spec: BankSpec, row: dict[str, str]) -> bool:
             name = (row.get("Name") or "").strip()
             if not name:
                 return False
-            slug = _item_slug(name)
+            slug = content_item_slug(site_id, name)
             en = content_dir / f"{slug}_en.md"
             ko = content_dir / f"{slug}_ko.md"
             return int(not en.is_file()) + int(not ko.is_file())

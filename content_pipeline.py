@@ -6,32 +6,62 @@ import io
 import json
 import os
 import re
-import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from config import get_service, repo_path, work_root_available
+from pipeline_ensure import ensure_site_topic_bank
+from pipeline_limits import (
+    DEFAULT_CONTENT_LIMIT,
+    DEFAULT_GUIDE_LIMIT,
+    DEFAULT_HATENA_MAX_POSTS,
+    DEFAULT_KOREAN_LIMIT,
+    DEFAULT_JAPANESE_LIMIT,
+    DEFAULT_KRCAMPUS_SCHOOL_LIMIT,
+    DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT,
+    MAX_CONTENT_LIMIT,
+    MAX_GUIDE_LIMIT,
+    MAX_HATENA_MAX_POSTS,
+    MAX_KOREAN_LIMIT,
+    MAX_JAPANESE_LIMIT,
+    MAX_SCHOOL_LIMIT,
+    MAX_UNIVERSITY_LIMIT,
+    MIN_GUIDE_ROWS,
+    MIN_ITEM_ROWS,
+    apply_krcampus_run_limits,
+    bounded_limit,
+    int_env,
+    int_env_allow_zero,
+    merge_pipeline_env,
+    user_run_limit,
+)
+from pipeline_runner import (
+    pipeline_last_run,
+    pipeline_log_path,
+    read_pipeline_status,
+    tail_pipeline_log,
+    write_pipeline_status,
+)
 from topic_bank_registry import banks_for_site
 
-MIN_ITEM_ROWS = 8
-MIN_GUIDE_ROWS = 3
+# Backward-compatible re-exports
+ensure_okstats_csv = lambda repo, logf, **kw: ensure_site_topic_bank("okstats", repo, logf, **kw)
+ensure_poi_site_csv = lambda site_id, repo, logf, **kw: ensure_site_topic_bank(site_id, repo, logf, **kw)
+ensure_topic_bank_sync_only = ensure_site_topic_bank
+ensure_site_csv_from_bank = ensure_site_topic_bank
+ensure_starful_csv = lambda repo, logf, **kw: ensure_site_topic_bank("starful.biz", repo, logf, **kw)
+ensure_hatena_csv = lambda repo, logf, **kw: ensure_site_topic_bank("hatena", repo, logf, **kw)
+ensure_jpcampus_csv = lambda repo, logf, **kw: ensure_site_topic_bank("jpcampus", repo, logf, **kw)
+ensure_krcampus_csv = lambda repo, logf, **kw: ensure_site_topic_bank("krcampus", repo, logf, **kw)
 
-# Hub one-click caps: 가이드 3토픽(최대 6 MD) · 아이템 6행(최대 12 MD en/ko).
-DEFAULT_CONTENT_LIMIT = 6
-DEFAULT_GUIDE_LIMIT = 3
-DEFAULT_HATENA_MAX_POSTS = 6
-DEFAULT_KOREAN_LIMIT = 6
-DEFAULT_JAPANESE_LIMIT = 3
-MAX_CONTENT_LIMIT = 50
-MAX_GUIDE_LIMIT = 20
-MAX_HATENA_MAX_POSTS = 20
-MAX_KOREAN_LIMIT = 30
-MAX_JAPANESE_LIMIT = 20
-MAX_SCHOOL_LIMIT = 15
-MAX_UNIVERSITY_LIMIT = 15
-DEFAULT_KRCAMPUS_SCHOOL_LIMIT = 3
-DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT = 3
+# Legacy aliases for pipeline_backlog / topic_bank_seeds
+_bounded_limit = bounded_limit
+_int_env = int_env
+_int_env_allow_zero = int_env_allow_zero
+_user_run_limit = user_run_limit
+_apply_krcampus_run_limits = apply_krcampus_run_limits
+_sanitize_pipeline_limits = __import__("pipeline_limits", fromlist=["sanitize_pipeline_limits"]).sanitize_pipeline_limits
 
 # Tokyo cafe seeds when items.csv is nearly empty
 DEFAULT_ITEM_SEEDS: list[dict[str, str]] = [
@@ -587,137 +617,6 @@ JPCAMPUS_EXPAND_GUIDES = [
     },
 ]
 
-SITE_GCS_BUCKETS: dict[str, str] = {
-    "okramen": "gs://ok-project-assets/okramen",
-    "okonsen": "gs://ok-project-assets/okonsen",
-    "okcaddie": "gs://ok-project-assets/okcaddie",
-    "okstats": "gs://ok-project-assets/statfacts",
-    "krcampus": "gs://ok-project-assets/krcampus",
-    "starful.biz": "gs://starful-biz-assets",
-}
-
-SITE_GCS_IMAGE_DIRS: dict[str, str] = {
-    "starful.biz": "app/static/img",
-}
-
-_CONTENT_ZERO_PATTERNS = (
-    "no new guides to generate",
-    "no missing en/ko",
-    "no guide orphans",
-    "no new items",
-    "생성할 새",
-    "모든 가이드가 이미",
-    "모든 코스 콘텐츠가 이미",
-    "모든 파일이 생성済",
-    "すべてのファイルが生成済",
-    "새로 생성할 컨텐츠가 없",
-    "pending: 0",
-)
-_CONTENT_GEN_PATTERNS = (
-    r"starting generation for (\d+)",
-    r"generating (\d+) missing",
-    r"🔔 (\d+) topic",
-    r"🔔 (\d+)개",
-    r"✅ \[done\]",
-    r"✅ \[완료\]",
-    r"✅ success:",
-    r"✅ 完了:",
-    r"✅ 생성 완료 \(\d+\)",
-)
-
-
-def _log_dir() -> Path:
-    base = Path(__file__).resolve().parent / "data" / "content_logs"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
-
-
-def pipeline_log_path(site_id: str) -> Path:
-    return _log_dir() / f"{site_id}_pipeline.log"
-
-
-def pipeline_status_path(site_id: str) -> Path:
-    return _log_dir() / f"{site_id}_pipeline_status.json"
-
-
-def read_pipeline_status(site_id: str) -> dict[str, Any] | None:
-    path = pipeline_status_path(site_id)
-    if not path.is_file():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def write_pipeline_status(site_id: str, data: dict[str, Any]) -> None:
-    stamped = _stamp_pipeline_result(data)
-    pipeline_status_path(site_id).write_text(
-        json.dumps(stamped, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-_PIPELINE_HEADER_RE = re.compile(
-    r"^# (\S+) pipeline (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*$",
-    re.MULTILINE,
-)
-
-
-def _stamp_pipeline_result(data: dict[str, Any]) -> dict[str, Any]:
-    out = dict(data)
-    if "finished_at" not in out:
-        out["finished_at"] = datetime.now().replace(microsecond=0).isoformat(sep=" ")
-    return out
-
-
-def _parse_run_datetime(raw: str) -> datetime | None:
-    s = (raw or "").strip()
-    if not s:
-        return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(s[: len(fmt)], fmt)
-        except ValueError:
-            continue
-    try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00")[:19])
-    except ValueError:
-        return None
-
-
-def pipeline_last_run(site_id: str) -> dict[str, Any]:
-    """Last pipeline run time for UI (status file, log header, or file mtime)."""
-    status = read_pipeline_status(site_id)
-    ok: bool | None = status.get("ok") if status else None
-    at: datetime | None = None
-
-    status_path = pipeline_status_path(site_id)
-    if status:
-        at = _parse_run_datetime(str(status.get("finished_at") or status.get("last_run_at") or ""))
-        if at is None and status_path.is_file():
-            at = datetime.fromtimestamp(status_path.stat().st_mtime)
-
-    log_path = pipeline_log_path(site_id)
-    if at is None and log_path.is_file():
-        try:
-            text = log_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            text = ""
-        matches = _PIPELINE_HEADER_RE.findall(text)
-        for sid, ts in reversed(matches):
-            if sid == site_id:
-                at = _parse_run_datetime(ts)
-                break
-        if at is None:
-            at = datetime.fromtimestamp(log_path.stat().st_mtime)
-
-    display = at.strftime("%Y-%m-%d %H:%M") if at else None
-    return {
-        "last_run_at": at.isoformat(sep=" ") if at else None,
-        "last_run_display": display,
-        "last_run_ok": ok,
-    }
 
 
 def _count_csv_rows(path: Path, *, required_col: str | None = None) -> int:
@@ -862,721 +761,6 @@ def _append_csv_rows(path: Path, headers: list[str], rows: list[dict[str, str]])
     return added
 
 
-_STEP_FAILURE_MARKERS = (
-    "❌ CSV file not found:",
-    "Traceback (most recent call last):",
-)
-
-
-def _step_output_indicates_failure(text: str) -> bool:
-    if not text:
-        return False
-    return any(marker in text for marker in _STEP_FAILURE_MARKERS)
-
-
-def _run_step(
-    repo: Path,
-    logf,
-    *,
-    label: str,
-    argv: list[str],
-    env: dict[str, str],
-    timeout: int = 3600,
-) -> dict[str, Any]:
-    logf.write(f"\n{'=' * 50}\n[{datetime.now():%F %T}] {label}\n")
-    logf.write(" ".join(argv) + "\n")
-    logf.flush()
-    try:
-        proc = subprocess.run(
-            argv,
-            cwd=str(repo),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as e:
-        logf.write(f"TIMEOUT after {timeout}s\n")
-        if e.stdout:
-            logf.write(e.stdout)
-        if e.stderr:
-            logf.write(e.stderr)
-        return {"ok": False, "label": label, "error": "timeout", "exit_code": -1}
-
-    if proc.stdout:
-        logf.write(proc.stdout)
-    if proc.stderr:
-        logf.write(proc.stderr)
-    logf.flush()
-    combined_out = (proc.stdout or "") + (proc.stderr or "")
-    ok = proc.returncode == 0 and not _step_output_indicates_failure(combined_out)
-    err_tail = ""
-    if not ok:
-        lines = [ln for ln in combined_out.splitlines() if ln.strip()]
-        err_tail = "\n".join(lines[-12:])
-    return {
-        "ok": ok,
-        "label": label,
-        "exit_code": proc.returncode,
-        "error": err_tail if not ok else "",
-        "output": combined_out[-8000:],
-    }
-
-
-def _merge_pipeline_env(repo: Path) -> dict[str, str]:
-    env = os.environ.copy()
-    for key in (
-        "CONTENT_LIMIT",
-        "GUIDE_LIMIT",
-        "SCHOOL_LIMIT",
-        "UNIVERSITY_LIMIT",
-        "HATENA_MAX_POSTS",
-        "KOREAN_LIMIT",
-        "JAPANESE_LIMIT",
-        "GEMINI_API_KEY",
-        "GEMINI_MODEL",
-        "GOOGLE_PLACES_API_KEY",
-        "KRCAMPUS_GOOGLE_MAPS_API_KEY",
-    ):
-        if key not in env:
-            if key == "CONTENT_LIMIT":
-                env[key] = str(DEFAULT_CONTENT_LIMIT)
-            elif key == "GUIDE_LIMIT":
-                env[key] = str(DEFAULT_GUIDE_LIMIT)
-            elif key == "HATENA_MAX_POSTS":
-                env[key] = str(DEFAULT_HATENA_MAX_POSTS)
-            elif key == "KOREAN_LIMIT":
-                env[key] = str(DEFAULT_KOREAN_LIMIT)
-            elif key == "JAPANESE_LIMIT":
-                env[key] = str(DEFAULT_JAPANESE_LIMIT)
-    repo_env = repo / ".env"
-    if repo_env.is_file():
-        try:
-            from dotenv import dotenv_values
-
-            for k, v in (dotenv_values(repo_env) or {}).items():
-                if v and k not in env:
-                    env[k] = str(v)
-        except ImportError:
-            pass
-    okadmin_env = Path(__file__).resolve().parent / ".env"
-    if okadmin_env.is_file():
-        try:
-            from dotenv import dotenv_values
-
-            for k, v in (dotenv_values(okadmin_env) or {}).items():
-                if v and k in (
-                    "GEMINI_API_KEY",
-                    "GEMINI_MODEL",
-                    "GOOGLE_PLACES_API_KEY",
-                    "KRCAMPUS_GOOGLE_MAPS_API_KEY",
-                    "HATENA_USERNAME",
-                    "HATENA_PYTHON_BLOG_ID",
-                    "HATENA_PYTHON_API_KEY",
-                ) and k not in env:
-                    env[k] = str(v)
-        except ImportError:
-            pass
-    _sanitize_pipeline_limits(env)
-    return env
-
-
-def ensure_okstats_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    """Sync topic bank state only — queue growth is via 목록 추가 (AI)."""
-    from topic_bank_pipeline import topic_bank_sync_only
-
-    return topic_bank_sync_only("okstats", repo, logf)
-
-
-def ensure_poi_site_csv(site_id: str, repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    """Sync topic bank state only — queue growth is via 목록 추가 (AI)."""
-    from topic_bank_pipeline import topic_bank_sync_only
-
-    return topic_bank_sync_only(site_id, repo, logf)
-
-
-def ensure_topic_bank_sync_only(site_id: str, repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    """Sync topic bank state only — queue growth is via 목록 추가 (AI)."""
-    from topic_bank_pipeline import topic_bank_sync_only
-
-    return topic_bank_sync_only(site_id, repo, logf)
-
-
-def ensure_site_csv_from_bank(site_id: str, repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    from topic_bank_pipeline import prepare_topics_for_generation
-
-    env = env or {}
-    content_limit = _bounded_limit(
-        env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
-    )
-    guide_limit = _bounded_limit(
-        env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
-    )
-    return prepare_topics_for_generation(
-        site_id,
-        repo,
-        logf,
-        content_limit=content_limit,
-        guide_limit=guide_limit,
-    )
-
-
-def _places_fetch_argv(site_id: str, repo: Path) -> list[str]:
-    from topic_bank import ensure_bootstrapped, queue_path
-
-    ensure_bootstrapped(site_id, repo)
-    q = queue_path(site_id, "items")
-    return [
-        "python3",
-        "script/fetch_items_from_places.py",
-        "--input",
-        str(q),
-        "--in-place",
-    ]
-
-
-def ensure_dual_csv(
-    repo: Path,
-    logf,
-    *,
-    items_rel: str,
-    guides_rel: str,
-    item_headers: list[str],
-    guide_headers: list[str],
-    item_seeds: list[dict[str, str]],
-    guide_seeds: list[dict[str, str]],
-    item_col: str = "Name",
-    guide_col: str = "topic_en",
-    expand_coords: list[dict[str, str]] | None = None,
-    item_expand_seeds: list[dict[str, str]] | None = None,
-    guide_expand_seeds: list[dict[str, str]] | None = None,
-) -> dict[str, Any]:
-    items_path = repo / items_rel
-    guides_path = repo / guides_rel
-    out: dict[str, Any] = {"messages": [], "expanded_items": 0, "expanded_guides": 0}
-    n_items = _count_csv_rows(items_path, required_col=item_col)
-    if n_items < MIN_ITEM_ROWS:
-        added = _append_csv_rows(items_path, item_headers, item_seeds)
-        out["seeded_items"] = added
-        msg = f"{items_rel}: {n_items}행 → +{added}행 시드"
-        out["messages"].append(msg)
-        logf.write(msg + "\n")
-    else:
-        logf.write(f"{items_rel}: {n_items}행 (시드 생략)\n")
-
-    if item_expand_seeds:
-        expand_limit = _bounded_limit(
-            os.environ,
-            "CONTENT_LIMIT",
-            default=DEFAULT_CONTENT_LIMIT,
-            ceiling=MAX_CONTENT_LIMIT,
-        )
-        expanded = _append_csv_rows_limited(
-            items_path,
-            item_headers,
-            item_expand_seeds,
-            key_col=item_col,
-            max_add=expand_limit,
-        )
-        out["expanded_items"] = expanded
-        if expanded:
-            msg = f"{items_rel}: 주간 insight 시드 +{expanded}행"
-            out["messages"].append(msg)
-            logf.write(msg + "\n")
-    elif expand_coords and "Lat" in item_headers:
-        expand_limit = _bounded_limit(
-            os.environ,
-            "CONTENT_LIMIT",
-            default=DEFAULT_CONTENT_LIMIT,
-            ceiling=MAX_CONTENT_LIMIT,
-        )
-        pool = list(item_seeds) + list(expand_coords)
-        expanded = _append_csv_rows_by_coord(items_path, item_headers, pool, max_add=expand_limit)
-        out["expanded_items"] = expanded
-        if expanded:
-            msg = f"{items_rel}: 주간 확장 +{expanded}행"
-            out["messages"].append(msg)
-            logf.write(msg + "\n")
-
-    n_guides = _count_csv_rows(guides_path, required_col=guide_col)
-    if n_guides < MIN_GUIDE_ROWS:
-        added = _append_csv_rows(guides_path, guide_headers, guide_seeds)
-        out["seeded_guides"] = added
-        msg = f"{guides_rel}: {n_guides}행 → +{added}행 시드"
-        out["messages"].append(msg)
-        logf.write(msg + "\n")
-    else:
-        logf.write(f"{guides_rel}: {n_guides}행 (시드 생략)\n")
-
-    guide_expand_limit = _bounded_limit(
-        os.environ,
-        "GUIDE_LIMIT",
-        default=DEFAULT_GUIDE_LIMIT,
-        ceiling=MAX_GUIDE_LIMIT,
-    )
-    guide_pool = EXPAND_GUIDE_SEEDS if guide_expand_seeds is None else guide_expand_seeds
-    if guide_pool:
-        g_added = _append_csv_rows_limited(
-            guides_path,
-            guide_headers,
-            guide_pool,
-            key_col="id",
-            max_add=guide_expand_limit,
-        )
-        out["expanded_guides"] = g_added
-        if g_added:
-            msg = f"{guides_rel}: 주간 가이드 토픽 +{g_added}행"
-            out["messages"].append(msg)
-            logf.write(msg + "\n")
-
-    out["item_rows"] = _count_csv_rows(items_path, required_col=item_col)
-    out["guide_rows"] = _count_csv_rows(guides_path, required_col=guide_col)
-    return out
-
-
-def ensure_starful_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    return ensure_topic_bank_sync_only("starful.biz", repo, logf, env=env)
-
-
-def ensure_hatena_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    return ensure_site_csv_from_bank("hatena", repo, logf, env=env)
-
-
-def ensure_jpcampus_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    return ensure_topic_bank_sync_only("jpcampus", repo, logf, env=env)
-
-
-def ensure_krcampus_csv(repo: Path, logf, *, env: dict[str, str] | None = None) -> dict[str, Any]:
-    from topic_bank_pipeline import topic_bank_release_queues
-
-    env = env or {}
-    guide_limit = _int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT)
-    school_limit = _int_env_allow_zero(env, "SCHOOL_LIMIT", DEFAULT_KRCAMPUS_SCHOOL_LIMIT)
-    university_limit = _int_env_allow_zero(env, "UNIVERSITY_LIMIT", DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT)
-    return topic_bank_release_queues(
-        "krcampus",
-        repo,
-        logf,
-        content_limit=0,
-        guide_limit=guide_limit,
-        school_limit=school_limit,
-        university_limit=university_limit,
-        content_limit_each=False,
-    )
-
-
-def _execute_pipeline(
-    site_id: str,
-    repo: Path,
-    *,
-    ensure_fn,
-    steps: list[tuple[str, str, list[str], int]],
-    env: dict[str, str],
-    optional_steps: list[tuple[str, str, list[str], int]] | None = None,
-    extra_steps: list[tuple[str, str, list[str], int]] | None = None,
-    post_steps: list[tuple[str, Callable[[Path, Any], dict[str, Any]]]] | None = None,
-) -> dict[str, Any]:
-    log_path = pipeline_log_path(site_id)
-    steps_out: list[dict[str, Any]] = []
-    optional_steps = optional_steps or []
-    extra_steps = extra_steps or []
-    post_steps = post_steps or []
-
-    with open(log_path, "a", encoding="utf-8") as logf:
-        logf.write(f"\n\n{'#' * 60}\n# {site_id} pipeline {datetime.now():%F %T}\n")
-        if site_id == "krcampus":
-            logf.write(
-                "run limits: "
-                f"guides={env.get('GUIDE_LIMIT', '?')} "
-                f"schools={env.get('SCHOOL_LIMIT', '?')} "
-                f"universities={env.get('UNIVERSITY_LIMIT', '?')}\n"
-            )
-        if ensure_fn:
-            seed_info = _call_ensure_csv(ensure_fn, repo, logf, env)
-            steps_out.append({"step": "ensure_csv", "ok": True, **seed_info})
-            from topic_queue_env import queue_env_for_site
-
-            env.update(queue_env_for_site(site_id, sync=False))
-
-        for step_id, label, argv, timeout in extra_steps:
-            r = _run_step(repo, logf, label=label, argv=argv, env=env, timeout=timeout)
-            steps_out.append({"step": step_id, **r})
-            if not r["ok"]:
-                return _fail(site_id, steps_out, r, log_path)
-
-        for step_id, label, argv, timeout in steps:
-            r = _run_step(repo, logf, label=label, argv=argv, env=env, timeout=timeout)
-            steps_out.append({"step": step_id, **r})
-            if r.get("ok"):
-                try:
-                    from ai_spend import record_pipeline_step
-
-                    record_pipeline_step(site_id, step_id, env, r.get("output") or "")
-                except Exception:
-                    pass
-            if not r["ok"]:
-                return _fail(site_id, steps_out, r, log_path)
-
-        for step_id, label, argv, timeout in optional_steps:
-            r = _run_step(repo, logf, label=label, argv=argv, env=env, timeout=timeout)
-            steps_out.append({"step": step_id, **r, "optional": True})
-            if not r["ok"]:
-                logf.write(f"⚠ optional step failed (continuing): {label}\n")
-
-        for step_id, fn in post_steps:
-            r = fn(repo, logf)
-            steps_out.append({"step": step_id, **r, "optional": True})
-            if not r.get("ok"):
-                logf.write(f"⚠ post step failed (continuing): {r.get('label') or step_id}\n")
-
-        logf.write(f"\n[{datetime.now():%F %T}] Pipeline OK\n")
-
-        warn = _content_generation_warning(steps_out)
-        if warn:
-            logf.write(f"⚠ content: {warn}\n")
-
-    payload: dict[str, Any] = {
-        "ok": True,
-        "site_id": site_id,
-        "steps": steps_out,
-        "log_path": str(log_path),
-        "message": f"{site_id} 콘텐츠 파이프라인 완료",
-    }
-    if warn:
-        payload["content_warning"] = warn
-        payload["message"] = f"{site_id} 완료 — {warn}"
-    return _stamp_pipeline_result(payload)
-
-
-def _content_generation_warning(steps: list[dict[str, Any]]) -> str | None:
-    """True when generate steps ran OK but logs suggest zero new MD/posts."""
-    gen_ids = {
-        "guides",
-        "universities",
-        "items",
-        "guides_md",
-        "py",
-        "cloud",
-        "korean",
-    }
-    gen_steps = [s for s in steps if s.get("step") in gen_ids and s.get("ok")]
-    if not gen_steps:
-        return None
-    saw_zero = False
-    saw_gen = False
-    for step in gen_steps:
-        text = (step.get("output") or "").lower()
-        if not text:
-            continue
-        if any(p in text for p in _CONTENT_ZERO_PATTERNS):
-            saw_zero = True
-        if any(re.search(p, text) for p in _CONTENT_GEN_PATTERNS):
-            saw_gen = True
-    if saw_zero and not saw_gen:
-        return "이번 실행에서 신규 콘텐츠 0건 (백로그 없음 또는 이미 완료)"
-    return None
-
-
-def _gcs_images_dir(repo: Path, site_id: str) -> Path:
-    rel = SITE_GCS_IMAGE_DIRS.get(site_id, "app/static/images")
-    return repo / rel
-
-
-def _starful_gcs_normalize(repo: Path, logf) -> dict[str, Any]:
-    """GCS rsync 전 legacy hyphen blob 정리."""
-    script = repo / "scripts/normalize_image_names.py"
-    logf.write(f"\n[{datetime.now():%F %T}] starful GCS image name normalize\n")
-    if not script.is_file():
-        return {"ok": False, "label": "GCS normalize", "error": "normalize_image_names.py missing"}
-    try:
-        proc = subprocess.run(
-            ["python3", str(script), "--gcs"],
-            cwd=str(repo),
-            capture_output=True,
-            text=True,
-            timeout=600,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "label": "GCS normalize", "error": "timeout"}
-    if proc.stdout:
-        logf.write(proc.stdout)
-    if proc.stderr:
-        logf.write(proc.stderr)
-    logf.flush()
-    ok = proc.returncode == 0
-    return {
-        "ok": ok,
-        "label": "GCS normalize",
-        "exit_code": proc.returncode,
-        "error": "" if ok else (proc.stderr or proc.stdout or "normalize failed")[-500:],
-    }
-
-
-def _gcs_image_sync(repo: Path, logf, site_id: str) -> dict[str, Any]:
-    """Upload site image dir to GCS; never overwrite newer GCS blobs (admin uploads)."""
-    images_dir = _gcs_images_dir(repo, site_id)
-    env_key = f"{site_id.upper().replace('.', '_')}_GCS_BUCKET"
-    bucket = os.environ.get(env_key) or SITE_GCS_BUCKETS.get(site_id, "")
-    logf.write(f"\n{'=' * 50}\n[{datetime.now():%F %T}] GCS image sync\n")
-    logf.flush()
-    if not bucket:
-        return {"ok": False, "label": "GCS images", "error": f"no GCS bucket for {site_id}"}
-    if not images_dir.is_dir():
-        return {"ok": False, "label": "GCS images", "error": "images dir missing"}
-
-    rsync_flags = ["--recursive", "--checksums-only", "--skip-if-dest-has-newer-mtime"]
-
-    # starful: pull newer GCS → local first (admin upload → repo stays current)
-    if site_id == "starful.biz":
-        logf.write(f"gcloud storage rsync {bucket} {images_dir} (pull newer)\n")
-        logf.flush()
-        try:
-            pull = subprocess.run(
-                ["gcloud", "storage", "rsync", bucket, str(images_dir), *rsync_flags],
-                capture_output=True,
-                text=True,
-                timeout=900,
-                check=False,
-            )
-            if pull.stdout:
-                logf.write(pull.stdout)
-            if pull.stderr:
-                logf.write(pull.stderr)
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "label": "GCS images", "error": "pull timeout"}
-
-    logf.write(f"gcloud storage rsync {images_dir} {bucket} (push, skip newer dest)\n")
-    logf.flush()
-    try:
-        proc = subprocess.run(
-            ["gcloud", "storage", "rsync", str(images_dir), bucket, *rsync_flags],
-            capture_output=True,
-            text=True,
-            timeout=900,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "label": "GCS images", "error": "timeout"}
-    if proc.stdout:
-        logf.write(proc.stdout)
-    if proc.stderr:
-        logf.write(proc.stderr)
-    logf.flush()
-    ok = proc.returncode == 0
-    return {
-        "ok": ok,
-        "label": "GCS images",
-        "exit_code": proc.returncode,
-        "error": "" if ok else (proc.stderr or proc.stdout or "gcloud rsync failed")[-500:],
-    }
-
-
-def _item_incomplete_argv(env: dict[str, str]) -> list[str]:
-    return [
-        "python3",
-        "script/item_generator.py",
-        "--limit",
-        env["CONTENT_LIMIT"],
-        "--incomplete-only",
-    ]
-
-
-def _ok_series_content_steps(
-    env: dict[str, str],
-    site_id: str,
-    *,
-    item_step: tuple[str, str, list[str], int],
-    guide_first: bool = True,
-    image_step: tuple[str, str, list[str], int] | None = None,
-) -> list[tuple[str, str, list[str], int]]:
-    guide_step = ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600)
-    if guide_first:
-        head: list[tuple[str, str, list[str], int]] = [guide_step, item_step]
-    else:
-        head = [item_step, guide_step]
-    if image_step is None:
-        image_step = ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400)
-    return head + [
-        image_step,
-        ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
-        ("build", "build_data", ["python3", "script/build_data.py"], 600),
-    ]
-
-
-def _pipeline_post_steps(site_id: str) -> list[tuple[str, Callable[[Path, Any], dict[str, Any]]]]:
-    if site_id in SITE_GCS_BUCKETS:
-        return [("gcs_images", lambda repo, logf, sid=site_id: _gcs_image_sync(repo, logf, sid))]
-    return []
-
-
-def _run_ok_site_pipeline(
-    site_id: str,
-    repo: Path,
-    env: dict[str, str],
-    *,
-    ensure_fn,
-    steps: list[tuple[str, str, list[str], int]],
-    extra_steps: list[tuple[str, str, list[str], int]] | None = None,
-) -> dict[str, Any]:
-    return _execute_pipeline(
-        site_id,
-        repo,
-        ensure_fn=ensure_fn,
-        steps=steps,
-        env=env,
-        extra_steps=extra_steps or [],
-        post_steps=_pipeline_post_steps(site_id),
-    )
-
-
-def _pipeline_for_site(site_id: str, repo: Path, env: dict[str, str] | None = None) -> dict[str, Any]:
-    env = env or pipeline_env_for_site(site_id)
-    optional: list[tuple[str, str, list[str], int]] = []
-    extra: list[tuple[str, str, list[str], int]] = []
-    steps: list[tuple[str, str, list[str], int]] = []
-
-    if site_id == "okramen":
-        def ensure(repo_p: Path, logf, env=None):
-            return ensure_poi_site_csv("okramen", repo_p, logf, env=env)
-
-        limit = env["CONTENT_LIMIT"]
-        steps = [
-            ("items", "ramen_generator", ["python3", "script/ramen_generator.py", limit], 3600),
-            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
-            ("images_places", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
-            ("images", "generate_images", ["python3", "script/generate_images.py"], 2400),
-            ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
-            ("build", "build_data", ["python3", "script/build_data.py"], 600),
-        ]
-        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
-
-    if site_id == "okonsen":
-        def ensure(repo_p: Path, logf, env=None):
-            return ensure_poi_site_csv("okonsen", repo_p, logf, env=env)
-
-        limit = env["CONTENT_LIMIT"]
-        steps = _ok_series_content_steps(
-            env,
-            site_id,
-            item_step=("items", "onsen_generator", ["python3", "script/onsen_generator.py", limit], 3600),
-            guide_first=False,
-        )
-        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
-
-    if site_id == "okcaddie":
-        def ensure(repo_p: Path, logf, env=None):
-            return ensure_poi_site_csv("okcaddie", repo_p, logf, env=env)
-
-        limit = env["CONTENT_LIMIT"]
-        steps = _ok_series_content_steps(
-            env,
-            site_id,
-            item_step=("items", "course_generator", ["python3", "script/course_generator.py", limit], 3600),
-            guide_first=False,
-        )
-        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
-
-    if site_id == "okstats":
-        def ensure(repo_p: Path, logf, env=None):
-            return ensure_okstats_csv(repo_p, logf, env=env)
-
-        steps = [
-            ("guides", "guide_generator", _guide_generator_argv(env, site_id), 3600),
-            ("items", "insight_generator", _insight_generator_argv(env), 3600),
-            ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
-            ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
-            ("build", "build_data", ["python3", "script/build_data.py"], 600),
-        ]
-        return _run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure, steps=steps)
-
-    if site_id == "starful.biz":
-        steps = [
-            ("guides", "generate_md_guides", ["python3", "scripts/generate_md_guides.py"], 3600),
-            ("images", "generate_images", ["python3", "scripts/generate_images.py"], 600),
-            ("images_opt", "resize_images", ["python3", "scripts/resize_images.py"], 900),
-            ("img_names", "normalize_image_names", ["python3", "scripts/normalize_image_names.py"], 300),
-            ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
-        ]
-        return _execute_pipeline(
-            site_id,
-            repo,
-            ensure_fn=ensure_starful_csv,
-            steps=steps,
-            env=env,
-            post_steps=[("gcs_normalize", lambda repo, logf: _starful_gcs_normalize(repo, logf))]
-            + _pipeline_post_steps(site_id),
-        )
-
-    if site_id == "hatena":
-        max_posts = env["HATENA_MAX_POSTS"]
-        steps = [
-            ("py", "unified_poster py", ["python3", "unified_poster.py", "py", "--max_posts", max_posts], 3600),
-            ("cloud", "unified_poster cloud", ["python3", "unified_poster.py", "cloud", "--max_posts", max_posts], 3600),
-        ]
-        return _execute_pipeline(site_id, repo, ensure_fn=ensure_hatena_csv, steps=steps, env=env)
-
-    if site_id == "jpcampus":
-        guide_n = _int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT)
-        university_n = _int_env_allow_zero(env, "UNIVERSITY_LIMIT", DEFAULT_CONTENT_LIMIT)
-        steps = []
-        if guide_n > 0:
-            steps.append(("guides", "AI guides", ["python3", "scripts/2.generate_ai_guides.py"], 3600))
-        if university_n > 0:
-            steps.append(
-                ("universities", "universities", ["python3", "scripts/1.collect_universities.py"], 3600)
-            )
-        steps.extend(
-            [
-                ("korean", "Korean content", ["python3", "scripts/3.create_korean_content.py"], 3600),
-                ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
-                ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
-            ]
-        )
-        optional = [
-            ("seo", "seo_guard", ["python3", "scripts/seo_guard.py"], 300),
-        ]
-        return _execute_pipeline(site_id, repo, ensure_fn=ensure_jpcampus_csv, steps=steps, env=env, optional_steps=optional)
-
-    if site_id == "krcampus":
-        guide_n = _int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT)
-        school_n = _int_env_allow_zero(env, "SCHOOL_LIMIT", DEFAULT_KRCAMPUS_SCHOOL_LIMIT)
-        university_n = _int_env_allow_zero(env, "UNIVERSITY_LIMIT", DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT)
-        steps = []
-        if guide_n > 0:
-            steps.append(("guides", "AI guides", ["python3", "scripts/2.generate_ai_guides.py"], 3600))
-        if school_n > 0:
-            steps.append(
-                ("schools", "language schools", ["python3", "scripts/1.collect_language_schools.py"], 3600)
-            )
-        if university_n > 0:
-            steps.append(
-                ("universities", "universities", ["python3", "scripts/1.collect_universities.py"], 3600)
-            )
-        steps.extend(
-            [
-                ("japanese", "Japanese native", ["python3", "scripts/3.generate_japanese_native.py"], 3600),
-                ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
-                ("images", "fetch_images", ["python3", "scripts/fetch_images.py"], 2400),
-                ("images_opt", "optimize_images", ["python3", "scripts/optimize_images.py"], 900),
-                ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
-            ]
-        )
-        optional = [
-            ("seo", "seo_guard", ["python3", "scripts/seo_guard.py"], 300),
-        ]
-        return _execute_pipeline(
-            site_id,
-            repo,
-            ensure_fn=ensure_krcampus_csv,
-            steps=steps,
-            env=env,
-            optional_steps=optional,
-            post_steps=_pipeline_post_steps("krcampus"),
-        )
-
-    return {"ok": False, "error": f"no pipeline definition for {site_id}"}
-
 
 def run_post_pipeline_deploy(
     site_id: str,
@@ -1638,6 +822,7 @@ def run_post_pipeline_deploy(
 def run_pipeline(
     site_id: str,
     *,
+    insight_count: int | None = None,
     guide_count: int | None = None,
     school_count: int | None = None,
     university_count: int | None = None,
@@ -1664,7 +849,7 @@ def run_pipeline(
             guide_count = 0 if guide_count is None else guide_count
             school_count = 0 if school_count is None else school_count
             university_count = 0 if university_count is None else university_count
-        limits = _apply_krcampus_run_limits(
+        limits = apply_krcampus_run_limits(
             env,
             guide_count=guide_count,
             school_count=school_count,
@@ -1676,8 +861,8 @@ def run_pipeline(
                 "error": "가이드·어학원·대학 중 1개 이상 입력하세요",
             }
     elif site_id == "jpcampus" and (guide_count is not None or university_count is not None):
-        g = _user_run_limit(guide_count, default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
-        u = _user_run_limit(
+        g = user_run_limit(guide_count, default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
+        u = user_run_limit(
             university_count,
             default=DEFAULT_CONTENT_LIMIT,
             ceiling=MAX_UNIVERSITY_LIMIT,
@@ -1686,152 +871,19 @@ def run_pipeline(
             return {"ok": False, "error": "가이드·대학 중 1개 이상 입력하세요"}
         env["GUIDE_LIMIT"] = str(g)
         env["UNIVERSITY_LIMIT"] = str(u)
-    return _pipeline_for_site(site_id, repo, env=env)
+    elif site_id in ("okstats", "okramen", "okonsen", "okcaddie", "starful.biz"):
+        c = user_run_limit(insight_count, default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
+        g = user_run_limit(guide_count, default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
+        if site_id == "starful.biz":
+            if c == 0:
+                return {"ok": False, "error": "포지션 개수를 1 이상 입력하세요"}
+        elif c == 0 and g == 0:
+            return {"ok": False, "error": "콘텐츠 또는 가이드 개수를 1 이상 입력하세요"}
+        env["CONTENT_LIMIT"] = str(c)
+        env["GUIDE_LIMIT"] = str(g)
+    from pipeline_site_registry import pipeline_for_site
 
-
-def _fail(site_id: str, steps: list, last: dict, log_path: Path) -> dict[str, Any]:
-    return _stamp_pipeline_result(
-        {
-            "ok": False,
-            "site_id": site_id,
-            "steps": steps,
-            "failed_step": last.get("label"),
-            "error": last.get("error") or f"exit {last.get('exit_code')}",
-            "log_path": str(log_path),
-        }
-    )
-
-
-def tail_pipeline_log(site_id: str, *, max_chars: int = 16000) -> str:
-    path = pipeline_log_path(site_id)
-    if not path.is_file():
-        return ""
-    return path.read_text(encoding="utf-8", errors="replace")[-max_chars:]
-
-
-def _int_env(env: dict[str, str], key: str, default: int) -> int:
-    try:
-        return int(str(env.get(key, default)).strip() or default)
-    except (TypeError, ValueError):
-        return default
-
-
-def _int_env_allow_zero(env: dict[str, str], key: str, default: int) -> int:
-    raw = env.get(key)
-    if raw is None:
-        return default
-    try:
-        return max(0, int(str(raw).strip()))
-    except (TypeError, ValueError):
-        return default
-
-
-def _user_run_limit(
-    explicit: int | None,
-    *,
-    default: int,
-    ceiling: int,
-) -> int:
-    if explicit is not None:
-        return min(max(0, int(explicit)), ceiling)
-    return min(max(0, default), ceiling)
-
-
-def _bounded_limit(
-    env: dict[str, str],
-    key: str,
-    *,
-    default: int,
-    ceiling: int,
-) -> int:
-    """Per-run limit for hub pipelines; 0 or negative → default (never unlimited)."""
-    n = _int_env(env, key, default)
-    if n <= 0:
-        n = default
-    return min(n, ceiling)
-
-
-def _guide_cli_limit(env: dict[str, str], site_id: str) -> str:
-    """CLI limit for guide scripts (okonsen counts files, not topics)."""
-    topics = _bounded_limit(
-        env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
-    )
-    if site_id == "okonsen":
-        return str(topics * 2)
-    return str(topics)
-
-
-def _insight_generator_argv(env: dict[str, str]) -> list[str]:
-    return [
-        "python3",
-        "script/insight_generator.py",
-        "--batch-missing",
-        env["CONTENT_LIMIT"],
-    ]
-
-
-def _guide_generator_argv(env: dict[str, str], site_id: str) -> list[str]:
-    glimit = _guide_cli_limit(env, site_id)
-    if site_id in ("okramen", "okstats"):
-        return ["python3", "script/guide_generator.py", "--batch-missing", glimit]
-    return ["python3", "script/guide_generator.py", glimit]
-
-
-def _sanitize_pipeline_limits(env: dict[str, str]) -> None:
-    """Work Hub standard per-run caps (fixed): guide 3, content 6."""
-    env["CONTENT_LIMIT"] = str(DEFAULT_CONTENT_LIMIT)
-    env["GUIDE_LIMIT"] = str(DEFAULT_GUIDE_LIMIT)
-    env["HATENA_MAX_POSTS"] = str(
-        _bounded_limit(
-            env,
-            "HATENA_MAX_POSTS",
-            default=DEFAULT_HATENA_MAX_POSTS,
-            ceiling=MAX_HATENA_MAX_POSTS,
-        )
-    )
-    env["KOREAN_LIMIT"] = str(
-        _bounded_limit(
-            env,
-            "KOREAN_LIMIT",
-            default=DEFAULT_KOREAN_LIMIT,
-            ceiling=MAX_KOREAN_LIMIT,
-        )
-    )
-    env["JAPANESE_LIMIT"] = str(
-        _bounded_limit(
-            env,
-            "JAPANESE_LIMIT",
-            default=DEFAULT_JAPANESE_LIMIT,
-            ceiling=MAX_JAPANESE_LIMIT,
-        )
-    )
-
-
-def _apply_krcampus_run_limits(
-    env: dict[str, str],
-    *,
-    guide_count: int | None = None,
-    school_count: int | None = None,
-    university_count: int | None = None,
-) -> dict[str, int]:
-    """KR Campus per-run caps from UI (0 = skip that step)."""
-    guide_n = _user_run_limit(guide_count, default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
-    school_n = _user_run_limit(
-        school_count,
-        default=DEFAULT_KRCAMPUS_SCHOOL_LIMIT,
-        ceiling=MAX_SCHOOL_LIMIT,
-    )
-    university_n = _user_run_limit(
-        university_count,
-        default=DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT,
-        ceiling=MAX_UNIVERSITY_LIMIT,
-    )
-    env["GUIDE_LIMIT"] = str(guide_n)
-    env["SCHOOL_LIMIT"] = str(school_n)
-    env["UNIVERSITY_LIMIT"] = str(university_n)
-    env["CONTENT_LIMIT"] = str(max(school_n, university_n))
-    env["JAPANESE_LIMIT"] = str(max(guide_n, school_n, university_n))
-    return {"guide": guide_n, "school": school_n, "university": university_n}
+    return pipeline_for_site(site_id, repo, env=env)
 
 
 def pipeline_env_for_site(site_id: str, *, krcampus_defaults: bool = True) -> dict[str, str]:
@@ -1843,31 +895,31 @@ def pipeline_env_for_site(site_id: str, *, krcampus_defaults: bool = True) -> di
     repo = repo_path(svc)
     if not repo.is_dir():
         return {}
-    env = _merge_pipeline_env(repo)
+    env = merge_pipeline_env(repo)
     from topic_queue_env import queue_env_for_site
 
     env.update(queue_env_for_site(site_id, sync=False))
     if site_id == "krcampus" and krcampus_defaults:
-        _apply_krcampus_run_limits(env)
+        apply_krcampus_run_limits(env)
     return env
 
 
 def pipeline_run_caps(site_id: str) -> dict[str, Any]:
     """Per-run caps shown in Work Hub (only missing MD/posts are actually created)."""
     env = pipeline_env_for_site(site_id)
-    item_n = _bounded_limit(
+    item_n = bounded_limit(
         env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
     )
-    guide_n = _bounded_limit(
+    guide_n = bounded_limit(
         env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
     )
-    hatena_n = _bounded_limit(
+    hatena_n = bounded_limit(
         env, "HATENA_MAX_POSTS", default=DEFAULT_HATENA_MAX_POSTS, ceiling=MAX_HATENA_MAX_POSTS
     )
-    korean_n = _bounded_limit(
+    korean_n = bounded_limit(
         env, "KOREAN_LIMIT", default=DEFAULT_KOREAN_LIMIT, ceiling=MAX_KOREAN_LIMIT
     )
-    japanese_n = _bounded_limit(
+    japanese_n = bounded_limit(
         env, "JAPANESE_LIMIT", default=DEFAULT_JAPANESE_LIMIT, ceiling=MAX_JAPANESE_LIMIT
     )
     parts: list[dict[str, str]] = []
@@ -1926,8 +978,8 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
             {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
         ]
     elif site_id == "krcampus":
-        school_n = _int_env_allow_zero(env, "SCHOOL_LIMIT", DEFAULT_KRCAMPUS_SCHOOL_LIMIT)
-        university_n = _int_env_allow_zero(env, "UNIVERSITY_LIMIT", DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT)
+        school_n = int_env_allow_zero(env, "SCHOOL_LIMIT", DEFAULT_KRCAMPUS_SCHOOL_LIMIT)
+        university_n = int_env_allow_zero(env, "UNIVERSITY_LIMIT", DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT)
         parts = [
             {"label": "가이드 EN", "cap": f"토픽 {guide_n}개", "note": "토픽뱅크 큐"},
             {"label": "어학원 EN", "cap": f"최대 {school_n}개", "note": "language_schools 큐"},
@@ -2006,7 +1058,7 @@ def summarize_pipeline_status(status: dict[str, Any] | None, log_text: str = "")
         ok = status.get("ok")
         if ok is True:
             title = "완료"
-            if status.get("content_warning"):
+            if str(status.get("content_warning") or "").startswith("이번 실행에서 신규 콘텐츠 0건"):
                 title = "완료 (0건)"
         elif ok is False:
             title = "실패"
@@ -2243,10 +1295,10 @@ def run_csv_expand(
         from topic_bank_pipeline import topic_bank_release_and_sync
 
         env = pipeline_env_for_site(site_id)
-        content_limit = _bounded_limit(
+        content_limit = bounded_limit(
             env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
         )
-        guide_limit = _bounded_limit(
+        guide_limit = bounded_limit(
             env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
         )
         info = topic_bank_release_and_sync(

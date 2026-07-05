@@ -1,16 +1,14 @@
 """Content backlog snapshots (CSV vs MD). Refreshed on demand or after pipeline — not on every page load."""
 from __future__ import annotations
 
-import csv
-import io
 import json
 import os
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from config import get_service, repo_path, work_root_available
+from pipeline_specs import POI_SITES
 
 PLACEHOLDER_IMAGE_MAX = 50_000
 
@@ -47,284 +45,6 @@ def write_backlog_snapshot(site_id: str, data: dict[str, Any]) -> dict[str, Any]
     return out
 
 
-def _item_slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9_]", "", name.lower().replace(" ", "_").replace("'", ""))
-
-
-def _count_csv(path: Path, col: str) -> int:
-    if not path.is_file():
-        return 0
-    text = path.read_text(encoding="utf-8-sig").strip()
-    if not text:
-        return 0
-    n = 0
-    for row in csv.DictReader(io.StringIO(text)):
-        if (row.get(col) or "").strip():
-            n += 1
-    return n
-
-
-def _ok_dual_backlog(repo: Path, *, items_rel: str, guides_rel: str, name_col: str = "Name") -> dict[str, Any]:
-    content_dir = repo / "app" / "content"
-    guides_dir = content_dir / "guides"
-    images_dir = repo / "app" / "static" / "images"
-
-    item_pairs_pending = 0
-    item_files_pending = 0
-    items_path = repo / items_rel
-    if items_path.is_file():
-        with items_path.open(encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                name = (row.get(name_col) or "").strip()
-                if not name:
-                    continue
-                slug = _item_slug(name)
-                en = content_dir / f"{slug}_en.md"
-                ko = content_dir / f"{slug}_ko.md"
-                miss = int(not en.is_file()) + int(not ko.is_file())
-                if miss:
-                    item_pairs_pending += 1
-                    item_files_pending += miss
-
-    guide_topics_pending = 0
-    guide_files_pending = 0
-    guides_path = repo / guides_rel
-    if guides_path.is_file():
-        with guides_path.open(encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                gid = (row.get("id") or "").strip()
-                if not gid:
-                    continue
-                en = guides_dir / f"{gid}_en.md"
-                ko = guides_dir / f"{gid}_ko.md"
-                miss = int(not en.is_file()) + int(not ko.is_file())
-                if miss:
-                    guide_topics_pending += 1
-                    guide_files_pending += miss
-
-    images_pending = 0
-    if content_dir.is_dir():
-        for md in content_dir.glob("*_en.md"):
-            if md.name.startswith("guide"):
-                continue
-            stem = md.stem.replace("_en", "")
-            img = images_dir / f"{stem}.jpg"
-            if not img.is_file() or img.stat().st_size < PLACEHOLDER_IMAGE_MAX:
-                images_pending += 1
-
-    return {
-        "items_pairs": item_pairs_pending,
-        "items_files": item_files_pending,
-        "guides_topics": guide_topics_pending,
-        "guides_files": guide_files_pending,
-        "images": images_pending,
-        "csv_items": _count_csv(items_path, name_col),
-        "csv_guides": _count_csv(guides_path, "topic_en"),
-    }
-
-
-def _okstats_backlog(repo: Path) -> dict[str, Any]:
-    content_dir = repo / "app" / "content"
-    guides_dir = content_dir / "guides"
-    images_dir = repo / "app" / "static" / "images"
-
-    insights_pending = 0
-    insight_files_pending = 0
-    insights_path = repo / "script/csv/insights.csv"
-    if insights_path.is_file():
-        with insights_path.open(encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                if (row.get("id") or "").strip().startswith("#"):
-                    continue
-                iid = (row.get("id") or "").strip()
-                if not iid:
-                    continue
-                md = content_dir / f"{iid}_en.md"
-                if not md.is_file():
-                    insights_pending += 1
-                    insight_files_pending += 1
-
-    guide_topics_pending = 0
-    guide_files_pending = 0
-    guides_path = repo / "script/csv/guides.csv"
-    if guides_path.is_file():
-        with guides_path.open(encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                gid = (row.get("id") or "").strip()
-                if not gid:
-                    continue
-                candidates = [guides_dir / f"{gid}.md", guides_dir / f"{gid}_en.md"]
-                if not any(p.is_file() for p in candidates):
-                    guide_topics_pending += 1
-                    guide_files_pending += 1
-
-    images_pending = 0
-    if content_dir.is_dir():
-        for md in content_dir.glob("*_en.md"):
-            stem = md.stem.replace("_en", "")
-            img = images_dir / f"{stem}.jpg"
-            if not img.is_file() or img.stat().st_size < PLACEHOLDER_IMAGE_MAX:
-                images_pending += 1
-
-    return {
-        "items_pairs": insights_pending,
-        "items_files": insight_files_pending,
-        "guides_topics": guide_topics_pending,
-        "guides_files": guide_files_pending,
-        "images": images_pending,
-        "csv_items": _count_csv(insights_path, "id"),
-        "csv_guides": _count_csv(guides_path, "topic_en"),
-    }
-
-
-from starful_assets import position_slug
-
-
-def _starful_backlog(repo: Path) -> dict[str, Any]:
-    csv_path = repo / "scripts/data/positions.csv"
-    out_dir = repo / "app/contents"
-    img_dir = repo / "app/static/img"
-    pending = 0
-    images = 0
-    if csv_path.is_file() and out_dir.is_dir():
-        with csv_path.open(encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                pos = (row.get("position_name") or "").strip()
-                if not pos:
-                    continue
-                slug = position_slug(pos)
-                if not (out_dir / f"{slug}.md").is_file():
-                    pending += 1
-    if out_dir.is_dir():
-        for md in out_dir.glob("*.md"):
-            if not (img_dir / f"{md.stem}.png").is_file():
-                images += 1
-    return {
-        "guides_md": pending,
-        "images": images,
-        "csv_items": _count_csv(csv_path, "position_name"),
-    }
-
-
-def _jpcampus_backlog(repo: Path) -> dict[str, Any]:
-    topics_path = repo / "data/guide_topics.csv"
-    content_dir = repo / "app" / "content"
-    guides_pending = 0
-    korean_pending = 0
-    if topics_path.is_file():
-        with topics_path.open(encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                slug = (row.get("slug") or "").strip()
-                if not slug:
-                    continue
-                en = content_dir / f"guide_{slug}.md"
-                if not en.is_file():
-                    guides_pending += 1
-                kr = content_dir / f"guide_{slug}_kr.md"
-                if en.is_file() and not kr.is_file():
-                    korean_pending += 1
-    return {
-        "guides_topics": guides_pending,
-        "korean_files": korean_pending,
-        "csv_guides": _count_csv(topics_path, "slug"),
-    }
-
-
-def _krcampus_read_basic_names(md_path: Path) -> tuple[str, str]:
-    try:
-        text = md_path.read_text(encoding="utf-8")
-    except OSError:
-        return "", ""
-    if not text.startswith("---"):
-        return "", ""
-    end = text.find("---", 3)
-    if end < 0:
-        return "", ""
-    try:
-        data = json.loads(text[3:end].strip())
-    except json.JSONDecodeError:
-        return "", ""
-    basic = data.get("basic_info") or {}
-    return (basic.get("name_ko") or "").strip(), (basic.get("name_en") or "").strip()
-
-
-def _krcampus_name_index(content_dir: Path, prefix: str) -> tuple[set[str], set[str]]:
-    """name_ko and lowercased name_en from existing {prefix}_*.md (EN base, not _ja)."""
-    ko: set[str] = set()
-    en: set[str] = set()
-    if not content_dir.is_dir():
-        return ko, en
-    for md in content_dir.glob(f"{prefix}_*.md"):
-        if md.stem.endswith("_ja"):
-            continue
-        name_ko, name_en = _krcampus_read_basic_names(md)
-        if name_ko:
-            ko.add(name_ko)
-        if name_en:
-            en.add(name_en.lower())
-    return ko, en
-
-
-def _krcampus_csv_pending(
-    csv_path: Path,
-    *,
-    known_ko: set[str],
-    known_en: set[str],
-) -> int:
-    if not csv_path.is_file():
-        return 0
-    pending = 0
-    with csv_path.open(encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
-            name_ko = (row.get("name_ko") or "").strip()
-            name_en = (row.get("name_en") or "").strip()
-            if not name_ko and not name_en:
-                continue
-            if name_ko in known_ko:
-                continue
-            if name_en and name_en.lower() in known_en:
-                continue
-            pending += 1
-    return pending
-
-
-def _krcampus_backlog(repo: Path) -> dict[str, Any]:
-    topics_path = repo / "data/guide_topics.csv"
-    schools_path = repo / "data/language_schools.csv"
-    univ_path = repo / "data/universities.csv"
-    content_dir = repo / "app" / "content"
-
-    guides_pending = 0
-    ja_pending = 0
-    if topics_path.is_file():
-        with topics_path.open(encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                slug = (row.get("slug") or "").strip()
-                if not slug:
-                    continue
-                en = content_dir / f"guide_{slug}.md"
-                if not en.is_file():
-                    guides_pending += 1
-                ja = content_dir / f"guide_{slug}_ja.md"
-                if en.is_file() and not ja.is_file():
-                    ja_pending += 1
-
-    school_ko, school_en = _krcampus_name_index(content_dir, "school")
-    univ_ko, univ_en = _krcampus_name_index(content_dir, "univ")
-    schools_pending = _krcampus_csv_pending(schools_path, known_ko=school_ko, known_en=school_en)
-    univs_pending = _krcampus_csv_pending(univ_path, known_ko=univ_ko, known_en=univ_en)
-
-    return {
-        "guides_topics": guides_pending,
-        "korean_files": ja_pending,
-        "schools_pending": schools_pending,
-        "univs_pending": univs_pending,
-        "items_pairs": schools_pending + univs_pending,
-        "csv_guides": _count_csv(topics_path, "slug"),
-        "csv_schools": _count_csv(schools_path, "name_ko"),
-        "csv_univs": _count_csv(univ_path, "name_ko"),
-    }
-
 
 def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, Any]:
     """How many rows topic bank would release (pending, capped by limits)."""
@@ -349,7 +69,7 @@ def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, Any]:
             "default_guides": DEFAULT_GUIDE_COUNT,
         }
 
-    if site_id in ("okramen", "okonsen", "okcaddie"):
+    if site_id in POI_SITES:
         from poi_topic_ai import DEFAULT_GUIDE_COUNT, DEFAULT_ITEM_COUNT
 
         return {
@@ -505,7 +225,7 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     elif site_id == "okstats":
         content_n = items_pairs
         guide_n = guides_topics
-    elif site_id in ("okramen", "okonsen", "okcaddie"):
+    elif site_id in POI_SITES:
         content_n = items_pairs
         guide_n = guides_topics
     else:
