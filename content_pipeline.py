@@ -1341,3 +1341,23 @@ CONTENT_PIPELINES: dict[str, dict[str, str]] = {
     "jpcampus": {"label": "JP Campus", "description": "가이드 · 대학 · 한국어 · featured · build"},
     "krcampus": {"label": "KR Campus", "description": "韓国留学 · 가이드 · 어학원/대학 · EN/JA · build"},
 }
+
+# Google Trends → topic bank (Hatena excluded)
+TRENDS_SEED_SITES: frozenset[str] = frozenset(
+    {
+        "okramen",
+        "okonsen",
+        "okcaddie",
+        "okstats",
+        "starful.biz",
+        "jpcampus",
+        "krcampus",
+    }
+)
+
+
+def run_trends_seed(site_id: str, *, limit: int | None = None) -> dict[str, Any]:
+    """Seed topic bank from Google Trends rising queries (not hatena)."""
+    from trends_topic_ai import run_trends_seed as _run
+
+    return _run(site_id, limit=limit)

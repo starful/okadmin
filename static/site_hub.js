@@ -165,6 +165,9 @@ function renderContentBar(siteId) {
         const contentLabel = typeof aiQueueContentLabel === 'function' ? aiQueueContentLabel(siteId) : '아이템';
         html += aiQueueInputs(siteId, snap, running);
         html += `<button type="button" class="btn btn-ghost" onclick="expandCsv('${escHub(siteId)}')" ${running ? 'disabled' : ''} title="AI가 ${escHub(contentLabel)}·가이드 주제를 목록에 추가">목록 추가</button>`;
+        if (typeof isTrendsSeedSite === 'function' && isTrendsSeedSite(siteId)) {
+            html += `<button type="button" class="btn btn-ghost" onclick="seedTrends('${escHub(siteId)}')" ${running ? 'disabled' : ''} title="Google Trends 급상승·관련 검색어를 목록에 추가">Trends</button>`;
+        }
     } else {
         const csvTitle = expandAvail
             ? `CSV에 ${expandAvail}건 추가 가능 (시드 토픽)`

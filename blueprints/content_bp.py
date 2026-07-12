@@ -12,6 +12,7 @@ from git_ops import deploy_job_status
 from content_csv import list_csv_files, load_csv, save_csv
 from content_pipeline import (
     CONTENT_PIPELINES,
+    TRENDS_SEED_SITES,
     _log_snippet,
     pipeline_last_run,
     pipeline_log_path,
@@ -20,6 +21,7 @@ from content_pipeline import (
     run_csv_expand,
     run_pipeline,
     run_post_pipeline_deploy,
+    run_trends_seed,
     summarize_pipeline_status,
     tail_pipeline_log,
     write_pipeline_status,
@@ -163,6 +165,31 @@ def pipeline_csv_expand():
     backlog = refresh_backlog_snapshot(site_id)
     expand["backlog"] = backlog
     return jsonify(expand)
+
+
+@content_bp.route("/pipeline/trends-seed", methods=["POST"])
+@requires_auth
+def pipeline_trends_seed():
+    """Append topic-bank rows from Google Trends rising queries (Hatena excluded)."""
+    if not work_root_available():
+        return jsonify({"error": "WORK_ROOT not available"}), 503
+    data = request.get_json(silent=True) or {}
+    site_id = (data.get("site_id") or "").strip()
+    if site_id not in CONTENT_PIPELINES:
+        return jsonify({"error": "unknown pipeline"}), 400
+    if site_id not in TRENDS_SEED_SITES:
+        return jsonify({"error": "Trends 시드 미지원 (hatena 제외)"}), 400
+    limit = data.get("limit")
+    try:
+        limit_n = int(limit) if limit is not None else None
+    except (TypeError, ValueError):
+        limit_n = None
+    result = run_trends_seed(site_id, limit=limit_n)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    backlog = refresh_backlog_snapshot(site_id)
+    result["backlog"] = backlog
+    return jsonify(result)
 
 
 def _optional_nonneg_int(data: dict, key: str) -> int | None:

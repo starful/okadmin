@@ -22,8 +22,17 @@ const AI_QUEUE_SITES = new Set([
     'starful.biz', 'jpcampus', 'krcampus',
 ]);
 
+const TRENDS_SEED_SITES = new Set([
+    'okstats', 'okramen', 'okonsen', 'okcaddie',
+    'starful.biz', 'jpcampus', 'krcampus',
+]);
+
 function isAiQueueSite(siteId) {
     return AI_QUEUE_SITES.has(siteId);
+}
+
+function isTrendsSeedSite(siteId) {
+    return TRENDS_SEED_SITES.has(siteId);
 }
 
 function aiQueueContentLabel(siteId) {
@@ -288,6 +297,9 @@ function backlogHtml(p) {
         const contentLabel = aiQueueContentLabel(p.site_id);
         expandBtn = `${aiQueueInputs(p.site_id, snap, p.running)}
             <button type="button" class="btn btn-ghost btn-sm" onclick="expandCsv('${escPipeline(p.site_id)}')" ${p.running ? 'disabled' : ''} title="AI가 ${escPipeline(contentLabel)}·가이드 주제를 목록에 추가">목록 추가</button>`;
+        if (isTrendsSeedSite(p.site_id)) {
+            expandBtn += ` <button type="button" class="btn btn-ghost btn-sm" onclick="seedTrends('${escPipeline(p.site_id)}')" ${p.running ? 'disabled' : ''} title="Google Trends 급상승·관련 검색어를 가이드/포지션 목록에 추가 (Hatena 제외)">Trends</button>`;
+        }
     } else {
         const expandTitle = expandAvail
             ? `CSV에 ${expandAvail}건 추가 가능 (시드 토픽)`
@@ -609,6 +621,69 @@ async function expandCsv(siteId) {
         if (typeof hubOpenResult === 'function') {
             hubOpenResult({
                 title: '목록 추가 실패',
+                meta: siteId,
+                lines: ['요청 실패'],
+                state: 'failed',
+                error: '요청 실패',
+            });
+        }
+    }
+}
+
+async function seedTrends(siteId) {
+    if (!isTrendsSeedSite(siteId)) {
+        showToast('Trends 시드 미지원 사이트');
+        return;
+    }
+    if (!confirm(`Google Trends 급상승·관련 검색어로 ${siteId} 토픽 목록을 추가합니다.\n(가이드/포지션만 · 최대 8건 · Hatena 제외)`)) {
+        return;
+    }
+    if (typeof hubOpenProgress === 'function') {
+        hubOpenProgress('Trends 시드 중…', 'Google Trends 조회 후 목록에 추가합니다');
+    }
+    let d = {};
+    try {
+        const res = await fetch('/api/content/pipeline/trends-seed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ site_id: siteId, limit: 8 }),
+        });
+        d = await res.json();
+        if (!res.ok) {
+            const err = d.error || 'Trends 시드 실패';
+            showToast(err);
+            if (typeof hubOpenResult === 'function') {
+                hubOpenResult({
+                    title: 'Trends 시드 실패',
+                    meta: siteId,
+                    lines: [err],
+                    state: 'failed',
+                    error: err,
+                });
+            }
+            return;
+        }
+        const added = typeof d.rows_added === 'number' ? d.rows_added : 0;
+        const lines = [];
+        if (d.queries_found) lines.push(`Trends 후보 ${d.queries_found}건`);
+        if (added > 0) lines.push(`목록 +${added}건 추가`);
+        (d.sample_queries || []).slice(0, 5).forEach((q) => lines.push(`· ${q}`));
+        if (!lines.length) lines.push('추가된 행 없음');
+        showToast(added > 0 ? `Trends +${added}건` : 'Trends 추가 없음');
+        if (typeof hubOpenResult === 'function') {
+            hubOpenResult({
+                title: added > 0 ? 'Trends 시드 완료' : 'Trends 시드',
+                meta: siteId,
+                lines,
+                state: added > 0 ? 'success' : 'idle',
+            });
+        }
+        await refreshBacklog(siteId, { silent: true });
+    } catch (_) {
+        showToast('Trends 시드 요청 실패');
+        if (typeof hubOpenResult === 'function') {
+            hubOpenResult({
+                title: 'Trends 시드 실패',
                 meta: siteId,
                 lines: ['요청 실패'],
                 state: 'failed',
