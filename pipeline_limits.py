@@ -29,6 +29,7 @@ SITE_GCS_BUCKETS: dict[str, str] = {
     "okcaddie": "gs://ok-project-assets/okcaddie",
     "okstats": "gs://ok-project-assets/statfacts",
     "krcampus": "gs://ok-project-assets/krcampus",
+    "jpcampus": "gs://ok-project-assets/jpcampus",
     "starful.biz": "gs://starful-biz-assets",
 }
 

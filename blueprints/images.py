@@ -171,7 +171,7 @@ def _after_image_upload(image_key: str, slug: str, out: dict) -> dict:
 
 
 SITE_THUMBNAIL_CACHE_KEYS = frozenset(
-    {"okonsen", "okramen", "okcaddie", "okstats", "krcampus", "starful_biz"}
+    {"okonsen", "okramen", "okcaddie", "okstats", "krcampus", "jpcampus", "starful_biz"}
 )
 
 

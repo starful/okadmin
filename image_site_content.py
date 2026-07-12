@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 BUILD_DATA_CMD: dict[str, list[str]] = {
     "krcampus": ["python3", "scripts/build_data.py"],
+    "jpcampus": ["python3", "scripts/build_data.py"],
     "okonsen": ["python3", "script/build_data.py"],
     "okramen": ["python3", "script/build_data.py"],
     "okcaddie": ["python3", "script/build_data.py"],
@@ -66,6 +67,8 @@ def _default_source_path(site_key: str, slug: str, repo: Path) -> Path | None:
     if site_key == "krcampus":
         cat = "univ" if slug.startswith("univ_") else "school"
         candidates = list(KRCAMPUS_PIN.get(cat, DEFAULT_CANDIDATES))
+    if site_key == "jpcampus":
+        candidates = ["default-stay.png", "logo.png", "default.png", "default.jpg"]
     for name in candidates:
         for base in (images_dir, img_dir):
             path = base / name

@@ -160,6 +160,7 @@ def pipeline_for_site(site_id: str, repo: Path, env: dict[str, str]) -> dict[str
             [
                 ("korean", "Korean content", ["python3", "scripts/3.create_korean_content.py"], 3600),
                 ("featured", "featured articles", ["python3", "scripts/auto_generate_featured.py"], 1800),
+                ("stay_images", "ensure_stay_images", ["python3", "scripts/ensure_stay_images.py"], 300),
                 ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
             ]
         )

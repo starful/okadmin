@@ -14,7 +14,7 @@ from content_slugs import caddie_safe_name, csv_safe_name, okonsen_safe_name
 from gsc_seo_worker import _parse_frontmatter, _write_frontmatter
 
 # Sites with full meta panel + MD image_prompt editing in GCS tab
-SITE_META_KEYS = frozenset({"okonsen", "okramen", "okcaddie", "okstats", "krcampus", "starful_biz"})
+SITE_META_KEYS = frozenset({"okonsen", "okramen", "okcaddie", "okstats", "krcampus", "jpcampus", "starful_biz"})
 
 
 def _meta_slug(site_key: str, slug: str) -> str:
@@ -80,6 +80,22 @@ def _read_krcampus_md_bundle(content_dir: Path, slug: str) -> tuple[dict[str, An
     return merged, paths
 
 
+def _read_jpcampus_stay_md_bundle(content_dir: Path, slug: str) -> tuple[dict[str, Any], list[Path]]:
+    """JP Campus stays: `{slug}.md` (en) + `{slug}_kr.md`."""
+    paths: list[Path] = []
+    merged: dict[str, Any] = {}
+    for p in (content_dir / f"{slug}.md", content_dir / f"{slug}_kr.md"):
+        if not p.is_file():
+            continue
+        paths.append(p)
+        meta, _, _, _ = _parse_frontmatter(p)
+        if isinstance(meta, dict):
+            for k, v in meta.items():
+                if k not in merged or (v and not merged.get(k)):
+                    merged[k] = v
+    return merged, paths
+
+
 def _krcampus_fields(md_meta: dict[str, Any], md_slug: str) -> dict[str, str]:
     basic = md_meta.get("basic_info") or {}
     if not isinstance(basic, dict):
@@ -108,6 +124,33 @@ def _krcampus_fields(md_meta: dict[str, Any], md_slug: str) -> dict[str, str]:
         "lat": str(lat) if lat is not None and lat != "" else "",
         "lng": str(lng) if lng is not None and lng != "" else "",
         "features": features,
+    }
+
+
+def _jpcampus_stay_fields(md_meta: dict[str, Any], md_slug: str) -> dict[str, str]:
+    basic = md_meta.get("basic_info") or {}
+    if not isinstance(basic, dict):
+        basic = {}
+    loc = md_meta.get("location") or {}
+    if not isinstance(loc, dict):
+        loc = {}
+    title = str(md_meta.get("title") or "").strip()
+    name = (
+        str(basic.get("name_en") or "").strip()
+        or str(basic.get("name_ja") or "").strip()
+        or title
+        or md_slug
+    )
+    address = str(basic.get("address") or "").strip()
+    lat = loc.get("lat")
+    lng = loc.get("lng")
+    operator = str(basic.get("operator") or "").strip()
+    return {
+        "name": name,
+        "address": address,
+        "lat": str(lat) if lat is not None and lat != "" else "",
+        "lng": str(lng) if lng is not None and lng != "" else "",
+        "features": operator,
     }
 
 
@@ -256,6 +299,14 @@ def _build_page_urls(site_key: str, slug: str, content_dir: Path | None, base: s
         if (content_dir / f"{slug}_ja.md").is_file():
             out["ja"] = f"{base}/school/{slug}?lang=ja"
         return out
+    if site_key == "jpcampus":
+        stay_id = slug[5:] if slug.startswith("stay_") else slug
+        out: dict[str, str] = {}
+        if (content_dir / f"{slug}.md").is_file():
+            out["en"] = f"{base}/stay/{stay_id}?lang=en"
+        if (content_dir / f"{slug}_kr.md").is_file():
+            out["kr"] = f"{base}/stay/{stay_id}?lang=kr"
+        return out
     path_prefix = {
         "okonsen": "onsen",
         "okramen": "ramen",
@@ -327,6 +378,8 @@ def site_image_meta(site_key: str, slug: str) -> dict[str, Any]:
                 md_meta = parsed[0]
     elif content_dir and cfg.get("md_format") == "krcampus":
         md_meta, md_paths = _read_krcampus_md_bundle(content_dir, md_slug)
+    elif content_dir and cfg.get("md_format") == "jpcampus_stay":
+        md_meta, md_paths = _read_jpcampus_stay_md_bundle(content_dir, md_slug)
     elif content_dir:
         langs = cfg.get("md_langs") or ("en", "ko")
         md_meta, md_paths = _read_yaml_md_bundle(content_dir, md_slug, langs)
@@ -339,6 +392,13 @@ def site_image_meta(site_key: str, slug: str) -> dict[str, Any]:
         lat = csv_row.get("lat") or kr["lat"]
         lng = csv_row.get("lng") or kr["lng"]
         features = csv_row.get("features") or kr["features"]
+    elif cfg.get("md_format") == "jpcampus_stay":
+        jp = _jpcampus_stay_fields(md_meta, md_slug)
+        name = csv_row.get("name") or jp["name"]
+        address = csv_row.get("address") or jp["address"]
+        lat = csv_row.get("lat") or jp["lat"]
+        lng = csv_row.get("lng") or jp["lng"]
+        features = csv_row.get("features") or jp["features"]
     else:
         name = csv_row.get("name") or title.split(":")[0].strip() or title or md_slug
         address = csv_row.get("address") or str(md_meta.get("address") or "")
@@ -456,6 +516,13 @@ def enrich_site_image_rows(site_key: str, rows: list[dict]) -> list[dict]:
                 row["name"] = row["name"] or kr["name"]
                 row["address"] = row["address"] or kr["address"]
                 row["features"] = row["features"] or kr["features"]
+        if content_dir and site_key == "jpcampus":
+            md_meta, _ = _read_jpcampus_stay_md_bundle(content_dir, meta_slug)
+            if md_meta:
+                jp = _jpcampus_stay_fields(md_meta, meta_slug)
+                row["name"] = row["name"] or jp["name"]
+                row["address"] = row["address"] or jp["address"]
+                row["features"] = row["features"] or jp["features"]
     return rows
 
 
@@ -550,6 +617,21 @@ SITE_IMAGE_META: dict[str, dict[str, Any]] = {
         "uses_places": True,
         "prompt_editable": False,
     },
+    "jpcampus": {
+        "service_id": "jpcampus",
+        "content_dir": "app/content",
+        "md_format": "jpcampus_stay",
+        "name_label": "学生宿舎",
+        "places_suffix": "Tokyo Japan",
+        "places_query_style": "name_country",
+        "places_language": "ja",
+        "places_region": "JP",
+        "places_bias_m": 800,
+        "places_nearby_fallback": True,
+        "production_default": "https://jpcampus.net",
+        "uses_places": True,
+        "prompt_editable": False,
+    },
 }
 
 
@@ -581,6 +663,9 @@ def _json_row_matches_slug(row: dict[str, Any], slug: str, *, match: str) -> boo
         return base == slug or f"/{slug}.jpg" in thumb or f"/{slug}.png" in thumb
     if match == "exact":
         return rid == slug or f"/{slug}.jpg" in thumb or f"/{slug}.png" in thumb
+    if match == "jpcampus_stay":
+        base_id = slug[5:] if slug.startswith("stay_") else slug
+        return rid == base_id or f"/{slug}.jpg" in thumb or f"/{base_id}.jpg" in thumb
     return rid == slug
 
 
@@ -643,6 +728,18 @@ SITE_THUMBNAIL_CACHE: dict[str, dict[str, Any]] = {
         "json_match": "exact",
         "md_format": "krcampus",
     },
+    "jpcampus": {
+        "service_id": "jpcampus",
+        "content_dir": "app/content",
+        "md_date_field": "date",
+        "json_paths": [
+            "app/static/json/stays_data.json",
+            "app/static/json/stays_data_kr.json",
+        ],
+        "json_key": "stays",
+        "json_match": "jpcampus_stay",
+        "md_format": "jpcampus_stay",
+    },
 }
 
 
@@ -685,6 +782,16 @@ def bump_site_thumbnail_cache(site_key: str, slug: str) -> dict[str, Any]:
                 updated_md.append(str(md_path.relative_to(WORK_ROOT)))
     elif cfg.get("md_format") == "krcampus":
         for md_path in (content_dir / f"{md_slug}.md", content_dir / f"{md_slug}_ja.md"):
+            if not md_path.is_file():
+                continue
+            meta, _, body, fmt = _parse_frontmatter(md_path)
+            if not isinstance(meta, dict):
+                meta = {}
+            meta[date_field] = bump_date
+            _write_frontmatter(md_path, meta, body, fmt=fmt)
+            updated_md.append(str(md_path.relative_to(WORK_ROOT)))
+    elif cfg.get("md_format") == "jpcampus_stay":
+        for md_path in (content_dir / f"{md_slug}.md", content_dir / f"{md_slug}_kr.md"):
             if not md_path.is_file():
                 continue
             meta, _, body, fmt = _parse_frontmatter(md_path)
