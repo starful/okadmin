@@ -7,7 +7,7 @@ from topic_bank_registry import banks_for_site
 
 # Extra env aliases for scripts that expect a specific variable name.
 _SITE_ALIASES: dict[str, dict[str, str]] = {
-    "okstats": {
+    "statfacts": {
         "TOPIC_QUEUE_CSV": "insights",
     },
     "okramen": {
@@ -31,9 +31,10 @@ _SITE_ALIASES: dict[str, dict[str, str]] = {
         "TOPIC_QUEUE_LANGUAGE_SCHOOLS": "language_schools",
         "TOPIC_QUEUE_UNIVERSITIES": "universities",
     },
-    "hatena": {
+    "okpy": {
         "TOPIC_QUEUE_PYTHON": "python",
         "TOPIC_QUEUE_CLOUD": "cloud",
+        "TOPIC_QUEUE_TERRAFORM": "terraform",
     },
 }
 

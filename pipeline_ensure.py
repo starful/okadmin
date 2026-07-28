@@ -9,7 +9,6 @@ from pipeline_limits import (
     DEFAULT_GUIDE_LIMIT,
     DEFAULT_KRCAMPUS_SCHOOL_LIMIT,
     DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT,
-    bounded_limit,
     int_env_allow_zero,
 )
 from pipeline_specs import RELEASE_QUEUE_SITES, ensure_mode
@@ -36,12 +35,8 @@ def ensure_site_topic_bank(
     if mode == "expand":
         from topic_bank_pipeline import prepare_topics_for_generation
 
-        content_limit = bounded_limit(
-            env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=50
-        )
-        guide_limit = bounded_limit(
-            env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=20
-        )
+        content_limit = int_env_allow_zero(env, "CONTENT_LIMIT", DEFAULT_CONTENT_LIMIT)
+        guide_limit = int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT)
         return prepare_topics_for_generation(
             site_id,
             repo,
@@ -88,6 +83,25 @@ def ensure_site_topic_bank(
             school_limit=school_limit,
             university_limit=university_limit,
             content_limit_each=False,
+        )
+
+    if site_id == "okpy":
+        py_n = int_env_allow_zero(env, "PYTHON_LIMIT", DEFAULT_CONTENT_LIMIT)
+        cloud_n = int_env_allow_zero(env, "CLOUD_LIMIT", DEFAULT_CONTENT_LIMIT)
+        tf_n = int_env_allow_zero(env, "TERRAFORM_LIMIT", DEFAULT_CONTENT_LIMIT)
+        if "PYTHON_LIMIT" not in env:
+            py_n = int_env_allow_zero(env, "CONTENT_LIMIT", DEFAULT_CONTENT_LIMIT)
+        if "CLOUD_LIMIT" not in env:
+            cloud_n = int_env_allow_zero(env, "CONTENT_LIMIT", DEFAULT_CONTENT_LIMIT)
+        if "TERRAFORM_LIMIT" not in env:
+            tf_n = int_env_allow_zero(env, "CONTENT_LIMIT", DEFAULT_CONTENT_LIMIT)
+        return topic_bank_release_queues(
+            site_id,
+            repo,
+            logf,
+            content_limit=0,
+            guide_limit=0,
+            bank_caps={"python": py_n, "cloud": cloud_n, "terraform": tf_n},
         )
 
     if site_id in RELEASE_QUEUE_SITES:

@@ -1,4 +1,4 @@
-"""Fetch GSC targets, suggest SEO via Gemini, optionally patch site content MD."""
+"""Fetch GSC targets, suggest SEO via Claude CLI (subscription), optionally patch site content MD."""
 from __future__ import annotations
 
 import json
@@ -24,25 +24,9 @@ USER_AGENT = "WorkHub-GSC/1.0"
 
 
 def _gemini_model():
-    from config_gemini import ensure_gemini_api_key
+    from llm_claude import claude_model
 
-    ensure_gemini_api_key()
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        return None, (
-            "GEMINI_API_KEY 없음 — okadmin/.env 에 추가하거나 "
-            "./scripts/fetch_secrets.sh 실행"
-        )
-    try:
-        import google.generativeai as genai
-
-        genai.configure(api_key=api_key)
-        name = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
-        return genai.GenerativeModel(name), None
-    except ImportError:
-        return None, "pip install google-generativeai"
-    except Exception as e:
-        return None, str(e)
+    return claude_model()
 
 
 def fetch_page_seo(url: str) -> dict[str, Any]:
@@ -212,7 +196,7 @@ def resolve_content_files(site_id: str, url: str) -> list[Path]:
 
     norm_path = path.split("?")[0]
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
         m_insight = re.search(r"/insight/([^/?#]+)", norm_path)
         if m_insight:
             slug = m_insight.group(1)
@@ -564,7 +548,7 @@ def _dashboard_fetch_ok(out: dict[str, Any]) -> bool:
 
 
 def enrich_gsc_rows_md(site_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    from gsc_url_store import url_history_meta
+    from gsc_url_store import seo_action_advice, url_history_meta
 
     meta_by_url = url_history_meta(site_id)
     out: list[dict[str, Any]] = []
@@ -572,12 +556,20 @@ def enrich_gsc_rows_md(site_id: str, rows: list[dict[str, Any]]) -> list[dict[st
         url = (row.get("label") or row.get("page") or "").strip()
         paths = resolve_content_files(site_id, url) if url else []
         rel = [str(p.relative_to(WORK_ROOT)) for p in paths]
-        hist = meta_by_url.get(url) or {}
+        hist = dict(meta_by_url.get(url) or {})
         is_deleted = bool(hist.get("is_deleted"))
+        has_md = bool(paths) and not is_deleted
+        adv = seo_action_advice(
+            seo_count=int(hist.get("seo_count") or 0),
+            trend=str(hist.get("trend") or ""),
+            has_md=has_md,
+            is_deleted=is_deleted,
+        )
+        hist.update(adv)
         out.append(
             {
                 **row,
-                "has_md": bool(paths) and not is_deleted,
+                "has_md": has_md,
                 "md_files": rel,
                 "url_history": hist,
                 "is_deleted": is_deleted,
@@ -586,8 +578,107 @@ def enrich_gsc_rows_md(site_id: str, rows: list[dict[str, Any]]) -> list[dict[st
     return out
 
 
+def expand_content_lang_siblings(paths: list[Path]) -> list[Path]:
+    """Include sibling language MD files (e.g. foo_en.md ↔ foo_ko.md, foo.md ↔ foo_ja.md)."""
+    lang_suffixes = ("_zh_tw", "_en", "_ko", "_kr", "_ja", "_zh")
+    seen: set[Path] = set()
+    out: list[Path] = []
+
+    def _base_stem(stem: str) -> str:
+        for suf in lang_suffixes:
+            if stem.endswith(suf):
+                return stem[: -len(suf)]
+        return stem
+
+    for p in paths:
+        if p is None:
+            continue
+        try:
+            key = p.resolve()
+        except OSError:
+            key = p
+        if key in seen:
+            continue
+        if not str(p).endswith(".md"):
+            if p.is_file():
+                seen.add(key)
+                out.append(p)
+            continue
+        parent = p.parent
+        base = _base_stem(p.stem)
+        candidates = [parent / f"{base}.md"]
+        for suf in lang_suffixes:
+            candidates.append(parent / f"{base}{suf}.md")
+        for c in candidates:
+            if not c.is_file():
+                continue
+            try:
+                ck = c.resolve()
+            except OSError:
+                ck = c
+            if ck in seen:
+                continue
+            seen.add(ck)
+            out.append(c)
+    return out
+
+
+def lang_sibling_urls(url: str) -> list[str]:
+    """Best-effort alternate language URLs for history marking."""
+    url = (url or "").strip()
+    if not url:
+        return []
+    lang_suffixes = ("_zh_tw", "_en", "_ko", "_kr", "_ja", "_zh")
+    parsed = urlparse(url)
+    path = parsed.path or ""
+    parts = path.rstrip("/").split("/")
+    if not parts or parts == [""]:
+        return [url]
+    seg = parts[-1]
+
+    def _base_stem(stem: str) -> str:
+        for suf in lang_suffixes:
+            if stem.endswith(suf):
+                return stem[: -len(suf)]
+        return stem
+
+    base = _base_stem(seg)
+    alts = {seg, base}
+    for suf in ("_en", "_ko", "_kr", "_ja"):
+        alts.add(f"{base}{suf}")
+    out: list[str] = []
+    seen: set[str] = set()
+    for alt in alts:
+        parts[-1] = alt
+        new_path = "/".join(parts)
+        if not new_path.startswith("/"):
+            new_path = "/" + new_path
+        rebuilt = parsed._replace(path=new_path).geturl()
+        if rebuilt not in seen:
+            seen.add(rebuilt)
+            out.append(rebuilt)
+    qs = parse_qs(parsed.query)
+    lang = (qs.get("lang") or [""])[0].lower()
+    if lang in ("en", "ko", "kr", "ja", "jp"):
+        for other in ("en", "ko", "kr", "ja"):
+            if other == lang:
+                continue
+            if lang in ("ko", "kr") and other in ("ko", "kr"):
+                continue
+            if lang in ("ja", "jp") and other in ("ja", "jp"):
+                continue
+            swapped = parsed._replace(query=f"lang={other}").geturl()
+            if swapped not in seen:
+                seen.add(swapped)
+                out.append(swapped)
+    return out
+
+
 def delete_url_content_files(site_id: str, urls: list[str]) -> dict[str, Any]:
-    """Delete MD/content files for URLs (manual GSC cleanup)."""
+    """Delete MD/content files for URLs (manual GSC cleanup).
+
+    Also removes sibling language files (en/ko/ja) for the same slug.
+    """
     from gsc_url_store import record_url_deletion, url_history_meta
 
     if not get_service(site_id):
@@ -598,7 +689,7 @@ def delete_url_content_files(site_id: str, urls: list[str]) -> dict[str, Any]:
         url = (raw or "").strip()
         if not url:
             continue
-        paths = resolve_content_files(site_id, url)
+        paths = expand_content_lang_siblings(resolve_content_files(site_id, url))
         if not paths:
             results.append(
                 {
@@ -619,7 +710,8 @@ def delete_url_content_files(site_id: str, urls: list[str]) -> dict[str, Any]:
             except OSError as e:
                 errors.append(f"{rel}: {e}")
         if deleted:
-            record_url_deletion(site_id, url, deleted_files=deleted)
+            for u in lang_sibling_urls(url):
+                record_url_deletion(site_id, u, deleted_files=deleted)
             results.append(
                 {
                     "url": url,

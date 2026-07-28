@@ -37,6 +37,7 @@ from pipeline_limits import (
     user_run_limit,
 )
 from pipeline_runner import (
+    mark_content_cycle_shipped,
     pipeline_last_run,
     pipeline_log_path,
     read_pipeline_status,
@@ -46,12 +47,12 @@ from pipeline_runner import (
 from topic_bank_registry import banks_for_site
 
 # Backward-compatible re-exports
-ensure_okstats_csv = lambda repo, logf, **kw: ensure_site_topic_bank("okstats", repo, logf, **kw)
+ensure_statfacts_csv = lambda repo, logf, **kw: ensure_site_topic_bank("statfacts", repo, logf, **kw)
 ensure_poi_site_csv = lambda site_id, repo, logf, **kw: ensure_site_topic_bank(site_id, repo, logf, **kw)
 ensure_topic_bank_sync_only = ensure_site_topic_bank
 ensure_site_csv_from_bank = ensure_site_topic_bank
 ensure_starful_csv = lambda repo, logf, **kw: ensure_site_topic_bank("starful.biz", repo, logf, **kw)
-ensure_hatena_csv = lambda repo, logf, **kw: ensure_site_topic_bank("hatena", repo, logf, **kw)
+ensure_okpy_csv = lambda repo, logf, **kw: ensure_site_topic_bank("okpy", repo, logf, **kw)
 ensure_jpcampus_csv = lambda repo, logf, **kw: ensure_site_topic_bank("jpcampus", repo, logf, **kw)
 ensure_krcampus_csv = lambda repo, logf, **kw: ensure_site_topic_bank("krcampus", repo, logf, **kw)
 
@@ -63,118 +64,14 @@ _user_run_limit = user_run_limit
 _apply_krcampus_run_limits = apply_krcampus_run_limits
 _sanitize_pipeline_limits = __import__("pipeline_limits", fromlist=["sanitize_pipeline_limits"]).sanitize_pipeline_limits
 
-# Tokyo cafe seeds when items.csv is nearly empty
-DEFAULT_ITEM_SEEDS: list[dict[str, str]] = [
-    {
-        "Name": "Marunouchi Blend Lab",
-        "Lat": "35.6812",
-        "Lng": "139.7671",
-        "Address": "Tokyo, Marunouchi",
-        "Features": "Specialty coffee | Wi-Fi",
-        "Agoda": "",
-    },
-    {
-        "Name": "Shinjuku South Latte Lab",
-        "Lat": "35.6895",
-        "Lng": "139.7005",
-        "Address": "Tokyo, Shinjuku",
-        "Features": "Third wave espresso | Laptop friendly",
-        "Agoda": "",
-    },
-    {
-        "Name": "Shibuya Morning Club",
-        "Lat": "35.6581",
-        "Lng": "139.7017",
-        "Address": "Tokyo, Shibuya",
-        "Features": "Brunch set | Tourist friendly",
-        "Agoda": "",
-    },
-    {
-        "Name": "Ginza Patisserie Bloom",
-        "Lat": "35.6718",
-        "Lng": "139.7645",
-        "Address": "Tokyo, Ginza",
-        "Features": "Dessert pairing | English menu",
-        "Agoda": "",
-    },
-    {
-        "Name": "Ueno Parkside Drip",
-        "Lat": "35.7089",
-        "Lng": "139.7310",
-        "Address": "Tokyo, Ueno",
-        "Features": "Pour-over bar | Calm vibe",
-        "Agoda": "",
-    },
-    {
-        "Name": "Ebisu Workbench Cafe",
-        "Lat": "35.6467",
-        "Lng": "139.7100",
-        "Address": "Tokyo, Ebisu",
-        "Features": "Work-friendly | Wi-Fi",
-        "Agoda": "",
-    },
-    {
-        "Name": "Ikebukuro Sun City Espresso",
-        "Lat": "35.7289",
-        "Lng": "139.7101",
-        "Address": "Tokyo, Ikebukuro",
-        "Features": "House roast | Easy access",
-        "Agoda": "",
-    },
-    {
-        "Name": "Roppongi Origin Lab",
-        "Lat": "35.6655",
-        "Lng": "139.7293",
-        "Address": "Tokyo, Roppongi",
-        "Features": "Single origin | Late hours",
-        "Agoda": "",
-    },
-]
+# Removed shared cafe item seeds (were wrongly shared across okramen/okonsen/okcaddie).
+DEFAULT_ITEM_SEEDS: list[dict[str, str]] = []
 
-# Legacy expand pool for okramen / okonsen / okcaddie (seed CSV 추가; AI 목록 추가가 우선).
-POI_EXPAND_SEEDS: list[dict[str, str]] = [
-    {"Name": "Yokohama Minato Mirai Cafe", "Lat": "35.4564", "Lng": "139.6340", "Address": "Kanagawa, Yokohama", "Features": "Waterfront | Wi-Fi", "Agoda": ""},
-    {"Name": "Kamakura Komachi Drip", "Lat": "35.3192", "Lng": "139.5503", "Address": "Kanagawa, Kamakura", "Features": "Historic street | Matcha", "Agoda": ""},
-    {"Name": "Nagoya Sakae Espresso", "Lat": "35.1709", "Lng": "136.9066", "Address": "Aichi, Nagoya", "Features": "City center | House roast", "Agoda": ""},
-    {"Name": "Kanazawa Higashi Chaya Cafe", "Lat": "36.5713", "Lng": "136.6622", "Address": "Ishikawa, Kanazawa", "Features": "Traditional district", "Agoda": ""},
-    {"Name": "Hiroshima Peace Park Cafe", "Lat": "34.3955", "Lng": "132.4536", "Address": "Hiroshima", "Features": "Tourist area | Calm", "Agoda": ""},
-    {"Name": "Sendai Ichibancho Latte", "Lat": "38.2606", "Lng": "140.8829", "Address": "Miyagi, Sendai", "Features": "Shopping street", "Agoda": ""},
-    {"Name": "Naha Kokusai Street Coffee", "Lat": "26.2140", "Lng": "127.6889", "Address": "Okinawa, Naha", "Features": "Island blend | AC", "Agoda": ""},
-    {"Name": "Hakodate Morning Market Cafe", "Lat": "41.7687", "Lng": "140.7290", "Address": "Hokkaido, Hakodate", "Features": "Morning set", "Agoda": ""},
-    {"Name": "Asahikawa Winter Roast", "Lat": "43.7706", "Lng": "142.3650", "Address": "Hokkaido, Asahikawa", "Features": "Warm interior", "Agoda": ""},
-    {"Name": "Nara Parkside Kissaten", "Lat": "34.6851", "Lng": "135.8050", "Address": "Nara", "Features": "Deer area nearby", "Agoda": ""},
-    {"Name": "Kobe Harborland Cafe", "Lat": "34.6795", "Lng": "135.1830", "Address": "Hyogo, Kobe", "Features": "Harbor view", "Agoda": ""},
-    {"Name": "Matsuyama Dogo Onsen Cafe", "Lat": "33.8518", "Lng": "132.7860", "Address": "Ehime, Matsuyama", "Features": "Onsen town", "Agoda": ""},
-    {"Name": "Takamatsu Ritsurin Garden Cafe", "Lat": "34.3299", "Lng": "134.0445", "Address": "Kagawa, Takamatsu", "Features": "Garden district", "Agoda": ""},
-    {"Name": "Kumamoto Castle Town Cafe", "Lat": "32.8062", "Lng": "130.7059", "Address": "Kumamoto", "Features": "Castle area", "Agoda": ""},
-    {"Name": "Otaru Canal Coffee", "Lat": "43.1967", "Lng": "141.0014", "Address": "Hokkaido, Otaru", "Features": "Canal view", "Agoda": ""},
-    {"Name": "Miyazaki Phoenix Cafe", "Lat": "31.9077", "Lng": "131.4202", "Address": "Miyazaki", "Features": "Coastal city", "Agoda": ""},
-    {"Name": "Niigata Bandai Brew", "Lat": "37.9161", "Lng": "139.0364", "Address": "Niigata", "Features": "Rice country roast", "Agoda": ""},
-    {"Name": "Matsumoto Castle Cafe", "Lat": "36.2380", "Lng": "137.9690", "Address": "Nagano, Matsumoto", "Features": "Castle town", "Agoda": ""},
-    {"Name": "Okayama Korakuen Cafe", "Lat": "34.6650", "Lng": "133.9355", "Address": "Okayama", "Features": "Garden area", "Agoda": ""},
-    {"Name": "Shizuoka Station Espresso", "Lat": "34.9717", "Lng": "138.3890", "Address": "Shizuoka", "Features": "Tea country | Wi-Fi", "Agoda": ""},
-]
+# Per-site expand pools live in topic_bank_seeds; keep empty shared cafe pool.
+POI_EXPAND_SEEDS: list[dict[str, str]] = []
 
-DEFAULT_GUIDE_SEEDS: list[dict[str, str]] = [
-    {
-        "id": "guide_seed_001",
-        "topic_en": "Best Specialty Cafes in Tokyo (2026)",
-        "topic_ko": "2026 도쿄 스페셜티 카페 가이드",
-        "keywords": "tokyo specialty cafe",
-    },
-    {
-        "id": "guide_seed_002",
-        "topic_en": "Quiet Work-Friendly Cafes in Tokyo",
-        "topic_ko": "도쿄 노트북 카페",
-        "keywords": "tokyo work cafe wifi",
-    },
-    {
-        "id": "guide_seed_003",
-        "topic_en": "Best Dessert Cafes in Tokyo for Travelers",
-        "topic_ko": "도쿄 디저트 카페",
-        "keywords": "tokyo dessert cafe",
-    },
-]
+# Removed shared cafe guide seeds (same cross-site leak).
+DEFAULT_GUIDE_SEEDS: list[dict[str, str]] = []
 
 ITEM_HEADERS = ["Name", "Lat", "Lng", "Address", "Features", "Agoda"]
 GUIDE_HEADERS = ["id", "topic_en", "topic_ko", "keywords"]
@@ -314,63 +211,118 @@ KRCAMPUS_EXPAND_TOPIC_ROWS: list[dict[str, str]] = [
     },
 ]
 
-# Weekly guide topic pool (deduped by id) for dual-csv sites.
-EXPAND_GUIDE_SEEDS: list[dict[str, str]] = [
+# Per-site niche guide pools (do not share generic Japan travel across POI sites).
+EXPAND_GUIDE_SEEDS: list[dict[str, str]] = []  # legacy shared pool retired
+
+OKRAMEN_GUIDE_SEEDS: list[dict[str, str]] = [
     {
-        "id": "guide_expand_001",
-        "topic_en": "How to read a Japanese menu at cafes and restaurants",
-        "topic_ko": "일본 식당·카페 메뉴 읽는 법",
-        "keywords": "japanese menu reading",
+        "id": "ramen_ticket_machines",
+        "topic_en": "How to use ramen ticket machines in Japan",
+        "topic_ko": "일본 라멘집 식권기 사용법",
+        "keywords": "ramen ticket machine vending",
     },
     {
-        "id": "guide_expand_002",
-        "topic_en": "Cashless payment and IC cards for travelers in Japan",
-        "topic_ko": "일본 여행 결제·교통카드 가이드",
-        "keywords": "japan suica paypay cashless",
+        "id": "ramen_styles_cheat_sheet",
+        "topic_en": "Tonkotsu vs shoyu vs miso vs tsukemen: a traveler's cheat sheet",
+        "topic_ko": "돈코츠·쇼유·미소·츠케멘 초보 가이드",
+        "keywords": "ramen styles tonkotsu shoyu miso tsukemen",
     },
     {
-        "id": "guide_expand_003",
-        "topic_en": "Seasonal travel tips for Japan (spring to winter)",
-        "topic_ko": "일본 계절별 여행 팁",
-        "keywords": "japan seasonal travel",
+        "id": "ramen_late_night_tokyo",
+        "topic_en": "Late-night ramen tips in Tokyo",
+        "topic_ko": "도쿄 심야 라멘 팁",
+        "keywords": "tokyo late night ramen",
     },
     {
-        "id": "guide_expand_004",
-        "topic_en": "Etiquette at shrines and temples in Japan",
-        "topic_ko": "일본 신사·절 예절",
-        "keywords": "japan shrine etiquette",
+        "id": "ramen_allergy_and_noodles",
+        "topic_en": "Allergies and dietary notes when eating ramen in Japan",
+        "topic_ko": "라멘 알레르기·식단 주의점",
+        "keywords": "ramen allergy vegan gluten",
     },
     {
-        "id": "guide_expand_005",
-        "topic_en": "Using Google Maps and transit apps in Tokyo",
-        "topic_ko": "도쿄 지도·교통 앱 활용",
-        "keywords": "tokyo maps transit apps",
-    },
-    {
-        "id": "guide_expand_006",
-        "topic_en": "Allergies and dietary restrictions when dining in Japan",
-        "topic_ko": "일본 식사 알레르기·식단 제한",
-        "keywords": "japan food allergy halal vegan",
-    },
-    {
-        "id": "guide_expand_007",
-        "topic_en": "Japan train etiquette and reserved vs non-reserved seats",
-        "topic_ko": "일본 기차 예절·좌석 종류",
-        "keywords": "japan train shinkansen reserved seat",
-    },
-    {
-        "id": "guide_expand_008",
-        "topic_en": "Convenience store survival guide for travelers in Japan",
-        "topic_ko": "일본 편의점 활용 가이드",
-        "keywords": "japan konbini guide 7-eleven lawson",
-    },
-    {
-        "id": "guide_expand_009",
-        "topic_en": "How to handle earthquakes and typhoons in Japan",
-        "topic_ko": "일본 지진·태풍 대비",
-        "keywords": "japan earthquake typhoon safety",
+        "id": "ramen_queue_strategy",
+        "topic_en": "How to survive ramen queues without wasting half a day",
+        "topic_ko": "라멘 웨이팅 줄 서는 법",
+        "keywords": "ramen queue waitlist",
     },
 ]
+
+OKONSEN_GUIDE_SEEDS: list[dict[str, str]] = [
+    {
+        "id": "onsen_etiquette_basics",
+        "topic_en": "Onsen etiquette basics for first-time visitors",
+        "topic_ko": "온천 예절 기초",
+        "keywords": "onsen etiquette tattoos soap",
+    },
+    {
+        "id": "ryokan_vs_day_onsen",
+        "topic_en": "Ryokan stay vs day-trip onsen: which to book",
+        "topic_ko": "료칸 vs 당일 온천 선택",
+        "keywords": "ryokan day onsen booking",
+    },
+    {
+        "id": "private_bath_rotenburo",
+        "topic_en": "Private baths and rotenburo: when to pay extra",
+        "topic_ko": "가족탕·노천탕 언제 추가할지",
+        "keywords": "rotenburo private bath family",
+    },
+    {
+        "id": "onsen_packing_list",
+        "topic_en": "What to pack for an onsen trip in Japan",
+        "topic_ko": "온천 여행 짐 싸기",
+        "keywords": "onsen packing yukata towel",
+    },
+    {
+        "id": "onsen_town_logistics",
+        "topic_en": "Train and bus tips for popular onsen towns",
+        "topic_ko": "온천 마을 교통 팁",
+        "keywords": "hakone kusatsu beppu transit onsen",
+    },
+]
+
+OKCADDIE_GUIDE_SEEDS: list[dict[str, str]] = [
+    {
+        "id": "japan_golf_booking_basics",
+        "topic_en": "How golf course booking works in Japan",
+        "topic_ko": "일본 골프장 예약 방법",
+        "keywords": "golf booking japan caddie",
+    },
+    {
+        "id": "golf_dress_code_japan",
+        "topic_en": "Dress code and soft spikes at Japanese golf clubs",
+        "topic_ko": "일본 골프장 복장·스파이크",
+        "keywords": "golf dress code soft spikes",
+    },
+    {
+        "id": "public_vs_members_courses",
+        "topic_en": "Public vs members-only golf courses for travelers",
+        "topic_ko": "퍼블릭 vs 회원제 골프장",
+        "keywords": "public golf members club japan",
+    },
+    {
+        "id": "golf_day_trip_logistics",
+        "topic_en": "Day-trip golf logistics: trains, taxis, and club rentals",
+        "topic_ko": "당일 골프 교통·클럽 렌탈",
+        "keywords": "golf day trip rental clubs transit",
+    },
+    {
+        "id": "japan_golf_etiquette",
+        "topic_en": "On-course golf etiquette: pace of play and caddie tips",
+        "topic_ko": "라운드 예절·캐디 팁",
+        "keywords": "golf etiquette pace caddie japan",
+    },
+]
+
+
+def poi_guide_seeds(site_id: str) -> list[dict[str, str]]:
+    if site_id == "okramen":
+        return list(OKRAMEN_GUIDE_SEEDS)
+    if site_id == "okonsen":
+        return list(OKONSEN_GUIDE_SEEDS)
+    if site_id == "okcaddie":
+        return list(OKCADDIE_GUIDE_SEEDS)
+    return []
+
 
 # StatFacts weekly pools (not Japan travel guides).
 STATFACTS_GUIDE_EXPAND: list[dict[str, str]] = [
@@ -767,20 +719,30 @@ def run_post_pipeline_deploy(
     *,
     on_job_started: Any = None,
 ) -> dict[str, Any]:
-    """After content pipeline OK: git push + Cloud Build."""
+    """After content pipeline OK: git push by default; Cloud Build only if explicitly enabled."""
     import os
 
     from git_ops import deploy_script_path, start_deploy, wait_for_deploy_job
 
-    if site_id == "hatena":
-        return {"ok": True, "skipped": True, "message": "Hatena: deploy.sh 없음"}
-
-    with_git = os.environ.get("CONTENT_PIPELINE_WITH_GIT", "1").strip() not in ("0", "false", "no")
-    with_deploy = os.environ.get("CONTENT_PIPELINE_WITH_DEPLOY", "1").strip() not in (
+    # Defaults: push yes, Cloud Run deploy no (Hub ② 배포 탭에서 따로).
+    with_git = os.environ.get("CONTENT_PIPELINE_WITH_GIT", "1").strip().lower() not in (
         "0",
         "false",
         "no",
     )
+    with_deploy = os.environ.get("CONTENT_PIPELINE_WITH_DEPLOY", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+    if not with_git and not with_deploy:
+        return {
+            "ok": True,
+            "skipped": True,
+            "state": "skipped",
+            "message": "git/deploy 생략 (CONTENT_PIPELINE_WITH_GIT/DEPLOY)",
+        }
 
     svc = get_service(site_id)
     if not svc:
@@ -807,8 +769,9 @@ def run_post_pipeline_deploy(
 
     log_path = pipeline_log_path(site_id)
     with open(log_path, "a", encoding="utf-8") as logf:
+        kind = "git_push" if with_git and not with_deploy else "deploy"
         logf.write(
-            f"\n[{datetime.now():%F %T}] deploy.sh --deploy-only"
+            f"\n[{datetime.now():%F %T}] [{kind}] deploy.sh --deploy-only"
             f"{' --with-git' if with_git else ''}"
             f"{' --with-deploy' if with_deploy else ''}\n"
             f"log: {started.get('log_path')}\n"
@@ -816,6 +779,10 @@ def run_post_pipeline_deploy(
 
     final = wait_for_deploy_job(started["job_id"], site_id=site_id)
     final.setdefault("log_path", started.get("log_path"))
+    if with_git and not with_deploy:
+        final["content_post"] = "git_push"
+        if final.get("state") == "success" or final.get("ok"):
+            final["message"] = final.get("message") or "git push 완료 · Cloud 배포는 ② 배포 탭"
     return final
 
 
@@ -836,14 +803,11 @@ def run_pipeline(
     if not repo.is_dir():
         return {"ok": False, "error": f"missing repo {repo}"}
     env = pipeline_env_for_site(site_id, krcampus_defaults=False)
-    try:
-        from ai_spend import spend_preflight
-
-        pf = spend_preflight()
-        if pf.get("block_gemini"):
-            return {"ok": False, "error": pf.get("message") or "Gemini 월 예산 초과", "ai_spend": pf.get("summary")}
-    except Exception:
-        pass
+    # Hub content: generate images with content; git/Cloud deploy stay on ③④ tabs.
+    env.setdefault("CONTENT_PIPELINE_WITH_IMAGES", "1")
+    env.setdefault("CONTENT_PIPELINE_WITH_GIT", "0")
+    env.setdefault("CONTENT_PIPELINE_WITH_DEPLOY", "0")
+    env.setdefault("CONTENT_PIPELINE_IMAGES_ONLY", "0")
     if site_id == "krcampus":
         if any(x is not None for x in (guide_count, school_count, university_count)):
             guide_count = 0 if guide_count is None else guide_count
@@ -860,6 +824,21 @@ def run_pipeline(
                 "ok": False,
                 "error": "가이드·어학원·대학 중 1개 이상 입력하세요",
             }
+    elif site_id == "okpy":
+        # Map Hub fields: insight→python, school→cloud, university→terraform
+        if any(x is not None for x in (insight_count, school_count, university_count)):
+            insight_count = 0 if insight_count is None else insight_count
+            school_count = 0 if school_count is None else school_count
+            university_count = 0 if university_count is None else university_count
+        p = user_run_limit(insight_count, default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
+        c = user_run_limit(school_count, default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
+        t = user_run_limit(university_count, default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
+        if p == c == t == 0:
+            return {"ok": False, "error": "python·cloud·terraform 중 1개 이상 입력하세요"}
+        env["PYTHON_LIMIT"] = str(p)
+        env["CLOUD_LIMIT"] = str(c)
+        env["TERRAFORM_LIMIT"] = str(t)
+        env["CONTENT_LIMIT"] = str(max(p, c, t))
     elif site_id == "jpcampus" and (guide_count is not None or university_count is not None):
         g = user_run_limit(guide_count, default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
         u = user_run_limit(
@@ -871,15 +850,15 @@ def run_pipeline(
             return {"ok": False, "error": "가이드·대학 중 1개 이상 입력하세요"}
         env["GUIDE_LIMIT"] = str(g)
         env["UNIVERSITY_LIMIT"] = str(u)
-    elif site_id in ("okstats", "okramen", "okonsen", "okcaddie", "starful.biz"):
+    elif site_id in ("statfacts", "okramen", "okonsen", "okcaddie", "starful.biz", "krcare"):
         c = user_run_limit(insight_count, default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
         g = user_run_limit(guide_count, default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
         if site_id == "starful.biz":
             if c == 0:
                 return {"ok": False, "error": "포지션 개수를 1 이상 입력하세요"}
-        elif c == 0 and g == 0:
+        elif site_id != "krcare" and c == 0 and g == 0:
             return {"ok": False, "error": "콘텐츠 또는 가이드 개수를 1 이상 입력하세요"}
-        env["CONTENT_LIMIT"] = str(c)
+        env["CONTENT_LIMIT"] = str(c or DEFAULT_CONTENT_LIMIT) if site_id == "krcare" else str(c)
         env["GUIDE_LIMIT"] = str(g)
     from pipeline_site_registry import pipeline_for_site
 
@@ -913,8 +892,8 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
     guide_n = bounded_limit(
         env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
     )
-    hatena_n = bounded_limit(
-        env, "HATENA_MAX_POSTS", default=DEFAULT_HATENA_MAX_POSTS, ceiling=MAX_HATENA_MAX_POSTS
+    okpy_n = bounded_limit(
+        env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
     )
     korean_n = bounded_limit(
         env, "KOREAN_LIMIT", default=DEFAULT_KOREAN_LIMIT, ceiling=MAX_KOREAN_LIMIT
@@ -942,31 +921,41 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
                 "cap": f"CSV {item_n}행 · 최대 {item_n * 2} MD",
                 "note": "없는 en/ko만",
             },
-            {"label": "이미지", "cap": image_cap, "note": "신규 MD만"},
+            {"label": "이미지", "cap": image_cap, "note": "실패 시 디폴트"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
-            {"label": "배포", "cap": "git + GCS + Cloud Build", "note": "생성 성공 후"},
+            {"label": "배포", "cap": "④ 배포 탭", "note": "수동"},
         ]
-    elif site_id == "okstats":
+    elif site_id == "krcare":
+        parts = [
+            {"label": "클리닉", "cap": "TourAPI MdclTursm 수집", "note": "실데이터 en/ja/zh/zh_tw"},
+            {"label": "이미지", "cap": "TourAPI → Places → default", "note": "실패 시 디폴트"},
+            {"label": "Nearby", "cap": "Stay/Food 캐시", "note": "클리닉별 병합"},
+            {"label": "빌드", "cap": "build_data 1회", "note": ""},
+            {"label": "배포", "cap": "④ 배포 탭", "note": "수동"},
+        ]
+    elif site_id == "statfacts":
         parts = [
             {"label": "인사이트", "cap": f"큐 {item_n}행 · 최대 {item_n} MD", "note": "토픽뱅크 → AI"},
             {"label": "가이드", "cap": f"토픽 {guide_n}개", "note": "없는 .md만"},
-            {"label": "이미지", "cap": "Imagen + optimize", "note": "신규 MD만"},
+            {"label": "이미지", "cap": "Imagen/Places + optimize", "note": "실패 시 디폴트"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
-            {"label": "GCS", "cap": "statfacts/", "note": "생성 후"},
-            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
+            {"label": "GCS", "cap": "생성분 sync · 빈칸 디폴트", "note": "생성 후"},
+            {"label": "배포", "cap": "④ 배포 탭", "note": "수동"},
         ]
     elif site_id == "starful.biz":
         parts = [
             {"label": "가이드 MD", "cap": f"최대 {item_n}건", "note": "없는 MD만"},
-            {"label": "이미지", "cap": "default 복사 + resize + 이름 정규화", "note": "snake_case"},
+            {"label": "이미지", "cap": "default 복사 + resize + 이름 정규화", "note": "실패 시 디폴트"},
             {"label": "빌드", "cap": "build_data 1회", "note": ""},
             {"label": "GCS", "cap": "img → starful-biz-assets", "note": "생성 후"},
-            {"label": "배포", "cap": "git + Cloud Build", "note": "생성 성공 후"},
+            {"label": "배포", "cap": "④ 배포 탭", "note": "수동"},
         ]
-    elif site_id == "hatena":
+    elif site_id == "okpy":
         parts = [
-            {"label": "Python", "cap": f"최대 {hatena_n}건", "note": "신규 포스트"},
-            {"label": "Cloud", "cap": f"최대 {hatena_n}건", "note": f"합 {hatena_n * 2}건"},
+            {"label": "Python", "cap": f"최대 {okpy_n}건", "note": "신규 포스트"},
+            {"label": "Cloud", "cap": f"최대 {okpy_n}건", "note": "AWS/GCP/Azure"},
+            {"label": "Terraform", "cap": f"최대 {okpy_n}건", "note": "IaC"},
+            {"label": "배포", "cap": "④ 배포 탭", "note": "수동"},
         ]
     elif site_id == "jpcampus":
         parts = [
@@ -1068,14 +1057,8 @@ def summarize_pipeline_status(status: dict[str, Any] | None, log_text: str = "")
 
         if status.get("content_warning"):
             lines.append(f"⚠ {status['content_warning']}")
-        deploy = status.get("deploy") or {}
-        if deploy.get("skipped"):
-            lines.append("— deploy: Hatena (생략)")
-        elif deploy:
-            if deploy.get("ok") is True or deploy.get("state") == "success":
-                lines.append(f"✓ deploy · {deploy.get('message') or '완료'}")
-            else:
-                lines.append(f"✗ deploy · {deploy.get('message') or deploy.get('error') or '실패'}")
+        if ok is True:
+            lines.append("→ 다음: ③ Git · ⑥ 이미지 · ④ 배포 (필요 시)")
 
         for step in status.get("steps") or []:
             name = step.get("label") or step.get("step") or "?"
@@ -1201,10 +1184,16 @@ def run_csv_expand(
 
     logf = _Log()
 
+    if site_id == "krcare":
+        return {
+            "ok": False,
+            "error": "krcare는 목록 추가 없음 · TourAPI 갱신(콘텐츠 생성)을 사용하세요",
+        }
+
     if not banks_for_site(site_id):
         return {"ok": False, "error": f"no topic bank for {site_id}"}
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
         from statfacts_topic_ai import (
             DEFAULT_GUIDE_COUNT,
             DEFAULT_INSIGHT_COUNT,
@@ -1291,27 +1280,28 @@ def run_csv_expand(
         if not info.get("ok"):
             return info
         messages.extend(info.get("messages") or [])
-    elif site_id == "hatena":
-        from topic_bank_pipeline import topic_bank_release_and_sync
+    elif site_id == "okpy":
+        from okpy_topic_ai import (
+            DEFAULT_CLOUD_COUNT,
+            DEFAULT_PYTHON_COUNT,
+            DEFAULT_TERRAFORM_COUNT,
+            append_okpy_topics,
+        )
 
-        env = pipeline_env_for_site(site_id)
-        content_limit = bounded_limit(
-            env, "CONTENT_LIMIT", default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT
-        )
-        guide_limit = bounded_limit(
-            env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT
-        )
-        info = topic_bank_release_and_sync(
+        p_n = insight_count if insight_count is not None else DEFAULT_PYTHON_COUNT
+        c_n = school_count if school_count is not None else DEFAULT_CLOUD_COUNT
+        t_n = university_count if university_count is not None else DEFAULT_TERRAFORM_COUNT
+        info = append_okpy_topics(
             site_id,
             repo,
             logf,
-            content_limit=content_limit,
-            guide_limit=guide_limit,
+            python_count=p_n,
+            cloud_count=c_n,
+            terraform_count=t_n,
         )
+        if not info.get("ok"):
+            return info
         messages.extend(info.get("messages") or [])
-        for bank_id, n in (info.get("bank_appended") or {}).items():
-            if n:
-                messages.append(f"토픽뱅크 {bank_id}: 시드 +{n}행")
     else:
         return {"ok": False, "error": f"목록 추가 미지원: {site_id}"}
 
@@ -1321,13 +1311,6 @@ def run_csv_expand(
             lf.write(line + "\n")
 
     rows_added = _csv_expand_rows_added(info)
-    if site_id in ("okstats", "okramen", "okonsen", "okcaddie", "starful.biz", "jpcampus", "krcampus"):
-        try:
-            from ai_spend import record_topic_seed
-
-            record_topic_seed(site_id)
-        except Exception:
-            pass
     return {"ok": True, "site_id": site_id, "rows_added": rows_added, "messages": messages, **info}
 
 
@@ -1335,29 +1318,31 @@ CONTENT_PIPELINES: dict[str, dict[str, str]] = {
     "okramen": {"label": "OK Ramen", "description": "라멘 · 가이드 AI + build"},
     "okonsen": {"label": "OK Onsen", "description": "온천 · 가이드 AI + build"},
     "okcaddie": {"label": "OK Caddie", "description": "골프 · 가이드 AI + build"},
-    "okstats": {"label": "StatFacts", "description": "인사이트 AI + 가이드 · Imagen · build · GCS"},
+    "statfacts": {"label": "StatFacts", "description": "인사이트 AI + 가이드 · Imagen · build · GCS"},
     "starful.biz": {"label": "Starful Biz", "description": "포지션 가이드 · 이미지 · build · GCS"},
-    "hatena": {"label": "Hatena · okpy", "description": "Python / Cloud 포스트"},
-    "jpcampus": {"label": "JP Campus", "description": "가이드 · 대학 · 한국어 · featured · build"},
+    "okpy": {"label": "OKPy", "description": "Python · Cloud · Terraform · build · deploy"},
+    "jpcampus": {"label": "JP Campus", "description": "가이드 · 대학 · 숙소 발행 · 한국어 · featured · build"},
     "krcampus": {"label": "KR Campus", "description": "韓国留学 · 가이드 · 어학원/대학 · EN/JA · build"},
+    "krcare": {"label": "KR Care", "description": "TourAPI 의료클리닉 · 이미지 · nearby Stay/Food · build"},
 }
 
-# Google Trends → topic bank (Hatena excluded)
+# Google Trends → topic bank
 TRENDS_SEED_SITES: frozenset[str] = frozenset(
     {
         "okramen",
         "okonsen",
         "okcaddie",
-        "okstats",
+        "statfacts",
         "starful.biz",
         "jpcampus",
         "krcampus",
+        "okpy",
     }
 )
 
 
 def run_trends_seed(site_id: str, *, limit: int | None = None) -> dict[str, Any]:
-    """Seed topic bank from Google Trends rising queries (not hatena)."""
+    """Seed topic bank from Google Trends rising queries."""
     from trends_topic_ai import run_trends_seed as _run
 
     return _run(site_id, limit=limit)

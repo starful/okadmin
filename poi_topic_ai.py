@@ -85,6 +85,58 @@ def _existing_guide_topics(site_id: str) -> list[str]:
     return lines
 
 
+_SITE_THEME: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    # (must_have_any, foreign_markers)
+    "okramen": (
+        (
+            "ramen",
+            "tonkotsu",
+            "shoyu",
+            "miso",
+            "tsukemen",
+            "menya",
+            "noodle",
+            "라멘",
+            "라면",
+            "돈코츠",
+        ),
+        (
+            "cafe",
+            "coffee",
+            "golf",
+            "onsen",
+            "ryokan",
+            "latte",
+            "espresso",
+            "골프",
+            "温泉",
+        ),
+    ),
+    "okonsen": (
+        ("onsen", "ryokan", "rotenburo", "hot spring", "温泉", "旅館", "온천", "료칸"),
+        ("cafe", "coffee", "ramen", "golf", "latte", "espresso", "골프", "라멘"),
+    ),
+    "okcaddie": (
+        ("golf", "golfer", "course", "links", "country club", "fairway", "caddie", "caddy", "골프", "코스"),
+        ("cafe", "coffee", "ramen", "onsen", "ryokan", "latte", "espresso", "라멘", "温泉"),
+    ),
+}
+
+
+def _row_off_theme(site_id: str, name: str, features: str = "", address: str = "") -> bool:
+    """Reject AI rows that are not clearly on-site-theme."""
+    theme = _SITE_THEME.get(site_id)
+    if not theme:
+        return False
+    must, foreign = theme
+    blob = f"{name} {features} {address}".lower()
+    if any(m in blob for m in foreign):
+        return True
+    if any(m in blob for m in must):
+        return False
+    return True
+
+
 def _parse_item_row(
     site_id: str,
     item: dict[str, Any],
@@ -107,6 +159,8 @@ def _parse_item_row(
     features = str(item.get("Features") or "").strip()
     if not address or not features:
         return None
+    if _row_off_theme(site_id, name, features, address):
+        return None
     row: dict[str, str] = {
         "Name": name,
         "Lat": lat,
@@ -123,7 +177,11 @@ def _parse_item_row(
     return row
 
 
-def _parse_guide_row(item: dict[str, Any], existing_ids: set[str]) -> dict[str, str] | None:
+def _parse_guide_row(
+    site_id: str,
+    item: dict[str, Any],
+    existing_ids: set[str],
+) -> dict[str, str] | None:
     gid = _normalize_id(str(item.get("id") or ""))
     if not gid or gid in existing_ids:
         return None
@@ -134,6 +192,8 @@ def _parse_guide_row(item: dict[str, Any], existing_ids: set[str]) -> dict[str, 
         "keywords": str(item.get("keywords") or "").strip(),
     }
     if not row["topic_en"]:
+        return None
+    if _row_off_theme(site_id, row["topic_en"], row["keywords"], row["topic_ko"]):
         return None
     existing_ids.add(gid)
     return row
@@ -205,6 +265,8 @@ Return ONLY valid JSON:
 
 Rules:
 - item Name must be unique and specific (realistic venue names)
+- EVERY item MUST clearly be a {meta["item_noun"]} (on-theme). Never cafe, coffee, bakery, golf, onsen, or ramen cross-contamination.
+- Features MUST include on-theme keywords (examples: {meta["features_hint"]})
 - guide id: lowercase kebab-case, 3-5 words
 - omit empty arrays
 """
@@ -227,7 +289,7 @@ Rules:
     for item in data.get("guides") or []:
         if not isinstance(item, dict) or len(guides) >= guide_n:
             break
-        row = _parse_guide_row(item, guide_ids)
+        row = _parse_guide_row(site_id, item, guide_ids)
         if row:
             guides.append(row)
 
@@ -251,7 +313,7 @@ def append_poi_topics(
         return {"ok": False, "error": "item_count and guide_count are both 0"}
 
     if not ensure_gemini_api_key():
-        return {"ok": False, "error": "GEMINI_API_KEY 없음"}
+        return {"ok": False, "error": "Claude CLI 미로그인 — `claude` 후 /login"}
 
     item_spec = next(s for s in banks_for_site(site_id) if s.bank_id == "items")
     guide_spec = next(s for s in banks_for_site(site_id) if s.bank_id == "guides")

@@ -1,0 +1,641 @@
+{% extends 'embed_base.html' if embed else 'base.html' %}
+{% block title %}인스타 프롬프트{% endblock %}
+{% block head %}
+<style>
+    .ig-wrap { max-width: 720px; }
+    .ig-hint { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0 0 16px; }
+    .ig-status {
+        display: none; margin-bottom: 14px; padding: 12px 14px; border-radius: 10px;
+        background: #1a1a10; border: 1px solid #3a3a20; color: var(--accent); font-weight: 700; font-size: 13px;
+    }
+    .ig-status.show { display: block; }
+    .ig-status .sub { display: block; margin-top: 4px; font-weight: 500; color: #aaa; font-size: 12px; }
+    .ig-count { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+    .ig-count strong { color: var(--accent); font-size: 18px; }
+    .ig-list { display: flex; flex-direction: column; gap: 10px; }
+    .ig-row {
+        display: flex; gap: 12px; align-items: center; justify-content: space-between;
+        background: var(--surf); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+    }
+    .ig-row .topic { font-weight: 700; font-size: 14px; line-height: 1.35; min-width: 0; }
+    .ig-rendered { font-size: 11px; color: #8a8; margin-top: 4px; font-family: ui-monospace, monospace; }
+    .ig-running { font-size: 11px; color: #fc8; margin-top: 4px; font-weight: 700; }
+    .ig-row.is-running { border-color: #a80; box-shadow: 0 0 0 1px rgba(170,136,0,.25); }
+    .ig-actions .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .ig-actions { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+    .ig-empty {
+        text-align: center; padding: 40px 20px; border: 1px dashed var(--border);
+        border-radius: 14px; background: var(--surf);
+    }
+    .ig-empty p { margin: 0 0 8px; color: #bbb; font-size: 14px; }
+    .ig-empty .lead { font-size: 16px; font-weight: 700; color: #eee; margin-bottom: 6px; }
+    .ig-empty .btn { margin-top: 16px; font-size: 14px; padding: 12px 22px; }
+    .ig-footer { margin-top: 16px; display: none; }
+    .ig-footer.show { display: block; }
+    .ig-detail {
+        display: none; position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.85);
+        align-items: flex-start; justify-content: center; padding: 32px 16px; overflow: auto;
+    }
+    .ig-detail.open { display: flex; }
+    .ig-detail-card {
+        width: min(720px, 100%); background: var(--surf); border: 1px solid var(--border);
+        border-radius: 14px; padding: 20px; margin-bottom: 40px;
+    }
+    .ig-detail-card h2 { margin: 0 0 8px; font-size: 16px; }
+    .ig-pre {
+        background: #000; border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+        font-size: 11px; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto;
+        color: #ccc; font-family: ui-monospace, monospace; margin: 0 0 10px;
+    }
+    .ig-label { font-size: 11px; color: var(--muted); margin: 14px 0 6px; font-weight: 700; }
+    .ig-slides { font-size: 12px; color: #bbb; line-height: 1.5; margin: 0 0 8px; padding-left: 18px; }
+    .ig-logo-box {
+        display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+        background: var(--surf); border: 1px solid var(--border); border-radius: 12px;
+        padding: 12px 14px; margin-bottom: 14px;
+    }
+    .ig-logo-box img {
+        width: 72px; height: 72px; object-fit: contain; border-radius: 50%;
+        background: #fff; flex-shrink: 0;
+    }
+    .ig-logo-box .ig-logo-copy { flex: 1; min-width: 160px; font-size: 12px; color: #bbb; line-height: 1.45; }
+    .ig-logo-box .ig-logo-copy strong { color: #eee; }
+    .ig-logo-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .ig-logo-inline {
+        display: flex; gap: 12px; align-items: center; margin: 12px 0;
+        padding: 10px 12px; background: #111; border: 1px dashed #444; border-radius: 10px;
+    }
+    .ig-logo-inline img {
+        width: 56px; height: 56px; object-fit: contain; border-radius: 50%; background: #fff;
+    }
+    .ig-logo-inline .t { font-size: 12px; color: #ccc; line-height: 1.4; }
+    .ig-logo-inline .t strong { color: var(--accent); }
+    .ig-reel-box {
+        background: var(--surf); border: 1px solid var(--border); border-radius: 12px;
+        padding: 14px 16px; margin-bottom: 16px;
+    }
+    .ig-reel-box h3 { margin: 0 0 6px; font-size: 14px; }
+    .ig-reel-box .hint { margin: 0 0 12px; font-size: 12px; color: var(--muted); line-height: 1.45; }
+    .ig-reel-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .ig-reel-row select {
+        flex: 1 1 260px; min-width: 180px; background: #111; border: 1px solid var(--border);
+        color: #eee; border-radius: 8px; padding: 10px 12px; font-size: 13px;
+    }
+    .ig-reel-row input[type="number"] {
+        width: 72px; background: #111; border: 1px solid var(--border);
+        color: #eee; border-radius: 8px; padding: 10px 8px; font-size: 13px;
+    }
+    .ig-reel-result {
+        display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+        font-size: 12px; color: #bbb; line-height: 1.5;
+    }
+    .ig-reel-result.show { display: block; }
+    .ig-reel-result strong { color: #eee; }
+    .ig-reel-root { font-size: 11px; color: #666; margin: 8px 0 0; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="ig-wrap">
+    {% if not embed %}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+        <h1 style="margin:0">인스타 프롬프트</h1>
+        <a href="{{ url_for('pages.dashboard') }}" class="btn btn-ghost btn-sm">← 홈</a>
+    </div>
+    {% endif %}
+    <p class="ig-hint">
+        OK Japan · <strong style="color:#eee">먹거리·부위·메뉴</strong> 위주.
+        <strong style="color:#eee">열기</strong> · <strong style="color:#eee">완료</strong> ·
+        <strong style="color:#eee">생성</strong>(Banana 2 이미지 → 자동 릴스).
+        진행 중이면 상단 배너에 주제·장수가 표시됩니다.
+    </p>
+
+    <div class="ig-reel-box">
+        <h3>릴스 슬라이드쇼</h3>
+        <p class="hint">
+            <code>work/cardnews/</code> 안 폴더를 고르면 카드 이미지로 9:16 MP4를 만듭니다.
+            장당 초 · 흰 배경 패딩 · ffmpeg.
+        </p>
+        <div class="ig-reel-row">
+            <select id="ig-reel-folder">
+                <option value="">폴더 불러오는 중…</option>
+            </select>
+            <button type="button" class="btn btn-ghost" onclick="loadReelFolders()" title="목록 새로고침">↻</button>
+            <label style="font-size:12px;color:#888">장당
+                <input type="number" id="ig-reel-sec" value="2.5" min="1" max="8" step="0.5">
+                초
+            </label>
+            <button type="button" class="btn" id="btn-reel" onclick="buildReel()">릴스 만들기</button>
+        </div>
+        <p class="ig-reel-root" id="ig-reel-root"></p>
+        <div class="ig-reel-result" id="ig-reel-result"></div>
+    </div>
+
+    <div class="ig-logo-box">
+        <img src="{{ url_for('static', filename='instagram/ok-japan-logo.png') }}" alt="OK - JAPAN logo" width="72" height="72">
+        <div class="ig-logo-copy">
+            <strong>OK - JAPAN 로고</strong><br>
+            Gemini에 이미지 만들기 전에 이 로고를 <strong>먼저 첨부</strong>하세요. 매번 잊기 쉬우니 여기서 받아 두세요.
+        </div>
+        <div class="ig-logo-actions">
+            <a class="btn" href="{{ url_for('static', filename='instagram/ok-japan-logo.png') }}" download="ok-japan-logo.png">로고 저장</a>
+            <button type="button" class="btn btn-ghost" onclick="copyLogo()">로고 복사</button>
+        </div>
+    </div>
+
+    <div class="ig-status" id="ig-status"></div>
+    <div class="ig-count" id="ig-count"></div>
+    <div class="ig-list" id="ig-list"></div>
+    <div class="ig-footer" id="ig-footer">
+        <button type="button" class="btn btn-ghost" onclick="generateBatch()">프롬프트 더 만들기</button>
+    </div>
+</div>
+
+<div class="ig-detail" id="ig-detail" onclick="if(event.target===this)closeDetail()">
+    <div class="ig-detail-card" id="ig-detail-card"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const SITE_ID = {{ site_id | tojson }};
+const LOGO_URL = {{ url_for('static', filename='instagram/ok-japan-logo.png') | tojson }};
+let lastStats = null;
+let busy = false;
+let pollTimer = null;
+let activeRenderId = null;
+
+function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+}
+function siteQ(extra) {
+    // Shared Instagram queue — site_id optional (hub embed only).
+    const p = new URLSearchParams(extra || {});
+    if (SITE_ID) p.set('site_id', SITE_ID);
+    return p.toString();
+}
+
+async function copyLogo() {
+    try {
+        const res = await fetch(LOGO_URL);
+        const blob = await res.blob();
+        if (navigator.clipboard && window.ClipboardItem) {
+            await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'image/png']: blob })]);
+            toast('로고 복사됨 — Gemini에 붙여넣기(⌘V)');
+            return;
+        }
+    } catch (e) { /* fall through */ }
+    // Fallback: open download
+    const a = document.createElement('a');
+    a.href = LOGO_URL;
+    a.download = 'ok-japan-logo.png';
+    a.click();
+    toast('로고 저장으로 대체됨 — 파일을 Gemini에 첨부하세요');
+}
+
+function notifyParent(type, payload) {
+    if (window.parent === window) return;
+    window.parent.postMessage({ type, site_id: SITE_ID, ...(payload || {}) }, '*');
+}
+
+function toast(msg) {
+    showToast(msg);
+    notifyParent('okadmin-embed-toast', { message: msg });
+}
+
+function setBusy(on, message, sub) {
+    busy = !!on;
+    const el = document.getElementById('ig-status');
+    if (!el) return;
+    if (!on) {
+        el.classList.remove('show');
+        el.innerHTML = '';
+        return;
+    }
+    el.classList.add('show');
+    el.innerHTML = esc(message || '처리 중…') +
+        (sub ? `<span class="sub">${esc(sub)}</span>` : '');
+    notifyEmbed();
+}
+
+function renderCount(stats) {
+    lastStats = stats || {};
+    const el = document.getElementById('ig-count');
+    const n = stats.todo ?? 0;
+    el.innerHTML = n > 0
+        ? `남은 할 일 <strong>${n}</strong>개`
+        : '';
+}
+
+function renderEmpty() {
+    const list = document.getElementById('ig-list');
+    const footer = document.getElementById('ig-footer');
+    footer.classList.remove('show');
+    list.innerHTML = `
+        <div class="ig-empty">
+            <p class="lead">할 일이 없습니다</p>
+            <p>아래 버튼을 누르면 프롬프트 목록을 만들어 줍니다.<br>약 1~2분 걸릴 수 있습니다.</p>
+            <button type="button" class="btn" id="btn-generate" onclick="generateBatch()">프롬프트 생성</button>
+        </div>`;
+}
+
+function renderItems(items) {
+    const list = document.getElementById('ig-list');
+    const footer = document.getElementById('ig-footer');
+    footer.classList.add('show');
+    list.innerHTML = items.map(it => {
+        const running = it.render_status === 'running' || it.id === activeRenderId;
+        let statusLine = '';
+        if (running) {
+            statusLine = `<div class="ig-running">⏳ ${esc(it.render_message || it.render_progress || '생성 중…')}</div>`;
+        } else if (it.reel_file) {
+            statusLine = `<div class="ig-rendered">✅ ${esc(it.cardnews_folder || '')} · 릴스 있음</div>`;
+        } else if (it.cardnews_folder) {
+            statusLine = `<div class="ig-rendered">📁 ${esc(it.cardnews_folder)}</div>`;
+        }
+        const disableGen = running || busy;
+        return `
+        <div class="ig-row${running ? ' is-running' : ''}" data-id="${esc(it.id)}">
+            <div class="topic-wrap" style="min-width:0;flex:1">
+                <div class="topic">${esc(it.topic)}</div>
+                ${statusLine}
+            </div>
+            <div class="ig-actions">
+                <button type="button" class="btn btn-ghost" onclick="openDetail('${esc(it.id)}')" ${busy && !running ? 'disabled' : ''}>열기</button>
+                <button type="button" class="btn btn-ghost" onclick="markDone('${esc(it.id)}')" ${running || busy ? 'disabled' : ''}>완료</button>
+                <button type="button" class="btn" onclick="renderImages('${esc(it.id)}')" ${disableGen ? 'disabled' : ''}>생성</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function stopPoll() {
+    if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+    }
+}
+
+async function pollRenderStatus(id) {
+    try {
+        const res = await fetch('/api/instagram/items/' + encodeURIComponent(id) + '/render/status?' + siteQ());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return null;
+        return data.job || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function applyJobBusy(job) {
+    if (!job) return;
+    const topic = job.topic || '';
+    const phase = job.phase || '';
+    const progress = job.progress || '';
+    const msg = job.message || '';
+    let title = '생성 중…';
+    if (phase === 'images') title = `이미지 ${progress}`;
+    else if (phase === 'reel') title = '릴스 인코딩…';
+    else if (phase === 'queued') title = '대기열…';
+    else if (phase === 'done') title = '완료';
+    else if (phase === 'error') title = '실패';
+    setBusy(true, `${title} · ${topic}`, msg || 'Banana 2 → cardnews → 릴스');
+}
+
+async function renderImages(id) {
+    if (busy || activeRenderId) {
+        toast('이미 생성 작업이 진행 중입니다');
+        return;
+    }
+    if (!confirm('이미지 생성 후 릴스까지 자동으로 만들까요?\nBanana 2 · 장수만큼 1~2분 · API 비용 발생')) return;
+
+    activeRenderId = id;
+    setBusy(true, '생성 시작…', '주제 확인 중');
+    closeDetail();
+
+    try {
+        const res = await fetch('/api/instagram/items/' + encodeURIComponent(id) + '/render?' + siteQ(), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ site_id: SITE_ID, force: true, with_reel: true, seconds: 2.5 }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 409 || data.running) {
+            toast('이미 생성 중: ' + ((data.job && data.job.topic) || id));
+            activeRenderId = id;
+        } else if (!res.ok || !data.ok) {
+            toast(data.error || '생성 시작 실패');
+            activeRenderId = null;
+            setBusy(false);
+            return;
+        } else {
+            applyJobBusy(data.job || { topic: data.topic, phase: 'queued', message: '시작됨' });
+        }
+
+        await loadQueue();
+
+        stopPoll();
+        pollTimer = setInterval(async () => {
+            const job = await pollRenderStatus(id);
+            if (!job) return;
+            applyJobBusy(job);
+            const row = document.querySelector('.ig-row[data-id="' + id.replace(/"/g, '\\"') + '"] .ig-running');
+            if (row) row.textContent = '⏳ ' + (job.message || job.progress || '생성 중…');
+
+            if (job.status === 'done' || job.status === 'error') {
+                stopPoll();
+                activeRenderId = null;
+                setBusy(false);
+                if (job.status === 'done') {
+                    let t = `완료 · ${job.images || '?'}/${job.expected || '?'}장`;
+                    if (job.folder) t += ` · ${job.folder}`;
+                    if (job.reel_file) t += ' · 릴스 OK';
+                    toast(t);
+                } else {
+                    toast(job.error || job.message || '생성 실패');
+                }
+                await loadQueue();
+                await loadReelFolders();
+            }
+        }, 1500);
+    } catch (e) {
+        activeRenderId = null;
+        stopPoll();
+        setBusy(false);
+        toast('생성 요청 실패');
+    }
+}
+
+async function loadQueue() {
+    const q = siteQ({ status: 'todo' });
+    const res = await fetch('/api/instagram/queue' + (q ? '?' + q : ''));
+    if (!res.ok) {
+        document.getElementById('ig-list').innerHTML =
+            '<div class="warn">' + esc(await res.text()) + '</div>';
+        return;
+    }
+    const data = await res.json();
+    renderCount(data.stats || {});
+    const items = data.items || [];
+    if (!items.length) renderEmpty();
+    else renderItems(items);
+    notifyEmbed();
+}
+
+async function markDone(id) {
+    if (busy || activeRenderId) return;
+    setBusy(true, '완료 처리 중…');
+    try {
+        const res = await fetch('/api/instagram/items/' + encodeURIComponent(id) + '/status?' + siteQ(), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ status: 'done', site_id: SITE_ID })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { toast(data.error || '오류'); return; }
+        closeDetail();
+        toast('완료 — 목록에서 빠졌습니다');
+        await loadQueue();
+    } finally {
+        setBusy(false);
+    }
+}
+
+async function copyText(text, label) {
+    try {
+        await navigator.clipboard.writeText(text);
+        toast((label || '복사') + ' 완료');
+    } catch (e) {
+        toast('복사 실패 — 직접 선택하세요');
+    }
+}
+
+async function openDetail(id) {
+    if (busy) return;
+    setBusy(true, '불러오는 중…');
+    try {
+        const res = await fetch('/api/instagram/items/' + encodeURIComponent(id) + '?' + siteQ());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { toast(data.error || '오류'); return; }
+        const it = data.item;
+        const slides = (it.slides || []).map((s, i) => {
+            const head = s.kind === 'cover' ? '표지' : (s.kind === 'outro' ? '마무리' : (s.num || (i + 1)));
+            return `<li><strong>${esc(head)}</strong> ${esc(s.title)} — ${esc(s.body)}</li>`;
+        }).join('');
+        document.getElementById('ig-detail-card').innerHTML = `
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+                <h2>${esc(it.topic)}</h2>
+                <button type="button" class="btn btn-ghost" onclick="closeDetail()">닫기</button>
+            </div>
+            <div class="ig-logo-inline">
+                <img src="${esc(LOGO_URL)}" alt="OK - JAPAN logo" width="56" height="56">
+                <div class="t">
+                    <strong>1) 로고 먼저</strong> → Gemini에 첨부<br>
+                    2) 아래 프롬프트 복사 → 붙여넣기
+                </div>
+                <div class="ig-logo-actions">
+                    <a class="btn" href="${esc(LOGO_URL)}" download="ok-japan-logo.png">로고 저장</a>
+                    <button type="button" class="btn btn-ghost" onclick="copyLogo()">로고 복사</button>
+                </div>
+            </div>
+            <div class="ig-label">슬라이드 요약</div>
+            <ul class="ig-slides">${slides || '<li>요약 없음</li>'}</ul>
+            <div class="ig-label">Gemini 프롬프트</div>
+            <pre class="ig-pre" id="ig-prompt">${esc(data.gemini_prompt)}</pre>
+            <button type="button" class="btn" onclick="copyText(document.getElementById('ig-prompt').innerText, '프롬프트')">프롬프트 복사</button>
+            <div class="ig-label">캡션 + 해시태그</div>
+            <pre class="ig-pre" id="ig-caption">${esc(data.caption_block)}</pre>
+            <button type="button" class="btn btn-ghost" onclick="copyText(document.getElementById('ig-caption').innerText, '캡션')">캡션 복사</button>
+            <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px">
+                <button type="button" class="btn" onclick="renderImages('${esc(it.id)}')">생성 (Banana 2)</button>
+                <button type="button" class="btn btn-ghost" onclick="markDone('${esc(it.id)}')">완료</button>
+            </div>`;
+        document.getElementById('ig-detail').classList.add('open');
+    } finally {
+        setBusy(false);
+    }
+}
+
+function closeDetail() {
+    document.getElementById('ig-detail').classList.remove('open');
+}
+
+async function generateBatch() {
+    if (busy) return;
+    const todo = lastStats && lastStats.todo;
+    if (todo > 0 && !confirm(`아직 할 일이 ${todo}개 있습니다. 그래도 더 만들까요?`)) return;
+    setBusy(true, '프롬프트 생성 중…', 'Gemini 호출 · 1~2분 걸릴 수 있습니다. 이 화면을 유지하세요.');
+    try {
+        const res = await fetch('/api/instagram/generate?' + siteQ(), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ count: 20, site_id: SITE_ID })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+            toast(data.error || '생성 실패');
+            return;
+        }
+        toast(`${data.added}개 생성됨 — 목록에서 하나씩 완료하세요`);
+        await loadQueue();
+    } finally {
+        setBusy(false);
+    }
+}
+
+async function loadReelFolders() {
+    const sel = document.getElementById('ig-reel-folder');
+    const rootEl = document.getElementById('ig-reel-root');
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">불러오는 중…</option>';
+    try {
+        const res = await fetch('/api/instagram/reel/folders?' + siteQ());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+            sel.innerHTML = '<option value="">폴더 목록 실패</option>';
+            if (rootEl) rootEl.textContent = data.error || data.note || '';
+            return;
+        }
+        if (rootEl) rootEl.textContent = (data.root || '') + (data.note ? ' · ' + data.note : '');
+        const folders = data.folders || [];
+        if (!folders.length) {
+            sel.innerHTML = '<option value="">(cardnews에 폴더 없음)</option>';
+            return;
+        }
+        sel.innerHTML = '<option value="">폴더 선택…</option>' + folders.map((f) => {
+            const label = f.ready
+                ? `${f.name} (${f.image_count}장)`
+                : `${f.name} (${f.image_count}장 · 부족)`;
+            const disabled = f.ready ? '' : ' disabled';
+            return `<option value="${esc(f.path)}"${disabled}${prev === f.path ? ' selected' : ''}>${esc(label)}</option>`;
+        }).join('');
+        if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+    } catch (_) {
+        sel.innerHTML = '<option value="">폴더 목록 실패</option>';
+    }
+    notifyEmbed();
+}
+
+async function buildReel() {
+    if (busy) return;
+    const folder = (document.getElementById('ig-reel-folder').value || '').trim();
+    const seconds = parseFloat(document.getElementById('ig-reel-sec').value || '2.5');
+    const resultEl = document.getElementById('ig-reel-result');
+    if (!folder) {
+        toast('cardnews 폴더를 선택하세요');
+        return;
+    }
+    setBusy(true, '릴스 만드는 중…', 'ffmpeg 슬라이드쇼 · 잠시만요');
+    resultEl.classList.remove('show');
+    resultEl.innerHTML = '';
+    try {
+        const res = await fetch('/api/instagram/reel?' + siteQ(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ site_id: SITE_ID, folder, seconds }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+            toast(data.error || '릴스 생성 실패');
+            resultEl.innerHTML = `<span style="color:#f88">${esc(data.error || '실패')}</span>`;
+            resultEl.classList.add('show');
+            return;
+        }
+        const mb = ((data.size_bytes || 0) / (1024 * 1024)).toFixed(2);
+        const names = (data.images || []).slice(0, 8).map(esc).join(', ');
+        const more = (data.image_count || 0) > 8 ? '…' : '';
+        const dl = data.download_url || ('/api/instagram/reel/download?file=' + encodeURIComponent(data.file || ''));
+        const fileName = (data.file || 'reel.mp4').split('/').pop() || 'reel.mp4';
+        resultEl.innerHTML = `
+            <strong>완료</strong> · ${esc(String(data.image_count))}장 · ${esc(String(data.duration_sec))}초 · ${esc(mb)} MB<br>
+            저장: <code>${esc(data.path || data.file || '')}</code><br>
+            파일: ${esc(names)}${more}<br>
+            <button type="button" class="btn" style="margin-top:10px"
+                data-dl="${esc(dl)}" data-name="${esc(fileName)}"
+                onclick="downloadReelMp4(this)">MP4 다운로드</button>`;
+        resultEl.classList.add('show');
+        toast('릴스 MP4 준비됨');
+        notifyEmbed();
+    } finally {
+        setBusy(false);
+    }
+}
+
+async function downloadReelMp4(btn) {
+    const url = btn.getAttribute('data-dl');
+    const name = btn.getAttribute('data-name') || 'reel.mp4';
+    if (!url) return;
+    const prev = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '받는 중…';
+    try {
+        const res = await fetch(url);
+        if (!res.ok) {
+            toast('다운로드 실패');
+            return;
+        }
+        const blob = await res.blob();
+        const obj = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = obj;
+        a.download = name;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(obj), 2000);
+        toast('다운로드 시작');
+    } catch (_) {
+        toast('다운로드 실패');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = prev;
+    }
+}
+
+function notifyEmbed() {
+    if (window.parent === window) return;
+    const h = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+    window.parent.postMessage({ type: 'okadmin-embed-resize', height: h }, '*');
+}
+{% if embed %}
+setInterval(notifyEmbed, 1200);
+{% endif %}
+
+async function resumeRunningJobs() {
+    try {
+        const res = await fetch('/api/instagram/render/running?' + siteQ());
+        const data = await res.json().catch(() => ({}));
+        const jobs = data.jobs || [];
+        if (!jobs.length) return;
+        const job = jobs[0];
+        const id = job.item_id;
+        if (!id || pollTimer) return;
+        activeRenderId = id;
+        applyJobBusy(job);
+        pollTimer = setInterval(async () => {
+            const st = await pollRenderStatus(id);
+            if (!st) return;
+            applyJobBusy(st);
+            if (st.status === 'done' || st.status === 'error') {
+                stopPoll();
+                activeRenderId = null;
+                setBusy(false);
+                if (st.status === 'done') {
+                    let t = `완료 · ${st.images || '?'}/${st.expected || '?'}장`;
+                    if (st.folder) t += ` · ${st.folder}`;
+                    if (st.reel_file) t += ' · 릴스 OK';
+                    toast(t);
+                } else {
+                    toast(st.error || st.message || '생성 실패');
+                }
+                await loadQueue();
+                await loadReelFolders();
+            }
+        }, 1500);
+    } catch (_) { /* ignore */ }
+}
+
+loadReelFolders();
+loadQueue().then(() => resumeRunningJobs());
+</script>
+{% endblock %}

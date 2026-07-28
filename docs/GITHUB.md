@@ -55,6 +55,14 @@ cp .env.example .env
 
 `WORK_ROOT`, `SITES_YAML` 은 각자 환경에 맞게 `.env` 에 설정.
 
+## Ship workflow (GitHub CLI)
+
+Work Hub **Git** tab: issues, PRs, review, squash merge via local `gh` (`gh auth login`).
+
+1. Ship **Ship prep** (Claude 1×) → **Review & merge**
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) and `.github/pull_request_template.md`.
+
 ## 이미 실수로 푸시했다면
 
 1. 해당 키를 **GCP / Google Cloud Console에서 즉시 폐기·재발급**

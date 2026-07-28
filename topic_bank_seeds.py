@@ -8,17 +8,14 @@ from topic_bank_registry import banks_for_site
 
 def bootstrap_seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
     """Minimum rows for a new topic bank — weekly expand pool is CSV 추가 only."""
-    from content_pipeline import DEFAULT_GUIDE_SEEDS, DEFAULT_ITEM_SEEDS
-
     out: dict[str, list[dict[str, str]]] = {}
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
         out["insights"] = []
         out["guides"] = []
 
     elif site_id in ("okramen", "okonsen", "okcaddie"):
-        out["items"] = list(DEFAULT_ITEM_SEEDS)
-        out["guides"] = list(DEFAULT_GUIDE_SEEDS)
+        out["guides"] = []
         if site_id == "okramen":
             out["items"] = [
                 {"Name": "Ichiran Shinjuku", "Lat": "35.6909", "Lng": "139.7018", "Address": "Tokyo, Shinjuku", "Thumbnail": "", "Features": "Tonkotsu", "Agoda": ""},
@@ -49,7 +46,7 @@ def bootstrap_seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
         out["language_schools"] = [{"name_ko": "연세대학교 한국어학당", "name_en": "Yonsei Korean Language Institute", "region": "Seoul", "city": "Seoul"}]
         out["universities"] = [{"name_ko": "서울대학교", "name_en": "Seoul National University", "region": "Seoul"}]
 
-    elif site_id == "hatena":
+    elif site_id == "okpy":
         out["python"] = [{"lib_name": x} for x in ("NumPy", "Pandas", "FastAPI", "Pydantic", "httpx")]
         out["cloud"] = [
             {"Topic": "AWS Lambda vs GCP Cloud Functions vs Azure Functions"},
@@ -58,86 +55,89 @@ def bootstrap_seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
             {"Topic": "Amazon EKS vs GKE vs AKS comparison"},
             {"Topic": "CloudFront vs Cloud CDN vs Azure CDN"},
         ]
-        out["positions"] = [{"position_name": x} for x in ("Site Reliability Engineer", "Platform Engineer", "MLOps Engineer")]
+        out["terraform"] = [
+            {"Topic": "Terraform AWS provider basics"},
+            {"Topic": "Terraform state and remote backend"},
+            {"Topic": "Terraform modules best practices"},
+            {"Topic": "Terraform vs Pulumi vs CloudFormation"},
+            {"Topic": "OpenTofu migration from Terraform"},
+        ]
 
     return out
 
 
 def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
     from content_pipeline import (
-        DEFAULT_GUIDE_SEEDS,
-        DEFAULT_ITEM_SEEDS,
-        EXPAND_GUIDE_SEEDS,
         JPCAMPUS_EXPAND_GUIDES,
         KRCAMPUS_EXPAND_TOPIC_ROWS,
-        POI_EXPAND_SEEDS,
         STARFUL_EXPAND_POSITIONS,
         STATFACTS_GUIDE_EXPAND,
         STATFACTS_INSIGHT_EXPAND,
+        poi_guide_seeds,
     )
 
     out: dict[str, list[dict[str, str]]] = {}
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
         out["insights"] = list(STATFACTS_INSIGHT_EXPAND)
         out["guides"] = list(STATFACTS_GUIDE_EXPAND)
 
-    elif site_id in ("okramen", "okonsen", "okcaddie"):
-        out["items"] = list(DEFAULT_ITEM_SEEDS) + list(POI_EXPAND_SEEDS)
-        out["guides"] = list(DEFAULT_GUIDE_SEEDS) + list(EXPAND_GUIDE_SEEDS)
-        if site_id == "okramen":
-            out["items"] = [
-                {
-                    "Name": "Ichiran Shinjuku",
-                    "Lat": "35.6909",
-                    "Lng": "139.7018",
-                    "Address": "Tokyo, Shinjuku",
-                    "Thumbnail": "",
-                    "Features": "Tonkotsu",
-                    "Agoda": "",
-                },
-                {
-                    "Name": "Ippudo Ginza",
-                    "Lat": "35.6711",
-                    "Lng": "139.7662",
-                    "Address": "Tokyo, Chuo",
-                    "Thumbnail": "",
-                    "Features": "Tonkotsu",
-                    "Agoda": "",
-                },
-            ] + list(POI_EXPAND_SEEDS)
-        elif site_id == "okonsen":
-            out["items"] = [
-                {
-                    "Name": "Hakone Ten-yu",
-                    "Lat": "35.2393",
-                    "Lng": "139.0456",
-                    "Address": "Hakone",
-                    "Thumbnail": "",
-                    "Features": "Family bath",
-                    "Agoda": "",
-                },
-                {
-                    "Name": "Gora Kadan",
-                    "Lat": "35.2492",
-                    "Lng": "139.0465",
-                    "Address": "Hakone",
-                    "Thumbnail": "",
-                    "Features": "Ryokan onsen",
-                    "Agoda": "",
-                },
-            ] + list(POI_EXPAND_SEEDS)
-        elif site_id == "okcaddie":
-            out["items"] = [
-                {
-                    "Name": "Sample Golf Club",
-                    "Lat": "35.0",
-                    "Lng": "135.0",
-                    "Address": "Hyogo",
-                    "Features": "Public",
-                    "Booking": "",
-                },
-            ] + list(POI_EXPAND_SEEDS)
+    elif site_id == "okramen":
+        out["items"] = [
+            {
+                "Name": "Ichiran Shinjuku",
+                "Lat": "35.6909",
+                "Lng": "139.7018",
+                "Address": "Tokyo, Shinjuku",
+                "Thumbnail": "",
+                "Features": "Tonkotsu",
+                "Agoda": "",
+            },
+            {
+                "Name": "Ippudo Ginza",
+                "Lat": "35.6711",
+                "Lng": "139.7662",
+                "Address": "Tokyo, Chuo",
+                "Thumbnail": "",
+                "Features": "Tonkotsu",
+                "Agoda": "",
+            },
+        ]
+        out["guides"] = poi_guide_seeds(site_id)
+    elif site_id == "okonsen":
+        out["items"] = [
+            {
+                "Name": "Hakone Ten-yu",
+                "Lat": "35.2393",
+                "Lng": "139.0456",
+                "Address": "Hakone",
+                "Thumbnail": "",
+                "Features": "Family bath",
+                "Agoda": "",
+            },
+            {
+                "Name": "Gora Kadan",
+                "Lat": "35.2492",
+                "Lng": "139.0465",
+                "Address": "Hakone",
+                "Thumbnail": "",
+                "Features": "Ryokan onsen",
+                "Agoda": "",
+            },
+        ]
+        out["guides"] = poi_guide_seeds(site_id)
+    elif site_id == "okcaddie":
+        out["items"] = [
+            {
+                "Name": "Sample Golf Club",
+                "Lat": "35.0",
+                "Lng": "135.0",
+                "Address": "Hyogo",
+                "Features": "Public",
+                "Booking": "",
+            },
+        ]
+        out["guides"] = poi_guide_seeds(site_id)
 
     elif site_id == "starful.biz":
         base = [
@@ -201,7 +201,7 @@ def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
             {"name_ko": "서울대학교", "name_en": "Seoul National University", "region": "Seoul"},
         ]
 
-    elif site_id == "hatena":
+    elif site_id == "okpy":
         out["python"] = [{"lib_name": x} for x in ("NumPy", "Pandas", "FastAPI", "Pydantic", "httpx")]
         out["cloud"] = [
             {"Topic": "AWS Lambda vs GCP Cloud Functions vs Azure Functions"},
@@ -210,10 +210,12 @@ def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
             {"Topic": "Amazon EKS vs GKE vs AKS comparison"},
             {"Topic": "CloudFront vs Cloud CDN vs Azure CDN"},
         ]
-        out["positions"] = [
-            {"position_name": "Site Reliability Engineer"},
-            {"position_name": "Platform Engineer"},
-            {"position_name": "MLOps Engineer"},
+        out["terraform"] = [
+            {"Topic": "Terraform AWS provider basics"},
+            {"Topic": "Terraform state and remote backend"},
+            {"Topic": "Terraform modules best practices"},
+            {"Topic": "Terraform vs Pulumi vs CloudFormation"},
+            {"Topic": "OpenTofu migration from Terraform"},
         ]
 
     _append_extra_seeds(site_id, out)
@@ -223,24 +225,24 @@ def seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
 def expand_pool_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
     """Rows eligible for weekly CSV 추가 (append to bank if not already present)."""
     from content_pipeline import (
-        EXPAND_GUIDE_SEEDS,
         JPCAMPUS_EXPAND_GUIDES,
         KRCAMPUS_EXPAND_TOPIC_ROWS,
-        POI_EXPAND_SEEDS,
         STARFUL_EXPAND_POSITIONS,
         STATFACTS_GUIDE_EXPAND,
         STATFACTS_INSIGHT_EXPAND,
+        poi_guide_seeds,
     )
 
     out: dict[str, list[dict[str, str]]] = {}
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
         out["insights"] = list(STATFACTS_INSIGHT_EXPAND)
         out["guides"] = list(STATFACTS_GUIDE_EXPAND)
 
     elif site_id in ("okramen", "okonsen", "okcaddie"):
-        out["items"] = list(POI_EXPAND_SEEDS)
-        out["guides"] = list(EXPAND_GUIDE_SEEDS)
+        # Per-site AI 「목록 추가」 is the source of new items; no shared cafe expand pool.
+        out["items"] = []
+        out["guides"] = poi_guide_seeds(site_id)
 
     elif site_id == "starful.biz":
         out["positions"] = [{"position_name": t} for t in STARFUL_EXPAND_POSITIONS]
@@ -251,6 +253,19 @@ def expand_pool_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
     elif site_id == "krcampus":
         out["guide_topics"] = list(KRCAMPUS_EXPAND_TOPIC_ROWS)
 
+    elif site_id == "okpy":
+        out["python"] = [{"lib_name": x} for x in ("Polars", "Typer", "Rich", "httpx", "SQLAlchemy")]
+        out["cloud"] = [
+            {"Topic": "AWS IAM vs GCP IAM vs Azure RBAC"},
+            {"Topic": "Amazon SQS vs Pub/Sub vs Azure Service Bus"},
+            {"Topic": "AWS Secrets Manager vs Secret Manager vs Key Vault"},
+        ]
+        out["terraform"] = [
+            {"Topic": "Terraform workspaces vs directories"},
+            {"Topic": "Terraform CI/CD with GitHub Actions"},
+            {"Topic": "Terraform import and moved blocks"},
+        ]
+
     _append_extra_seeds(site_id, out)
     return out
 
@@ -259,7 +274,7 @@ def _append_extra_seeds(site_id: str, out: dict[str, list[dict[str, str]]]) -> N
     """Additional pending topics so CSV 추가 keeps working after legacy pools."""
     extra: dict[str, list[dict[str, str]]] = {}
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
         extra["insights"] = [
             {
                 "id": "progress-bar-checkout",

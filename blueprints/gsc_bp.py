@@ -5,7 +5,7 @@ from flask import Blueprint, jsonify, request
 
 from analytics_api import fetch_gsc_pages, fetch_ga4_summary, site_analytics_config
 from auth import requires_auth
-from config import COL_GSC_ACTIONS, COL_OPS_EVENTS, get_service, list_services, repo_path, work_root_available
+from config import COL_GSC_ACTIONS, COL_OPS_EVENTS, get_service, list_hub_services, repo_path, work_root_available
 from git_ops import deploy_script_path
 from firestore_db import doc_to_dict, firestore_unavailable_message, get_db
 from gsc_hub_helpers import record_gsc_seo_calendar, seo_commit_message
@@ -31,7 +31,7 @@ def _require_db():
 @requires_auth
 def gsc_sites():
     items = []
-    for svc in list_services():
+    for svc in list_hub_services():
         if svc.get("id") == "okadmin":
             continue
         ac = site_analytics_config(svc["id"])
@@ -110,14 +110,6 @@ def gsc_run_seo():
         for r in results
     )
     write_gsc_seo_run(site_id, result, ok=seo_ok)
-    if seo_ok:
-        try:
-            from ai_spend import record_gsc_seo
-
-            applied = [r for r in results if r.get("status") in ("applied", "no_changes", "pending")]
-            record_gsc_seo(site_id, len(applied) or len(urls))
-        except Exception:
-            pass
     result["calendar_event"] = record_gsc_seo_calendar(site_id, result)
     result["calendar_skipped"] = result["calendar_event"] is None
     result["suggested_commit_message"] = seo_commit_message(site_id, result)

@@ -4,41 +4,68 @@ from __future__ import annotations
 import io
 import logging
 import os
-from datetime import timedelta
+import time
 from pathlib import Path
 
 import requests
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 from google.cloud import storage
 from PIL import Image
 
 from auth import requires_auth
-from config import PLACES_TIMEOUT, PROTECTED_IMAGES, gcs_sites, get_service, repo_path, work_root_available
+from config import PLACES_TIMEOUT, gcs_sites, get_service, repo_path, work_root_available
 from image_site_meta import (
+    _content_dir,
+    _okpy_post_resolve,
     bump_site_thumbnail_cache,
-    enrich_site_image_rows,
+    imagen_site_config,
+    IMAGEN_SITE_KEYS,
+    okpy_sync_cover_md,
     places_search_opts,
+    resolve_imagen_prompt,
     site_image_meta,
     site_save_image_prompt,
+    SITE_IMAGE_META,
     SITE_META_KEYS,
 )
+from imagen_generate import generate_imagen_bytes
 from image_site_content import (
+    build_site_image_list,
+    delete_gcs_image,
     delete_site_content,
     get_default_image_payload,
     list_content_md_paths,
+    list_default_image_options,
     sync_local_image,
 )
-from starful_assets import normalize_upload, sibling_blob_names
+from image_list_cache import get_cached as get_image_list_cache
+from image_list_cache import invalidate as invalidate_image_list_cache
+from image_list_cache import set_cached as set_image_list_cache
+from places_search_cache import get_photo_cache, get_search_cache, invalidate_search, set_photo_cache, set_search_cache
+from image_site_content import _images_dir as _repo_images_dir
+from image_site_content import _repo_for_site as _content_repo_for_site
+from starful_assets import is_protected_asset, normalize_slug, normalize_upload, sibling_blob_names
 
 images_bp = Blueprint("images", __name__, url_prefix="/api")
 logger = logging.getLogger(__name__)
 
 storage_client = storage.Client()
 PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY")
+PLACES_MAX_PHOTOS_PER_PLACE = 3
+PLACES_MAX_SEARCH_QUERIES = 3
 
 
 def get_site_cfg(site_id: str):
     return gcs_sites().get(site_id)
+
+
+def _starful_protected_error(site_id: str, slug: str) -> str | None:
+    if site_id != "starful_biz":
+        return None
+    stem = normalize_slug((slug or "").strip())
+    if stem and is_protected_asset(stem):
+        return f"protected asset ({stem}): Imagen/교체 불가"
+    return None
 
 
 def _image_ext(image_key: str) -> str:
@@ -103,6 +130,15 @@ def _purge_sibling_blobs(bucket, prefix: str, canonical_filename: str) -> None:
             logger.info("removed sibling GCS blob %s", blob_name)
 
 
+def _purge_okpy_legacy_posts_blob(bucket, prefix: str, canonical_filename: str) -> None:
+    """Remove okpy/posts/{file} duplicate (deploy rsync legacy path)."""
+    legacy_name = f"{prefix}posts/{canonical_filename}"
+    blob = bucket.blob(legacy_name)
+    if blob.exists():
+        blob.delete()
+        logger.info("removed legacy okpy posts/ GCS blob %s", legacy_name)
+
+
 def _write_local_starful_image(primary_name: str, payload: bytes) -> None:
     """Keep repo img/ in sync so pipeline rsync does not restore stale files."""
     svc = get_service("starful.biz")
@@ -149,6 +185,8 @@ def _upload_image_blob(
             blob.upload_from_string(payload, content_type=content_type)
 
         _purge_sibling_blobs(bucket, prefix, primary_name)
+        if image_key == "okpy":
+            _purge_okpy_legacy_posts_blob(bucket, prefix, primary_name)
         if image_key == "starful_biz":
             _write_local_starful_image(primary_name, payload)
     except Exception as exc:
@@ -160,6 +198,9 @@ def _upload_image_blob(
 
 
 def _after_image_upload(image_key: str, slug: str, out: dict) -> dict:
+    if out.get("ok"):
+        invalidate_image_list_cache(image_key)
+        out["updated_ts"] = time.time()
     if not out.get("ok") or image_key not in SITE_THUMBNAIL_CACHE_KEYS:
         return out
     bump = bump_site_thumbnail_cache(image_key, slug)
@@ -171,7 +212,7 @@ def _after_image_upload(image_key: str, slug: str, out: dict) -> dict:
 
 
 SITE_THUMBNAIL_CACHE_KEYS = frozenset(
-    {"okonsen", "okramen", "okcaddie", "okstats", "krcampus", "jpcampus", "starful_biz"}
+    {"okonsen", "okramen", "okcaddie", "statfacts", "krcampus", "jpcampus", "starful_biz"}
 )
 
 
@@ -181,48 +222,15 @@ def api_images(site_id):
     cfg = get_site_cfg(site_id)
     if not cfg:
         return jsonify({"ok": False, "error": "invalid site_id"}), 400
-    blobs = storage_client.list_blobs(cfg["bucket"], prefix=cfg["prefix"])
-    result = []
-    for blob in blobs:
-        fname = blob.name.replace(cfg["prefix"], "")
-        if not fname or fname in PROTECTED_IMAGES or "_backup_" in fname:
-            continue
-        if any(fname.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"]):
-            mtime = blob.updated + timedelta(hours=9)
-            updated_ts = blob.updated.timestamp() if blob.updated else 0
-            stem = Path(fname).stem
-            norm_slug = normalize_slug(stem) if site_id == "starful_biz" else stem
-            display_name = (
-                f"{norm_slug}.png"
-                if site_id == "starful_biz" and not stem.startswith(("favicon", "apple-touch"))
-                and stem not in {"default", "default_og", "logo"}
-                else fname
-            )
-            result.append(
-                {
-                    "filename": fname,
-                    "display_filename": display_name,
-                    "slug": norm_slug,
-                    "size_kb": round(blob.size / 1024),
-                    "date_str": mtime.strftime("%Y-%m-%d"),
-                    "updated_ts": updated_ts,
-                    "url": f"https://storage.googleapis.com/{cfg['bucket']}/{blob.name}",
-                }
-            )
-    result = _dedupe_image_rows(site_id, result)
-    if site_id == "starful_biz":
-        bucket_name = cfg["bucket"]
-        prefix = cfg["prefix"]
-        for row in result:
-            canon = row.get("display_filename") or row["filename"]
-            if row["filename"] != canon:
-                row["filename"] = canon
-                row["url"] = f"https://storage.googleapis.com/{bucket_name}/{prefix}{canon}"
-    result.sort(key=lambda x: x["slug"].lower())
-    result.sort(key=lambda x: x.get("updated_ts") or 0, reverse=True)
-    if site_id in SITE_META_KEYS:
-        result = enrich_site_image_rows(site_id, result)
-    return jsonify(result)
+    force = (request.args.get("refresh") or "").strip() in ("1", "true", "yes")
+    if not force:
+        cached = get_image_list_cache(site_id)
+        if cached:
+            return jsonify(cached)
+    payload = build_site_image_list(site_id, storage_client, fast_list=True)
+    if not payload.get("ok"):
+        return jsonify(payload), 400
+    return jsonify(set_image_list_cache(site_id, payload))
 
 
 @images_bp.route("/images/<site_id>/<slug>/default", methods=["POST"])
@@ -236,7 +244,7 @@ def api_upload_default_image(site_id: str, slug: str):
     if not cfg:
         return jsonify({"ok": False, "error": "invalid site_id"}), 400
 
-    prep = get_default_image_payload(site_id, slug)
+    prep = get_default_image_payload(site_id, slug, source=(request.get_json(silent=True) or {}).get("source"))
     if not prep.get("ok"):
         return jsonify(prep), 400
 
@@ -257,6 +265,90 @@ def api_upload_default_image(site_id: str, slug: str):
     return jsonify({**out, "source": prep.get("source"), "local_image": local_rel})
 
 
+@images_bp.route("/images/<site_id>/<slug>/generate", methods=["POST"])
+@requires_auth
+def api_generate_image(site_id: str, slug: str):
+    if site_id not in IMAGEN_SITE_KEYS:
+        return jsonify({"ok": False, "error": "imagen not supported for site"}), 400
+    protected = _starful_protected_error(site_id, slug)
+    if protected:
+        return jsonify({"ok": False, "error": protected}), 400
+    if not work_root_available():
+        return jsonify({"ok": False, "error": "WORK_ROOT not available"}), 503
+    cfg = get_site_cfg(site_id)
+    if not cfg:
+        return jsonify({"ok": False, "error": "invalid site_id"}), 400
+
+    meta = site_image_meta(site_id, slug)
+    if not meta.get("ok", True) and meta.get("error"):
+        return jsonify(meta), 400
+
+    prompt = resolve_imagen_prompt(site_id, slug, meta)
+    if not prompt or len(prompt) < 10:
+        return jsonify({"ok": False, "error": "prompt missing or too short"}), 400
+
+    icfg = imagen_site_config(site_id)
+    try:
+        raw = generate_imagen_bytes(
+            prompt,
+            aspect_ratio=icfg["aspect_ratio"],
+            output_mime_type=icfg["output_mime_type"],
+            prompt_suffix=icfg["prompt_suffix"],
+            person_generation=icfg["person_generation"],
+        )
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    except Exception as exc:
+        logger.exception("imagen generate failed for %s/%s", site_id, slug)
+        return jsonify({"ok": False, "error": str(exc)[:200]}), 500
+
+    upload_slug = meta.get("upload_slug") or slug
+    upload_slug, filename = normalize_upload(site_id, upload_slug, None)
+    bucket = storage_client.bucket(cfg["bucket"])
+    out = _upload_image_blob(
+        site_id, bucket, upload_slug, cfg["prefix"], raw, filename=filename
+    )
+    if not out.get("ok"):
+        return jsonify(out), 500
+
+    payload, _ = _optimize_image_bytes(raw, site_id)
+    if payload:
+        sync_local_image(site_id, upload_slug, payload, out.get("filename") or filename or "")
+
+    if site_id == "okpy" and out.get("url"):
+        cfg_meta = SITE_IMAGE_META.get("okpy") or {}
+        content_dir = _content_dir(cfg_meta.get("service_id", "okpy"), cfg_meta.get("content_dir", "app/content/posts"))
+        post_path = None
+        if content_dir:
+            _, post_path = _okpy_post_resolve(content_dir, upload_slug)
+            if not post_path:
+                _, post_path = _okpy_post_resolve(content_dir, meta.get("slug") or slug)
+        if post_path and okpy_sync_cover_md(post_path, out["url"]):
+            out["md_synced"] = True
+
+    return jsonify(out)
+
+
+@images_bp.route("/images/<site_id>/<slug>/delete-gcs", methods=["POST"])
+@requires_auth
+def api_delete_gcs_image(site_id: str, slug: str):
+    if site_id not in SITE_META_KEYS:
+        return jsonify({"ok": False, "error": "not supported for site"}), 400
+    if not work_root_available():
+        return jsonify({"ok": False, "error": "WORK_ROOT not available"}), 503
+    data = request.get_json(silent=True) or {}
+    result = delete_gcs_image(
+        site_id,
+        slug,
+        client=storage_client,
+        filename=data.get("filename"),
+    )
+    if result.get("ok"):
+        invalidate_image_list_cache(site_id)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
 @images_bp.route("/images/<site_id>/<slug>/delete-content", methods=["POST"])
 @requires_auth
 def api_delete_site_content(site_id: str, slug: str):
@@ -268,6 +360,8 @@ def api_delete_site_content(site_id: str, slug: str):
     if not md_preview:
         return jsonify({"ok": False, "error": "no MD files for this slug"}), 400
     result = delete_site_content(site_id, slug, client=storage_client)
+    if result.get("ok"):
+        invalidate_image_list_cache(site_id)
     status = 200 if result.get("ok") else 400
     return jsonify(result), status
 
@@ -282,7 +376,30 @@ def api_site_image_meta(site_id: str, slug: str):
     meta = site_image_meta(site_id, slug)
     if not meta.get("ok", True) and meta.get("error"):
         return jsonify(meta), 400
+    options = list_default_image_options(site_id, slug)
+    for opt in options:
+        opt["preview_url"] = f"/api/images/{site_id}/default-asset/{opt['name']}"
+    meta["default_images"] = options
     return jsonify(meta)
+
+
+@images_bp.route("/images/<site_id>/default-asset/<path:filename>")
+@requires_auth
+def api_default_asset(site_id: str, filename: str):
+    if site_id not in SITE_META_KEYS:
+        return jsonify({"ok": False, "error": "not supported for site"}), 400
+    if not work_root_available():
+        return jsonify({"ok": False, "error": "WORK_ROOT not available"}), 503
+    safe = Path(filename).name
+    if safe != filename or safe.startswith("."):
+        return jsonify({"ok": False, "error": "invalid filename"}), 400
+    repo = _content_repo_for_site(site_id)
+    if not repo:
+        return jsonify({"ok": False, "error": "repo not found"}), 404
+    path = _repo_images_dir(site_id, repo) / safe
+    if not path.is_file():
+        return jsonify({"ok": False, "error": "not found"}), 404
+    return send_file(path, max_age=3600)
 
 
 @images_bp.route("/images/okonsen/<slug>/meta")
@@ -356,7 +473,7 @@ def _places_search_text(
         {
             "name": p.get("displayName", {}).get("text", ""),
             "address": p.get("formattedAddress", ""),
-            "photos": [ph.get("name") for ph in (p.get("photos") or [])[:5] if ph.get("name")],
+            "photos": [ph.get("name") for ph in (p.get("photos") or [])[:PLACES_MAX_PHOTOS_PER_PLACE] if ph.get("name")],
         }
         for p in places
         if p.get("photos")
@@ -400,7 +517,7 @@ def _places_search_nearby(
         {
             "name": p.get("displayName", {}).get("text", ""),
             "address": p.get("formattedAddress", ""),
-            "photos": [ph.get("name") for ph in (p.get("photos") or [])[:5] if ph.get("name")],
+            "photos": [ph.get("name") for ph in (p.get("photos") or [])[:PLACES_MAX_PHOTOS_PER_PLACE] if ph.get("name")],
         }
         for p in places
         if p.get("photos")
@@ -411,21 +528,29 @@ def _site_places_search(site_id: str, slug: str) -> tuple[list[dict], str]:
     meta = site_image_meta(site_id, slug)
     if not meta.get("uses_places", True):
         label = {
-            "okstats": "StatFacts · Imagen/직접 업로드 (Places 미사용)",
+            "statfacts": "StatFacts · Imagen/직접 업로드 (Places 미사용)",
         }.get(site_id, "Places 검색 미사용")
         return [], label
 
-    query = meta.get("places_query") or slug.replace("_", " ")
     lat, lng = meta.get("lat") or "", meta.get("lng") or ""
     opts = places_search_opts(site_id)
-    results = _places_search_text(
-        query=query,
-        lat=lat,
-        lng=lng,
-        language_code=opts["language_code"],
-        region_code=opts["region_code"],
-        bias_radius_m=opts["bias_radius_m"],
-    )
+    queries = (meta.get("places_queries") or [])[:PLACES_MAX_SEARCH_QUERIES]
+    if not queries:
+        queries = [meta.get("places_query") or slug.replace("_", " ")]
+    results: list[dict] = []
+    query = queries[0]
+    for q in queries:
+        results = _places_search_text(
+            query=q,
+            lat=lat,
+            lng=lng,
+            language_code=opts["language_code"],
+            region_code=opts["region_code"],
+            bias_radius_m=opts["bias_radius_m"],
+        )
+        if results:
+            query = q
+            break
     if not results and opts["nearby_fallback"] and lat and lng:
         try:
             cfg = get_site_cfg(site_id) or {}
@@ -435,10 +560,12 @@ def _site_places_search(site_id: str, slug: str) -> tuple[list[dict], str]:
                 search_types=cfg.get("search_type") or [],
                 language_code=opts["language_code"],
             )
+            if results:
+                query = f"nearby {lat}, {lng}"
         except ValueError:
             pass
     hint = query
-    if lat and lng:
+    if lat and lng and not hint.startswith("nearby"):
         hint = f"{query} · {lat}, {lng}"
     return results, hint
 
@@ -457,8 +584,12 @@ def api_search(site_id, slug):
         return jsonify({"ok": False, "error": "missing GOOGLE_PLACES_API_KEY"}), 500
 
     if site_id in SITE_META_KEYS:
+        cached = get_search_cache(site_id, slug)
+        if cached:
+            return jsonify(cached)
         places, hint = _site_places_search(site_id, slug)
-        return jsonify({"ok": True, "query": hint, "places": places})
+        payload = {"ok": True, "query": hint, "places": places}
+        return jsonify(set_search_cache(site_id, slug, payload))
 
     headers = {"X-Goog-Api-Key": PLACES_API_KEY, "X-Goog-FieldMask": "places.displayName,places.photos"}
     body = {
@@ -491,12 +622,41 @@ def api_search(site_id, slug):
                 {
                     "name": p.get("displayName", {}).get("text", ""),
                     "address": "",
-                    "photos": [ph.get("name") for ph in p.get("photos", [])[:5]],
+                    "photos": [ph.get("name") for ph in p.get("photos", [])[:PLACES_MAX_PHOTOS_PER_PLACE]],
                 }
                 for p in places
             ],
         }
     )
+
+
+@images_bp.route("/places/photo")
+@requires_auth
+def api_places_photo():
+    ref = (request.args.get("ref") or "").strip()
+    if not ref.startswith("places/"):
+        return jsonify({"ok": False, "error": "invalid photo ref"}), 400
+    if not PLACES_API_KEY:
+        return jsonify({"ok": False, "error": "missing GOOGLE_PLACES_API_KEY"}), 500
+    cached = get_photo_cache(ref)
+    if cached:
+        return send_file(io.BytesIO(cached), mimetype="image/jpeg", max_age=86400)
+    try:
+        res = requests.get(
+            f"https://places.googleapis.com/v1/{ref}/media",
+            params={"maxWidthPx": 200, "key": PLACES_API_KEY},
+            timeout=PLACES_TIMEOUT,
+        )
+        res.raise_for_status()
+    except requests.RequestException as exc:
+        logger.warning("places photo fetch failed: %s", exc)
+        return jsonify({"ok": False, "error": "photo fetch failed"}), 502
+    payload = res.content or b""
+    if not payload:
+        return jsonify({"ok": False, "error": "empty photo"}), 502
+    set_photo_cache(ref, payload)
+    ctype = res.headers.get("Content-Type") or "image/jpeg"
+    return send_file(io.BytesIO(payload), mimetype=ctype, max_age=86400)
 
 
 @images_bp.route("/replace/places", methods=["POST"])
@@ -510,6 +670,9 @@ def api_replace_places():
     if not site_id or not slug or not photo_name:
         return jsonify({"ok": False, "error": "missing fields"}), 400
     slug, filename = normalize_upload(site_id, slug, filename)
+    protected = _starful_protected_error(site_id, slug)
+    if protected:
+        return jsonify({"ok": False, "error": protected}), 400
     cfg = get_site_cfg(site_id)
     if not cfg:
         return jsonify({"ok": False, "error": "invalid site_id"}), 400
@@ -529,6 +692,7 @@ def api_replace_places():
         site_id, bucket, slug, cfg["prefix"], res.content, filename=filename
     )
     if out.get("ok"):
+        invalidate_search(site_id, slug)
         return jsonify({**out, "site_url": f"/static/img/{out['filename']}"})
     return jsonify(out), 500
 
@@ -542,6 +706,9 @@ def api_replace_upload():
     if not site_id or not slug:
         return jsonify({"ok": False, "error": "missing fields"}), 400
     slug, filename = normalize_upload(site_id, slug, filename)
+    protected = _starful_protected_error(site_id, slug)
+    if protected:
+        return jsonify({"ok": False, "error": protected}), 400
     cfg = get_site_cfg(site_id)
     if not cfg:
         return jsonify({"ok": False, "error": "invalid site_id"}), 400

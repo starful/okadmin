@@ -8,19 +8,19 @@ from flask import Blueprint, redirect, render_template, request, session, url_fo
 from analytics_api import site_analytics_config
 from auth import requires_auth
 from config import (
-    CALENDAR_WINDOW_DAYS,
     DEFAULT_GCS_IMAGE_SITE,
-    SCHEDULE_EVENT_KINDS,
     SITE_COLORS,
     gcs_sites,
     get_service,
-    list_services,
+    image_site_key,
+    list_hub_services,
     repo_path,
     site_favicon_urls,
     work_root_available,
 )
 from git_ops import deploy_script_path
 from gsc_run_store import gsc_last_runs
+from analytics_cache import normalize_days
 
 pages_bp = Blueprint("pages", __name__)
 
@@ -31,7 +31,7 @@ ACTIVE_SITE_KEY = "okadmin_active_site_v1"
 def _hub_site_list() -> tuple[list[str], list[dict]]:
     site_ids: list[str] = []
     sites: list[dict] = []
-    for svc in list_services():
+    for svc in list_hub_services():
         sid = svc["id"]
         if sid == "okadmin":
             continue
@@ -72,14 +72,21 @@ def site_page(site_id: str):
     tab = (request.args.get("section") or request.args.get("tab") or "content").strip().lower()
     if tab == "work":
         tab = "content"
-    if tab not in ("content", "deploy", "metrics", "seo"):
+    # Legacy aliases
+    if tab == "deploy" and request.args.get("tab") == "push":
+        tab = "git"
+    allowed = ("content", "seo", "git", "deploy", "metrics", "images")
+    if tab not in allowed:
         tab = "content"
+    # Instagram prompts live on /instagram (home card), not inside site hub
+    if tab == "instagram":
+        return redirect(url_for("pages.instagram_page"))
 
     try:
         current_days = int(request.args.get("days") or "28")
     except ValueError:
         current_days = 28
-    current_days = max(7, min(current_days, 90))
+    current_days = normalize_days(current_days)
 
     svc = get_service(site_id)
     site_label = svc.get("label", site_id) if svc else site_id
@@ -106,23 +113,13 @@ def site_page(site_id: str):
 @pages_bp.route("/todos")
 @requires_auth
 def todos_page():
-    return redirect(url_for("pages.schedule_page"))
+    return redirect(url_for("pages.dashboard"))
 
 
 @pages_bp.route("/schedule")
 @requires_auth
 def schedule_page():
-    return render_template(
-        "schedule.html",
-        active="schedule",
-        user_email=session.get("user_email", ""),
-        services=list_services(),
-        event_kinds=SCHEDULE_EVENT_KINDS,
-        site_colors=SITE_COLORS,
-        site_icons=site_favicon_urls(),
-        site_labels={s["id"]: s.get("label", s["id"]) for s in list_services()},
-        calendar_window_days=CALENDAR_WINDOW_DAYS,
-    )
+    return redirect(url_for("pages.dashboard"))
 
 
 @pages_bp.route("/ops")
@@ -145,13 +142,13 @@ def analytics_page():
                 days = int(request.args.get("days") or "28")
             except ValueError:
                 days = 28
-            days = max(7, min(days, 90))
+            days = normalize_days(days)
             return redirect(url_for("pages.site_page", site_id=requested, section="metrics", days=days))
         if site_ids:
             return redirect(url_for("pages.site_page", site_id=site_ids[0], section="metrics"))
 
     analytics_sites = []
-    for svc in list_services():
+    for svc in list_hub_services():
         sid = svc["id"]
         if sid == "okadmin":
             continue
@@ -167,7 +164,7 @@ def analytics_page():
         current_days = int(request.args.get("days") or "28")
     except ValueError:
         current_days = 28
-    current_days = max(7, min(current_days, 90))
+    current_days = normalize_days(current_days)
 
     current_site = _resolve_site_id(request.args.get("site") or "", site_ids)
 
@@ -209,7 +206,7 @@ def gsc_page():
             return redirect(url_for("pages.site_page", site_id=site_ids[0], section="seo"))
 
     gsc_sites = []
-    for svc in list_services():
+    for svc in list_hub_services():
         sid = svc["id"]
         if sid == "okadmin":
             continue
@@ -270,11 +267,48 @@ def content_page():
 @pages_bp.route("/images")
 @requires_auth
 def images_page():
+    embed = request.args.get("embed") == "1"
+    site_ids, _ = _hub_site_list()
+    requested = (request.args.get("site") or "").strip()
+    if not embed:
+        target = requested if requested in site_ids else None
+        if not target:
+            pref = DEFAULT_GCS_IMAGE_SITE
+            target = pref if pref in site_ids else (site_ids[0] if site_ids else None)
+        if target:
+            return redirect(url_for("pages.site_page", site_id=target, section="images"))
+        return redirect(url_for("pages.dashboard"))
+
+    gcs = gcs_sites()
+    preferred = image_site_key(requested) if requested else ""
+    if preferred not in gcs:
+        pref_default = image_site_key(DEFAULT_GCS_IMAGE_SITE)
+        preferred = pref_default if pref_default in gcs else next(iter(gcs), "")
+
     return render_template(
         "images.html",
         active="images",
+        embed=embed,
         user_email=session.get("user_email", ""),
-        sites=gcs_sites(),
+        sites=gcs,
         places_key=PLACES_API_KEY,
-        default_image_site=DEFAULT_GCS_IMAGE_SITE,
+        default_image_site=preferred or DEFAULT_GCS_IMAGE_SITE,
+        locked_site=preferred,
+    )
+
+
+@pages_bp.route("/instagram")
+@requires_auth
+def instagram_page():
+    """Shared Instagram prompts — home card entry only (not embedded in site hub)."""
+    if request.args.get("embed") == "1":
+        return redirect(url_for("pages.instagram_page"))
+
+    return render_template(
+        "instagram.html",
+        active="instagram",
+        embed=False,
+        user_email=session.get("user_email", ""),
+        site_id="",
+        site_label="OK Japan · 먹거리",
     )

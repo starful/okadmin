@@ -57,7 +57,7 @@ def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, Any]:
         pipeline_env_for_site,
     )
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
         from statfacts_topic_ai import DEFAULT_GUIDE_COUNT, DEFAULT_INSIGHT_COUNT
 
         return {
@@ -120,6 +120,31 @@ def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, Any]:
             "default_universities": DEFAULT_UNIVERSITY_COUNT,
         }
 
+    if site_id == "okpy":
+        from okpy_topic_ai import (
+            DEFAULT_CLOUD_COUNT,
+            DEFAULT_PYTHON_COUNT,
+            DEFAULT_TERRAFORM_COUNT,
+        )
+
+        return {
+            "items_expandable": DEFAULT_PYTHON_COUNT + DEFAULT_CLOUD_COUNT + DEFAULT_TERRAFORM_COUNT,
+            "guides_expandable": 0,
+            "ai_queue": True,
+            "queue_mode": "okpy",
+            "default_insights": DEFAULT_PYTHON_COUNT,
+            "default_schools": DEFAULT_CLOUD_COUNT,
+            "default_universities": DEFAULT_TERRAFORM_COUNT,
+        }
+
+    if site_id == "krcare":
+        return {
+            "items_expandable": 0,
+            "guides_expandable": 0,
+            "ai_queue": False,
+            "tourapi_only": True,
+        }
+
     from topic_bank_pipeline import topic_bank_expand_preview
 
     env = pipeline_env_for_site(site_id)
@@ -160,8 +185,6 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     bank_raw = topic_bank_backlog(site_id, repo)
     if bank_raw:
         raw = bank_raw
-    elif site_id == "hatena":
-        raw = {"note": "Hatena는 CSV 미처리 포스트 기준 — 별도 집계 없음"}
     else:
         raw = {}
 
@@ -196,15 +219,18 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
             and int(raw.get("schools_pending") or 0) == 0
             and int(raw.get("univs_pending") or 0) == 0
         )
+    elif site_id == "okpy":
+        content_empty = items_pairs == 0
     expand_avail = expand.get("items_expandable", 0) + expand.get("guides_expandable", 0)
     if site_id in (
-        "okstats",
+        "statfacts",
         "okramen",
         "okonsen",
         "okcaddie",
         "starful.biz",
         "jpcampus",
         "krcampus",
+        "okpy",
     ):
         csv_refresh_suggested = content_empty
     else:
@@ -222,12 +248,18 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         univs_n = int(raw.get("univs_pending") or 0)
         content_n = schools_n + univs_n
         guide_n = guides_topics
-    elif site_id == "okstats":
+    elif site_id == "statfacts":
         content_n = items_pairs
         guide_n = guides_topics
     elif site_id in POI_SITES:
         content_n = items_pairs
         guide_n = guides_topics
+    elif site_id == "okpy":
+        py_n = int(raw.get("python_pending") or 0)
+        cloud_n = int(raw.get("cloud_pending") or 0)
+        tf_n = int(raw.get("terraform_pending") or 0)
+        content_n = py_n + cloud_n + tf_n
+        guide_n = 0
     else:
         content_n = items_pairs
         guide_n = guides_topics
@@ -246,8 +278,16 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
     elif site_id == "jpcampus":
         generatable["univs"] = int(raw.get("univs_pending") or 0)
         generatable["total"] = guide_n + generatable["univs"]
+    elif site_id == "okpy":
+        generatable["python"] = int(raw.get("python_pending") or 0)
+        generatable["cloud"] = int(raw.get("cloud_pending") or 0)
+        generatable["terraform"] = int(raw.get("terraform_pending") or 0)
+        generatable["total"] = (
+            generatable["python"] + generatable["cloud"] + generatable["terraform"]
+        )
+        generatable["content"] = generatable["total"]
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
         total_gen = content_n + guide_n
         summary = f"생성 가능 {total_gen}건 (인사이트 {content_n} · 가이드 {guide_n})"
     elif site_id == "okramen":
@@ -271,6 +311,15 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         univs_n = int(raw.get("univs_pending") or 0)
         total_gen = guide_n + schools_n + univs_n
         summary = f"생성 가능 {total_gen}건 (가이드 {guide_n} · 어학원 {schools_n} · 대학 {univs_n})"
+    elif site_id == "okpy":
+        py_n = int(raw.get("python_pending") or 0)
+        cloud_n = int(raw.get("cloud_pending") or 0)
+        tf_n = int(raw.get("terraform_pending") or 0)
+        total_gen = py_n + cloud_n + tf_n
+        summary = (
+            f"생성 가능 {total_gen}건 "
+            f"(Python {py_n} · Cloud {cloud_n} · Terraform {tf_n})"
+        )
     else:
         summary = f"콘텐츠 {content_n} · 가이드 {guide_n}"
 
@@ -283,6 +332,10 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         csv_out["univs"] = raw.get("csv_univs")
     elif site_id == "jpcampus":
         csv_out["univs"] = raw.get("csv_univs")
+    elif site_id == "okpy":
+        csv_out["python"] = raw.get("csv_python")
+        csv_out["cloud"] = raw.get("csv_cloud")
+        csv_out["terraform"] = raw.get("csv_terraform")
 
     return {
         "ok": True,
@@ -299,6 +352,9 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
             "korean_files": korean,
             "schools_pending": raw.get("schools_pending", 0),
             "univs_pending": raw.get("univs_pending", 0),
+            "python_pending": raw.get("python_pending", 0),
+            "cloud_pending": raw.get("cloud_pending", 0),
+            "terraform_pending": raw.get("terraform_pending", 0),
         },
         "next_run": {
             "items_pairs": next_items,

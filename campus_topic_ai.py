@@ -402,7 +402,7 @@ def append_jpcampus_topics(
     if g_n == 0 and u_n == 0:
         return {"ok": False, "error": "guide_count and university_count are both 0"}
     if not ensure_gemini_api_key():
-        return {"ok": False, "error": "GEMINI_API_KEY 없음"}
+        return {"ok": False, "error": "Claude CLI 미로그인 — `claude` 후 /login"}
 
     guide_slugs, guide_lines = _existing_guide_slugs(site_id, repo)
     univ_keys, univ_lines = _existing_univ_keys(site_id, repo)
@@ -535,7 +535,7 @@ def append_krcampus_topics(
     if g_n == 0 and s_n == 0 and u_n == 0:
         return {"ok": False, "error": "guide_count, school_count, university_count are all 0"}
     if not ensure_gemini_api_key():
-        return {"ok": False, "error": "GEMINI_API_KEY 없음"}
+        return {"ok": False, "error": "Claude CLI 미로그인 — `claude` 후 /login"}
 
     guide_slugs, guide_lines = _existing_guide_slugs(site_id, repo)
     school_keys, _school_lines = _existing_school_keys(site_id, repo)

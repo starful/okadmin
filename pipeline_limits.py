@@ -27,10 +27,12 @@ SITE_GCS_BUCKETS: dict[str, str] = {
     "okramen": "gs://ok-project-assets/okramen",
     "okonsen": "gs://ok-project-assets/okonsen",
     "okcaddie": "gs://ok-project-assets/okcaddie",
-    "okstats": "gs://ok-project-assets/statfacts",
+    "statfacts": "gs://ok-project-assets/statfacts",
     "krcampus": "gs://ok-project-assets/krcampus",
     "jpcampus": "gs://ok-project-assets/jpcampus",
     "starful.biz": "gs://starful-biz-assets",
+    "okpy": "gs://ok-project-assets/okpy",
+    "krcare": "gs://ok-project-assets/krcare",
 }
 
 SITE_GCS_IMAGE_DIRS: dict[str, str] = {

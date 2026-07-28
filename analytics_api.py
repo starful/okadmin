@@ -14,8 +14,18 @@ from urllib.parse import unquote
 from config import OKADMIN_ROOT, get_service
 
 GSC_HTTP_TIMEOUT_SEC = int(os.environ.get("GSC_HTTP_TIMEOUT_SEC", "25"))
+# Per runReport RPC deadline (seconds). Without this, hung GA4 calls block the UI indefinitely.
+GA4_RPC_TIMEOUT_SEC = float(os.environ.get("GA4_RPC_TIMEOUT_SEC", "25"))
+GA4_REPORT_RETRIES = max(1, int(os.environ.get("GA4_REPORT_RETRIES", "2")))
+GA4_REPORT_RETRY_DELAY_SEC = float(os.environ.get("GA4_REPORT_RETRY_DELAY_SEC", "1.5"))
+ANALYTICS_OVERVIEW_TIMEOUT_SEC = int(os.environ.get("ANALYTICS_OVERVIEW_TIMEOUT_SEC", "90"))
+# Cap concurrent GA4 RPCs so abandoned/retry storms don't jam the process.
+GA4_RPC_CONCURRENCY = max(1, int(os.environ.get("GA4_RPC_CONCURRENCY", "3")))
 _gsc_allowed_cache: tuple[float, set[str] | None] | None = None
 _gsc_allowed_lock = threading.Lock()
+_ga4_rpc_sem = threading.Semaphore(GA4_RPC_CONCURRENCY)
+_overview_live_lock = threading.Lock()
+
 
 GSC_USER_TOKEN_DEFAULT = OKADMIN_ROOT / "gsc-oauth-user.json"
 GSC_CLIENT_SECRETS_DEFAULT = OKADMIN_ROOT / "gsc-token.json"
@@ -109,6 +119,7 @@ def _gsc_search_query(
     dimensions: list[str],
     days: int = 28,
     row_limit: int = 500,
+    end_date: date | None = None,
 ) -> dict[str, Any]:
     """Run Search Console searchanalytics.query; returns {rows, start, end} or {error}."""
     creds = _gsc_credentials()
@@ -130,7 +141,7 @@ def _gsc_search_query(
                     f"등록된 속성: {', '.join(sorted(allowed)[:6])}…"
                 )
             }
-        end = date.today()
+        end = end_date or date.today()
         start = end - timedelta(days=days)
         body: dict[str, Any] = {
             "startDate": start.isoformat(),
@@ -152,8 +163,12 @@ def _gsc_search_query(
         return {"error": str(e)}
 
 
-def fetch_gsc_daily(site_url: str, *, days: int = 28) -> dict[str, Any]:
-    raw = _gsc_search_query(site_url, dimensions=["date"], days=days, row_limit=400)
+def fetch_gsc_daily(
+    site_url: str, *, days: int = 28, end_date: date | None = None
+) -> dict[str, Any]:
+    raw = _gsc_search_query(
+        site_url, dimensions=["date"], days=days, row_limit=400, end_date=end_date
+    )
     if raw.get("error"):
         return raw
     rows = []
@@ -191,9 +206,9 @@ def fetch_gsc_daily(site_url: str, *, days: int = 28) -> dict[str, Any]:
 
 
 def fetch_gsc_queries(
-    site_url: str, *, days: int = 28, row_limit: int = 500
+    site_url: str, *, days: int = 28, row_limit: int = 25000
 ) -> dict[str, Any]:
-    """Top search queries (dimension: query)."""
+    """Search queries (dimension: query) — up to API row cap."""
     raw = _gsc_search_query(
         site_url, dimensions=["query"], days=days, row_limit=row_limit
     )
@@ -216,6 +231,7 @@ def fetch_gsc_queries(
         "kind": "queries",
         "rows": rows,
         "query_count": len(rows),
+        "truncated": len(raw["api_rows"]) >= row_limit,
         "start": raw["start"],
         "end": raw["end"],
     }
@@ -489,69 +505,448 @@ def fetch_gsc_pages(
     }
 
 
-def fetch_ga4_summary(property_id: str, *, days: int = 28) -> dict[str, Any] | None:
-    """property_id: numeric GA4 property ID."""
+def _ga4_creds_ok() -> str | None:
     cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if not cred_path or not os.path.isfile(cred_path):
-        return {"error": "GOOGLE_APPLICATION_CREDENTIALS required for GA4"}
+        return "GOOGLE_APPLICATION_CREDENTIALS required for GA4"
+    return None
+
+
+def _ga4_window(days: int, end_date: date | None) -> tuple[date, date]:
+    end = end_date or date.today()
+    return end - timedelta(days=days), end
+
+
+def _ga4_run_report(
+    property_id: str,
+    *,
+    dimensions: list[str],
+    metrics: list[str],
+    start: date,
+    end: date,
+    row_limit: int = 100000,
+    order_metric: str | None = None,
+    desc: bool = True,
+) -> dict[str, Any]:
+    """Low-level GA4 runReport → {rows:[{dims, metrics}], start, end} or {error}."""
+    from analytics_cache import is_transient_analytics_error
+
+    err = _ga4_creds_ok()
+    if err:
+        return {"error": err}
     try:
         from google.analytics.data_v1beta import BetaAnalyticsDataClient
         from google.analytics.data_v1beta.types import (
             DateRange,
             Dimension,
             Metric,
+            OrderBy,
             RunReportRequest,
         )
-
-        client = BetaAnalyticsDataClient()
-        end = date.today()
-        start = end - timedelta(days=days)
-        request = RunReportRequest(
-            property=f"properties/{property_id}",
-            dimensions=[Dimension(name="date")],
-            metrics=[
-                Metric(name="sessions"),
-                Metric(name="activeUsers"),
-                Metric(name="eventCount"),
-                Metric(name="screenPageViews"),
-            ],
-            date_ranges=[
-                DateRange(
-                    start_date=start.strftime("%Y-%m-%d"),
-                    end_date=end.strftime("%Y-%m-%d"),
-                )
-            ],
-        )
-        response = client.run_report(request)
-        rows = []
-        for row in response.rows:
-            d = row.dimension_values[0].value
-            rows.append(
-                {
-                    "date": d,
-                    "sessions": int(row.metric_values[0].value or 0),
-                    "users": int(row.metric_values[1].value or 0),
-                    "events": int(row.metric_values[2].value or 0),
-                    "pageviews": int(row.metric_values[3].value or 0),
-                }
-            )
-        totals = {"sessions": 0, "users": 0, "events": 0, "pageviews": 0}
-        for r in rows:
-            totals["sessions"] += r["sessions"]
-            totals["users"] += r["users"]
-            totals["events"] += r["events"]
-            totals["pageviews"] += r["pageviews"]
-        return {
-            "property_id": property_id,
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "totals": totals,
-            "rows": rows,
-        }
     except ImportError:
         return {"error": "pip install google-analytics-data"}
-    except Exception as e:
-        return {"error": str(e)}
+
+    order_bys = []
+    if order_metric:
+        order_bys = [
+            OrderBy(
+                metric=OrderBy.MetricOrderBy(metric_name=order_metric),
+                desc=desc,
+            )
+        ]
+    req: dict[str, Any] = {
+        "property": f"properties/{property_id}",
+        "metrics": [Metric(name=m) for m in metrics],
+        "date_ranges": [
+            DateRange(
+                start_date=start.strftime("%Y-%m-%d"),
+                end_date=end.strftime("%Y-%m-%d"),
+            )
+        ],
+        "limit": row_limit,
+    }
+    if dimensions:
+        req["dimensions"] = [Dimension(name=d) for d in dimensions]
+    if order_bys:
+        req["order_bys"] = order_bys
+    request = RunReportRequest(**req)
+    rpc_timeout = max(5.0, GA4_RPC_TIMEOUT_SEC)
+
+    last_err = ""
+    for attempt in range(GA4_REPORT_RETRIES):
+        # Fresh client per attempt — avoid a shared channel jammed by abandoned RPCs.
+        try:
+            client = BetaAnalyticsDataClient()
+        except Exception as e:
+            return {"error": str(e)}
+        try:
+            with _ga4_rpc_sem:
+                response = client.run_report(request, timeout=rpc_timeout)
+            rows_out: list[dict[str, Any]] = []
+            for row in response.rows:
+                dims = [dv.value for dv in row.dimension_values]
+                mets: list[float | int] = []
+                for i, mv in enumerate(row.metric_values):
+                    raw = mv.value or "0"
+                    # rates / durations stay float; counts int when whole
+                    if metrics[i] in (
+                        "engagementRate",
+                        "averageSessionDuration",
+                        "bounceRate",
+                    ):
+                        mets.append(float(raw))
+                    else:
+                        try:
+                            mets.append(int(float(raw)))
+                        except ValueError:
+                            mets.append(float(raw))
+                rows_out.append({"dims": dims, "metrics": mets})
+            return {
+                "rows": rows_out,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "row_count": len(rows_out),
+            }
+        except Exception as e:
+            last_err = str(e)
+            retryable = is_transient_analytics_error(last_err)
+            if attempt + 1 >= GA4_REPORT_RETRIES or not retryable:
+                return {"error": last_err}
+            time.sleep(GA4_REPORT_RETRY_DELAY_SEC * (attempt + 1))
+    return {"error": last_err or "GA4 조회 실패"}
+
+
+def fetch_ga4_summary(
+    property_id: str, *, days: int = 28, end_date: date | None = None
+) -> dict[str, Any] | None:
+    """Daily traffic + period engagement / new-user totals (reports in parallel)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    start, end = _ga4_window(days, end_date)
+
+    def _daily():
+        return _ga4_run_report(
+            property_id,
+            dimensions=["date"],
+            metrics=[
+                "sessions",
+                "activeUsers",
+                "eventCount",
+                "screenPageViews",
+                "newUsers",
+                "engagedSessions",
+            ],
+            start=start,
+            end=end,
+            row_limit=400,
+        )
+
+    def _period():
+        return _ga4_run_report(
+            property_id,
+            dimensions=[],
+            metrics=[
+                "engagementRate",
+                "averageSessionDuration",
+                "sessions",
+                "activeUsers",
+                "newUsers",
+                "engagedSessions",
+                "eventCount",
+                "screenPageViews",
+            ],
+            start=start,
+            end=end,
+            row_limit=10,
+        )
+
+    def _nvr():
+        return _ga4_run_report(
+            property_id,
+            dimensions=["newVsReturning"],
+            metrics=["activeUsers", "sessions"],
+            start=start,
+            end=end,
+            row_limit=10,
+        )
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_daily = pool.submit(_daily)
+        f_period = pool.submit(_period)
+        f_nvr = pool.submit(_nvr)
+        daily = f_daily.result()
+        period = f_period.result()
+        nvr = f_nvr.result()
+
+    if daily.get("error"):
+        return daily
+    rows = []
+    for r in daily.get("rows") or []:
+        m = r["metrics"]
+        rows.append(
+            {
+                "date": (r["dims"][0] if r["dims"] else ""),
+                "sessions": int(m[0] or 0),
+                "users": int(m[1] or 0),
+                "events": int(m[2] or 0),
+                "pageviews": int(m[3] or 0),
+                "new_users": int(m[4] or 0),
+                "engaged_sessions": int(m[5] or 0),
+            }
+        )
+    rows.sort(key=lambda x: x["date"])
+    totals = {
+        "sessions": sum(r["sessions"] for r in rows),
+        "users": sum(r["users"] for r in rows),
+        "events": sum(r["events"] for r in rows),
+        "pageviews": sum(r["pageviews"] for r in rows),
+        "new_users": sum(r["new_users"] for r in rows),
+        "engaged_sessions": sum(r["engaged_sessions"] for r in rows),
+        "engagement_rate": 0.0,
+        "avg_session_duration": 0.0,
+    }
+    if not period.get("error") and period.get("rows"):
+        pm = period["rows"][0]["metrics"]
+        totals["engagement_rate"] = float(pm[0] or 0)
+        totals["avg_session_duration"] = float(pm[1] or 0)
+        totals["sessions"] = int(pm[2] or totals["sessions"])
+        totals["users"] = int(pm[3] or totals["users"])
+        totals["new_users"] = int(pm[4] or totals["new_users"])
+        totals["engaged_sessions"] = int(pm[5] or totals["engaged_sessions"])
+        totals["events"] = int(pm[6] or totals["events"])
+        totals["pageviews"] = int(pm[7] or totals["pageviews"])
+    elif totals["sessions"]:
+        totals["engagement_rate"] = totals["engaged_sessions"] / totals["sessions"]
+
+    new_vs_returning: list[dict[str, Any]] = []
+    if not nvr.get("error"):
+        for r in nvr.get("rows") or []:
+            new_vs_returning.append(
+                {
+                    "type": (r["dims"][0] if r["dims"] else ""),
+                    "users": int(r["metrics"][0] or 0),
+                    "sessions": int(r["metrics"][1] or 0),
+                }
+            )
+
+    return {
+        "property_id": property_id,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "totals": totals,
+        "rows": rows,
+        "new_vs_returning": new_vs_returning,
+    }
+
+
+def fetch_ga4_period_totals(
+    property_id: str, *, days: int = 28, end_date: date | None = None
+) -> dict[str, Any]:
+    """Single totals report for prior-period deltas (cheap)."""
+    start, end = _ga4_window(days, end_date)
+    period = _ga4_run_report(
+        property_id,
+        dimensions=[],
+        metrics=[
+            "engagementRate",
+            "averageSessionDuration",
+            "sessions",
+            "activeUsers",
+            "newUsers",
+            "engagedSessions",
+            "eventCount",
+            "screenPageViews",
+        ],
+        start=start,
+        end=end,
+        row_limit=10,
+    )
+    if period.get("error"):
+        return period
+    if not period.get("rows"):
+        return {"error": "GA4 기간 합계 없음", "start": start.isoformat(), "end": end.isoformat()}
+    pm = period["rows"][0]["metrics"]
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "totals": {
+            "engagement_rate": float(pm[0] or 0),
+            "avg_session_duration": float(pm[1] or 0),
+            "sessions": int(pm[2] or 0),
+            "users": int(pm[3] or 0),
+            "new_users": int(pm[4] or 0),
+            "engaged_sessions": int(pm[5] or 0),
+            "events": int(pm[6] or 0),
+            "pageviews": int(pm[7] or 0),
+        },
+    }
+
+
+def fetch_ga4_events(
+    property_id: str, *, days: int = 28, end_date: date | None = None
+) -> dict[str, Any]:
+    """Click-related eventName × eventCount for the period (name contains 'click')."""
+    start, end = _ga4_window(days, end_date)
+    raw = _ga4_run_report(
+        property_id,
+        dimensions=["eventName"],
+        metrics=["eventCount", "totalUsers"],
+        start=start,
+        end=end,
+        row_limit=100000,
+        order_metric="eventCount",
+        desc=True,
+    )
+    if raw.get("error"):
+        return raw
+    rows = []
+    for r in raw.get("rows") or []:
+        name = r["dims"][0] if r["dims"] else ""
+        if "click" not in name.lower():
+            continue
+        rows.append(
+            {
+                "event": name,
+                "count": int(r["metrics"][0] or 0),
+                "users": int(r["metrics"][1] or 0),
+            }
+        )
+    return {
+        "kind": "events",
+        "rows": rows,
+        "event_count": len(rows),
+        "filter": "click",
+        "start": raw["start"],
+        "end": raw["end"],
+    }
+
+
+def fetch_ga4_channels(
+    property_id: str, *, days: int = 28, end_date: date | None = None
+) -> dict[str, Any]:
+    start, end = _ga4_window(days, end_date)
+    raw = _ga4_run_report(
+        property_id,
+        dimensions=["sessionDefaultChannelGroup"],
+        metrics=["sessions", "activeUsers"],
+        start=start,
+        end=end,
+        row_limit=50,
+        order_metric="sessions",
+        desc=True,
+    )
+    if raw.get("error"):
+        return raw
+    rows = []
+    total_sessions = 0
+    for r in raw.get("rows") or []:
+        sess = int(r["metrics"][0] or 0)
+        total_sessions += sess
+        rows.append(
+            {
+                "channel": r["dims"][0] if r["dims"] else "",
+                "sessions": sess,
+                "users": int(r["metrics"][1] or 0),
+            }
+        )
+    organic = next(
+        (r for r in rows if "organic" in (r["channel"] or "").lower()),
+        None,
+    )
+    return {
+        "kind": "channels",
+        "rows": rows,
+        "total_sessions": total_sessions,
+        "organic_sessions": (organic or {}).get("sessions") or 0,
+        "organic_share": (
+            ((organic or {}).get("sessions") or 0) / total_sessions
+            if total_sessions
+            else 0.0
+        ),
+        "start": raw["start"],
+        "end": raw["end"],
+    }
+
+
+def fetch_ga4_devices(
+    property_id: str, *, days: int = 28, end_date: date | None = None
+) -> dict[str, Any]:
+    start, end = _ga4_window(days, end_date)
+    raw = _ga4_run_report(
+        property_id,
+        dimensions=["deviceCategory"],
+        metrics=["sessions", "activeUsers"],
+        start=start,
+        end=end,
+        row_limit=20,
+        order_metric="sessions",
+        desc=True,
+    )
+    if raw.get("error"):
+        return raw
+    rows = []
+    total_sessions = 0
+    mobile_sessions = 0
+    for r in raw.get("rows") or []:
+        cat = (r["dims"][0] if r["dims"] else "") or ""
+        sess = int(r["metrics"][0] or 0)
+        total_sessions += sess
+        if cat.lower() == "mobile":
+            mobile_sessions = sess
+        rows.append(
+            {
+                "device": cat,
+                "sessions": sess,
+                "users": int(r["metrics"][1] or 0),
+            }
+        )
+    return {
+        "kind": "devices",
+        "rows": rows,
+        "total_sessions": total_sessions,
+        "mobile_sessions": mobile_sessions,
+        "mobile_share": (
+            mobile_sessions / total_sessions if total_sessions else 0.0
+        ),
+        "start": raw["start"],
+        "end": raw["end"],
+    }
+
+
+def fetch_ga4_pages(
+    property_id: str, *, days: int = 28, end_date: date | None = None
+) -> dict[str, Any]:
+    """All page paths by views (API row cap)."""
+    start, end = _ga4_window(days, end_date)
+    raw = _ga4_run_report(
+        property_id,
+        dimensions=["pagePath"],
+        metrics=["screenPageViews", "activeUsers", "sessions"],
+        start=start,
+        end=end,
+        row_limit=100000,
+        order_metric="screenPageViews",
+        desc=True,
+    )
+    if raw.get("error"):
+        return raw
+    rows = []
+    for r in raw.get("rows") or []:
+        rows.append(
+            {
+                "page": r["dims"][0] if r["dims"] else "",
+                "pageviews": int(r["metrics"][0] or 0),
+                "users": int(r["metrics"][1] or 0),
+                "sessions": int(r["metrics"][2] or 0),
+            }
+        )
+    return {
+        "kind": "pages",
+        "rows": rows,
+        "page_count": len(rows),
+        "start": raw["start"],
+        "end": raw["end"],
+    }
 
 
 def _gsc_site_url_from_links(links: dict) -> str:
@@ -568,9 +963,13 @@ def _gsc_site_url_from_links(links: dict) -> str:
 
 def _analytics_error_short(msg: str, *, kind: str) -> str:
     """Short Korean hint for dashboard cards."""
+    from analytics_cache import is_transient_analytics_error
+
     sa = _service_account_email()
     sa_hint = f" 서비스 계정 Viewer 추가: {sa}" if sa else ""
     text = msg or ""
+    if kind == "ga4" and is_transient_analytics_error(text):
+        return "GA4 일시 타임아웃 · 갱신을 다시 눌러 주세요"
     if "403" in text and kind == "ga4":
         return f"GA4 권한 없음 (property).{sa_hint}"
     if "403" in text and kind == "gsc":
@@ -658,19 +1057,120 @@ def gsc_auth_setup_info() -> dict[str, str]:
     }
 
 
-def load_analytics_overview(site_id: str, *, days: int = 28) -> dict[str, Any]:
-    """GA4 + GSC charts payload for unified analytics page."""
+def run_parallel_analytics_jobs(
+    jobs: dict[str, Any],
+    *,
+    timeout_sec: int | None = None,
+) -> dict[str, Any]:
+    """Run named callables in parallel; never block past timeout on hung RPCs.
+
+    On timeout, unfinished keys get ``{"error": "조회 시간 초과"}`` and the
+    thread pool is shut down without waiting (so HTTP can return promptly).
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    result: dict[str, Any] = {}
+    if not jobs:
+        return result
+    timeout = (
+        ANALYTICS_OVERVIEW_TIMEOUT_SEC if timeout_sec is None else max(1, int(timeout_sec))
+    )
+    workers = min(10, max(1, len(jobs)))
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        futs = {pool.submit(fn): key for key, fn in jobs.items()}
+        try:
+            for fut in as_completed(futs, timeout=timeout):
+                key = futs[fut]
+                try:
+                    result[key] = fut.result()
+                except Exception as e:
+                    result[key] = {"error": str(e)}
+        except TimeoutError:
+            for fut, key in futs.items():
+                if key not in result:
+                    result[key] = {"error": "조회 시간 초과"}
+                    fut.cancel()
+    finally:
+        # Don't block HTTP (or pytest) on hung GA4/GSC RPCs.
+        for t in getattr(pool, "_threads", ()):
+            try:
+                t.daemon = True
+            except Exception:
+                pass
+        pool.shutdown(wait=False, cancel_futures=True)
+    return result
+
+
+def load_analytics_overview(
+    site_id: str,
+    *,
+    days: int = 28,
+    refresh: bool = False,
+    phase: str = "all",
+) -> dict[str, Any]:
+    """GA4 + GSC charts payload (day-cached).
+
+    phase:
+      - all: compute everything (refresh button fallback)
+      - core: KPIs + charts first (fast path); may return full cache
+      - tables: events/queries/pages/indexing; completes partial cache
+    """
+    from analytics_cache import (
+        deltas_for_totals,
+        merge_analytics_payload,
+        normalize_days,
+        payload_has_transient_ga4_error,
+        read_cache,
+        write_cache,
+    )
+
+    days = normalize_days(days)
+    phase = (phase or "all").strip().lower()
+    if phase not in ("all", "core", "tables"):
+        phase = "all"
+
+    def _serve_cache() -> dict[str, Any] | None:
+        cached = read_cache(site_id, days)
+        if not cached:
+            return None
+        if not cached.get("partial"):
+            out_c = dict(cached)
+            out_c["cache_hit"] = True
+            out_c["partial"] = False
+            return out_c
+        if phase == "core":
+            out_c = dict(cached)
+            out_c["cache_hit"] = True
+            out_c["partial"] = True
+            return out_c
+        # Partial day: still serve tables from cache once they were fetched,
+        # so page reloads don't re-storm GSC/GA4 until explicit refresh.
+        if phase == "tables" and "ga4_events" in cached and "gsc_queries" in cached:
+            out_c = dict(cached)
+            out_c["cache_hit"] = True
+            out_c["partial"] = True
+            return out_c
+        return None
+
+    if not refresh:
+        served = _serve_cache()
+        if served is not None:
+            return served
 
     ac = site_analytics_config(site_id)
     out: dict[str, Any] = {
         "site_id": site_id,
         "days": days,
         "analytics": ac,
+        "compare_label": f"이전 {days}일 대비",
     }
 
     ga4_id = (ac.get("ga4_property_id") or "").strip()
     gsc_url = (ac.get("gsc_site_url") or "").strip()
+    today = date.today()
+    current_start = today - timedelta(days=days)
+    prior_end = current_start - timedelta(days=1)
 
     def _ga4():
         if not ga4_id:
@@ -678,7 +1178,51 @@ def load_analytics_overview(site_id: str, *, days: int = 28) -> dict[str, Any]:
         data = fetch_ga4_summary(ga4_id, days=days)
         if data and data.get("error"):
             return {"error": _analytics_error_short(data["error"], kind="ga4")}
+        prior = fetch_ga4_period_totals(ga4_id, days=days, end_date=prior_end)
+        if data and not prior.get("error"):
+            data["prior_totals"] = prior.get("totals") or {}
+            data["prior_start"] = prior.get("start")
+            data["prior_end"] = prior.get("end")
+            data["deltas"] = deltas_for_totals(
+                data.get("totals"),
+                data.get("prior_totals"),
+                (
+                    "sessions",
+                    "users",
+                    "events",
+                    "pageviews",
+                    "new_users",
+                    "engaged_sessions",
+                    "engagement_rate",
+                    "avg_session_duration",
+                ),
+            )
+            data["compare_label"] = f"이전 {days}일 대비"
         return data or {"error": "GA4 조회 실패"}
+
+    def _ga4_events():
+        if not ga4_id:
+            return {"error": "ga4_property_id 미설정"}
+        data = fetch_ga4_events(ga4_id, days=days)
+        if data.get("error"):
+            return {"error": _analytics_error_short(data["error"], kind="ga4")}
+        return data
+
+    def _ga4_channels():
+        if not ga4_id:
+            return {"error": "ga4_property_id 미설정"}
+        data = fetch_ga4_channels(ga4_id, days=days)
+        if data.get("error"):
+            return {"error": _analytics_error_short(data["error"], kind="ga4")}
+        return data
+
+    def _ga4_devices():
+        if not ga4_id:
+            return {"error": "ga4_property_id 미설정"}
+        data = fetch_ga4_devices(ga4_id, days=days)
+        if data.get("error"):
+            return {"error": _analytics_error_short(data["error"], kind="ga4")}
+        return data
 
     def _gsc_daily():
         if not gsc_url:
@@ -686,12 +1230,23 @@ def load_analytics_overview(site_id: str, *, days: int = 28) -> dict[str, Any]:
         data = fetch_gsc_daily(gsc_url, days=days)
         if data.get("error"):
             return {"error": _analytics_error_short(data["error"], kind="gsc")}
+        prior = fetch_gsc_daily(gsc_url, days=days, end_date=prior_end)
+        if not prior.get("error"):
+            data["prior_totals"] = prior.get("totals") or {}
+            data["prior_start"] = prior.get("start")
+            data["prior_end"] = prior.get("end")
+            data["deltas"] = deltas_for_totals(
+                data.get("totals"),
+                data.get("prior_totals"),
+                ("clicks", "impressions", "ctr", "position"),
+            )
+            data["compare_label"] = f"이전 {days}일 대비"
         return data
 
     def _gsc_queries():
         if not gsc_url:
             return {"error": "gsc_site_url 미설정"}
-        data = fetch_gsc_queries(gsc_url, days=days)
+        data = fetch_gsc_queries(gsc_url, days=days, row_limit=20)
         if data.get("error"):
             return {"error": _analytics_error_short(data["error"], kind="gsc")}
         return data
@@ -712,42 +1267,61 @@ def load_analytics_overview(site_id: str, *, days: int = 28) -> dict[str, Any]:
             return {"error": _analytics_error_short(data["error"], kind="gsc")}
         return data
 
-    def _gsc_pages():
-        if not gsc_url:
-            return {"error": "gsc_site_url 미설정"}
-        data = fetch_gsc_pages(gsc_url, days=days)
-        if not data:
-            return {"error": "GSC 페이지 조회 실패"}
-        if data.get("error"):
-            return {"error": _analytics_error_short(data["error"], kind="gsc")}
-        return {
-            "page_count": len(data.get("rows") or []),
-            "start": data.get("start"),
-            "end": data.get("end"),
-        }
-
-    jobs = {
+    core_jobs = {
         "ga4": _ga4,
+        "ga4_channels": _ga4_channels,
+        "ga4_devices": _ga4_devices,
         "gsc_daily": _gsc_daily,
+    }
+    table_jobs = {
+        "ga4_events": _ga4_events,
         "gsc_queries": _gsc_queries,
         "gsc_query_daily": _gsc_query_daily,
         "gsc_indexing": _gsc_indexing,
-        "gsc_pages": _gsc_pages,
     }
-    timeout = int(os.environ.get("ANALYTICS_OVERVIEW_TIMEOUT_SEC", "45"))
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        futs = {pool.submit(fn): key for key, fn in jobs.items()}
-        try:
-            completed = as_completed(futs, timeout=timeout)
-            for fut in completed:
-                key = futs[fut]
-                try:
-                    out[key] = fut.result()
-                except Exception as e:
-                    out[key] = {"error": str(e)}
-        except TimeoutError:
-            for fut, key in futs.items():
-                if key not in out:
-                    out[key] = {"error": "조회 시간 초과"}
 
-    return out
+    def _run(jobs: dict) -> dict[str, Any]:
+        return run_parallel_analytics_jobs(jobs, timeout_sec=ANALYTICS_OVERVIEW_TIMEOUT_SEC)
+
+    def _finish(payload: dict[str, Any]) -> dict[str, Any]:
+        existing = read_cache(site_id, days) or {}
+        merged = merge_analytics_payload(existing, payload)
+        meta = write_cache(site_id, days, merged)
+        merged["cache_hit"] = False
+        merged["cache_day"] = meta.get("cache_day")
+        merged["cached_at"] = meta.get("cached_at")
+        return merged
+
+    # One live Google fetch at a time — avoids retry storms stacking RPCs.
+    with _overview_live_lock:
+        if not refresh:
+            served = _serve_cache()
+            if served is not None:
+                return served
+
+        if phase == "tables":
+            base = read_cache(site_id, days) or {}
+            if base and not base.get("partial"):
+                out_t = dict(base)
+                out_t["cache_hit"] = True
+                out_t["partial"] = False
+                return out_t
+            payload = dict(out)
+            for k, v in base.items():
+                if k not in ("cache_hit", "partial", "cached_at", "cache_day"):
+                    payload[k] = v
+            payload.update(_run(table_jobs))
+            payload["partial"] = payload_has_transient_ga4_error(payload)
+            return _finish(payload)
+
+        if phase == "core":
+            payload = dict(out)
+            payload.update(_run(core_jobs))
+            payload["partial"] = True
+            return _finish(payload)
+
+        # phase == all
+        payload = dict(out)
+        payload.update(_run({**core_jobs, **table_jobs}))
+        payload["partial"] = payload_has_transient_ga4_error(payload)
+        return _finish(payload)

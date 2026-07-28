@@ -37,13 +37,15 @@ LOG_DIR = OPS_ROOT / "logs"
 SITE_COLORS: dict[str, str] = {
     "jpcampus": "#33b679",
     "krcampus": "#c8102e",
-    "hatena": "#f4511e",
+    "okpy": "#f4511e",
     "okadmin": "#9e9e9e",
     "okcaddie": "#039be5",
     "okonsen": "#e67c73",
     "okramen": "#f6bf26",
     "starful.biz": "#7986cb",
-    "okstats": "#2563eb",
+    "statfacts": "#2563eb",
+    "krcare": "#2EB5A8",
+    "instagram": "#c45a7a",
 }
 
 EVENT_KINDS = ["todo", "git_push", "gsc", "manual", "deploy", "content", "other"]
@@ -71,10 +73,12 @@ GCS_IMAGE_SITE_ORDER = (
     "okonsen",
     "okramen",
     "okcaddie",
-    "okstats",
+    "statfacts",
     "krcampus",
     "jpcampus",
     "starful_biz",
+    "okpy",
+    "krcare",
 )
 DEFAULT_GCS_IMAGE_SITE = "okonsen"
 
@@ -104,6 +108,20 @@ def load_registry() -> dict[str, Any]:
 
 def list_services() -> list[dict[str, Any]]:
     return list(load_registry().get("services") or [])
+
+
+def is_hub_site(svc: dict[str, Any] | None) -> bool:
+    """False when sites.yaml sets hub: false (unmanaged / hidden from OK Admin UI)."""
+    if not svc:
+        return False
+    if svc.get("hub") is False:
+        return False
+    return True
+
+
+def list_hub_services() -> list[dict[str, Any]]:
+    """Sites shown in dashboard / hub pickers (excludes hub: false)."""
+    return [svc for svc in list_services() if is_hub_site(svc)]
 
 
 def get_service(site_id: str) -> dict[str, Any] | None:
@@ -176,11 +194,21 @@ CONTENT_JOBS: dict[str, list[dict[str, str]]] = {
             "command": "python3 scripts/build_data.py",
         },
     ],
-    "hatena": [
+    "okpy": [
         {
-            "id": "unified_poster",
-            "label": "unified_poster (CSV 토픽)",
-            "command": "python3 unified_poster.py",
+            "id": "python_posts",
+            "label": "Python 포스트",
+            "command": "python3 scripts/generate_posts.py python",
+        },
+        {
+            "id": "cloud_posts",
+            "label": "Cloud 포스트",
+            "command": "python3 scripts/generate_posts.py cloud",
+        },
+        {
+            "id": "terraform_posts",
+            "label": "Terraform 포스트",
+            "command": "python3 scripts/generate_posts.py terraform",
         },
     ],
     "jpcampus": [
@@ -219,24 +247,24 @@ CONTENT_JOBS: dict[str, list[dict[str, str]]] = {
 
 # CSV 편집 (콘텐츠 페이지) — okadmin data/topic_banks (site repo CSV는 레거시)
 CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
-    "hatena": [
+    "okpy": [
         {
             "id": "python",
             "label": "python.csv",
-            "rel_path": "csv/python.csv",
+            "rel_path": "data/python.csv",
             "headers": ["lib_name"],
         },
         {
             "id": "cloud",
             "label": "cloud.csv",
-            "rel_path": "csv/cloud.csv",
+            "rel_path": "data/cloud.csv",
             "headers": ["Topic"],
         },
         {
-            "id": "positions",
-            "label": "positions.csv",
-            "rel_path": "csv/positions.csv",
-            "headers": ["position_name"],
+            "id": "terraform",
+            "label": "terraform.csv",
+            "rel_path": "data/terraform.csv",
+            "headers": ["Topic"],
         },
     ],
     "okramen": [
@@ -323,7 +351,7 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
             "headers": ["name_ko", "name_en", "region"],
         },
     ],
-    "okstats": [
+    "statfacts": [
         {
             "id": "insights",
             "label": "insights.csv",
@@ -346,6 +374,26 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
             "label": "guides.csv",
             "rel_path": "script/csv/guides.csv",
             "headers": ["id", "topic_en", "topic_ko", "keywords"],
+        },
+    ],
+    "krcare": [
+        {
+            "id": "items",
+            "label": "items.csv",
+            "rel_path": "script/csv/items.csv",
+            "headers": [
+                "Name",
+                "Id",
+                "Lat",
+                "Lng",
+                "Address",
+                "Features",
+                "Agoda",
+                "Website",
+                "Tel",
+                "SourceImage",
+                "Region",
+            ],
         },
     ],
 }

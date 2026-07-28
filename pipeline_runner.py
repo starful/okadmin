@@ -74,6 +74,93 @@ def write_pipeline_status(site_id: str, data: dict[str, Any]) -> None:
     )
 
 
+def write_ship_deploy_log(
+    site_id: str,
+    *,
+    via: str,
+    at: datetime | None = None,
+    detail: str = "",
+) -> Path | None:
+    """Write a lightweight deploy-*.log so hub deploy row reflects Paperclip/site deploys."""
+    sid = (site_id or "").strip()
+    if not sid:
+        return None
+    try:
+        from git_ops import DEPLOY_LOG_DIR
+    except Exception:
+        return None
+    when = (at or datetime.now()).replace(microsecond=0)
+    if when.tzinfo is not None:
+        when = when.astimezone().replace(tzinfo=None)
+    DEPLOY_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    ts = when.strftime("%Y%m%d-%H%M%S")
+    path = DEPLOY_LOG_DIR / f"deploy-{sid}-{ts}.log"
+    lines = [
+        f"# {sid} ship {when.isoformat(sep=' ')}",
+        f"via: {via}",
+        detail.strip(),
+        "DONE",
+        f"완료 ({via})",
+        "",
+    ]
+    path.write_text("\n".join(x for x in lines if x is not None), encoding="utf-8")
+    return path
+
+
+def mark_content_cycle_shipped(
+    site_id: str,
+    *,
+    via: str,
+    at: datetime | None = None,
+    record_deploy_log: bool = False,
+    detail: str = "",
+) -> dict[str, Any]:
+    """Bump content 7-day cycle clock after successful git push / deploy.
+
+    No-ops when an equal-or-newer finished_at is already recorded.
+    """
+    sid = (site_id or "").strip()
+    if not sid:
+        return {"ok": False, "error": "site_id required"}
+    now = (at or datetime.now()).replace(microsecond=0)
+    if now.tzinfo is not None:
+        now = now.astimezone().replace(tzinfo=None)
+    stamp = now.isoformat(sep=" ")
+    prev = read_pipeline_status(sid) or {}
+    prev_at = _parse_run_datetime(str(prev.get("finished_at") or prev.get("last_run_at") or ""))
+    skipped = prev_at is not None and prev_at >= now
+    log_path: Path | None = None
+    if record_deploy_log:
+        log_path = write_ship_deploy_log(sid, via=via, at=now, detail=detail)
+    if skipped:
+        return {
+            "ok": True,
+            "skipped": True,
+            "site_id": sid,
+            "finished_at": prev.get("finished_at") or prev.get("last_run_at"),
+            "via": prev.get("content_cycle_via") or via,
+            "deploy_log": str(log_path) if log_path else None,
+        }
+    data = {
+        **prev,
+        "ok": True,
+        "finished_at": stamp,
+        "content_cycle_via": via,
+        "message": f"콘텐츠 주기 갱신 ({via})",
+    }
+    # Drop transient run flags so hub treats this as a completed ship.
+    data.pop("running", None)
+    data.pop("phase", None)
+    write_pipeline_status(sid, data)
+    return {
+        "ok": True,
+        "site_id": sid,
+        "finished_at": stamp,
+        "via": via,
+        "deploy_log": str(log_path) if log_path else None,
+    }
+
+
 _PIPELINE_HEADER_RE = re.compile(
     r"^# (\S+) pipeline (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*$",
     re.MULTILINE,
@@ -142,6 +229,26 @@ _STEP_FAILURE_MARKERS = (
     "Traceback (most recent call last):",
 )
 
+# Content gens may soft-fail (bad queue row / quality reject). Continue so guides etc. still run.
+# Image steps also soft-fail: missing/failed Imagen → default_gcs post-step fills placeholders.
+_SOFT_CONTINUE_STEPS = frozenset(
+    {
+        "items",
+        "guides",
+        "python",
+        "cloud",
+        "terraform",
+        "schools",
+        "universities",
+        "images",
+        "images_places",
+        "images_opt",
+        "img_names",
+        "nearby",
+        "stay_images",
+    }
+)
+
 
 def _step_output_indicates_failure(text: str) -> bool:
     if not text:
@@ -158,32 +265,83 @@ def _run_step(
     env: dict[str, str],
     timeout: int = 3600,
 ) -> dict[str, Any]:
+    """Run a pipeline subprocess, streaming stdout/stderr into the log in real time."""
+    import select
+    import time as _time
+
     logf.write(f"\n{'=' * 50}\n[{datetime.now():%F %T}] {label}\n")
     logf.write(" ".join(argv) + "\n")
     logf.flush()
+
+    run_env = dict(env)
+    run_env["PYTHONUNBUFFERED"] = "1"
+    run_env.setdefault("PYTHONIOENCODING", "utf-8")
+
+    chunks: list[str] = []
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             argv,
             cwd=str(repo),
-            env=env,
-            capture_output=True,
+            env=run_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=timeout,
+            bufsize=1,
         )
-    except subprocess.TimeoutExpired as e:
-        logf.write(f"TIMEOUT after {timeout}s\n")
-        if e.stdout:
-            logf.write(e.stdout)
-        if e.stderr:
-            logf.write(e.stderr)
-        return {"ok": False, "label": label, "error": "timeout", "exit_code": -1}
+    except OSError as e:
+        logf.write(f"spawn failed: {e}\n")
+        logf.flush()
+        return {"ok": False, "label": label, "error": str(e), "exit_code": -1}
 
-    if proc.stdout:
-        logf.write(proc.stdout)
-    if proc.stderr:
-        logf.write(proc.stderr)
+    assert proc.stdout is not None
+    deadline = _time.monotonic() + max(1, timeout)
+    timed_out = False
+    try:
+        while True:
+            remaining = deadline - _time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                proc.kill()
+                break
+            ready, _, _ = select.select([proc.stdout], [], [], min(1.0, remaining))
+            if ready:
+                line = proc.stdout.readline()
+                if line:
+                    chunks.append(line)
+                    logf.write(line)
+                    logf.flush()
+                    continue
+            if proc.poll() is not None:
+                # Drain any remaining buffered lines.
+                for line in proc.stdout:
+                    chunks.append(line)
+                    logf.write(line)
+                break
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+    except Exception as e:
+        proc.kill()
+        logf.write(f"step runner error: {e}\n")
+        logf.flush()
+        return {"ok": False, "label": label, "error": str(e), "exit_code": -1}
+
+    if timed_out:
+        logf.write(f"TIMEOUT after {timeout}s\n")
+        logf.flush()
+        combined_out = "".join(chunks)
+        return {
+            "ok": False,
+            "label": label,
+            "error": "timeout",
+            "exit_code": -1,
+            "output": combined_out[-8000:],
+        }
+
+    combined_out = "".join(chunks)
     logf.flush()
-    combined_out = (proc.stdout or "") + (proc.stderr or "")
     ok = proc.returncode == 0 and not _step_output_indicates_failure(combined_out)
     err_tail = ""
     if not ok:
@@ -219,37 +377,51 @@ def execute_pipeline(
 
     with open(log_path, "a", encoding="utf-8") as logf:
         logf.write(f"\n\n{'#' * 60}\n# {site_id} pipeline {datetime.now():%F %T}\n")
-        if site_id == "krcampus":
-            logf.write(
-                "run limits: "
-                f"guides={env.get('GUIDE_LIMIT', '?')} "
-                f"schools={env.get('SCHOOL_LIMIT', '?')} "
-                f"universities={env.get('UNIVERSITY_LIMIT', '?')}\n"
-            )
+        logf.write(
+            "run limits: "
+            f"content={env.get('CONTENT_LIMIT', '?')} "
+            f"guides={env.get('GUIDE_LIMIT', '?')} "
+            f"schools={env.get('SCHOOL_LIMIT', '-')} "
+            f"universities={env.get('UNIVERSITY_LIMIT', '-')} "
+            f"python={env.get('PYTHON_LIMIT', '-')} "
+            f"cloud={env.get('CLOUD_LIMIT', '-')} "
+            f"terraform={env.get('TERRAFORM_LIMIT', '-')} "
+            f"images={env.get('CONTENT_PIPELINE_WITH_IMAGES', '0')}\n"
+        )
+        soft_failures: list[str] = []
         if ensure_fn:
+            logf.write(f"[ensure] start\n")
+            logf.flush()
             seed_info = call_ensure_csv(ensure_fn, repo, logf, env)
             steps_out.append({"step": "ensure_csv", "ok": True, **seed_info})
+            logf.write(f"[ensure] ok\n")
+            logf.flush()
             from topic_queue_env import queue_env_for_site
 
             env.update(queue_env_for_site(site_id, sync=False))
 
         for step_id, label, argv, timeout in extra_steps:
+            logf.write(f"[{step_id}] start · {label}\n")
+            logf.flush()
             r = _run_step(repo, logf, label=label, argv=argv, env=env, timeout=timeout)
             steps_out.append({"step": step_id, **r})
+            logf.write(f"[{step_id}] {'ok' if r.get('ok') else 'FAIL'}\n")
+            logf.flush()
             if not r["ok"]:
                 return fail_pipeline(site_id, steps_out, r, log_path)
 
         for step_id, label, argv, timeout in steps:
+            logf.write(f"[{step_id}] start · {label}\n")
+            logf.flush()
             r = _run_step(repo, logf, label=label, argv=argv, env=env, timeout=timeout)
             steps_out.append({"step": step_id, **r})
-            if r.get("ok"):
-                try:
-                    from ai_spend import record_pipeline_step
-
-                    record_pipeline_step(site_id, step_id, env, r.get("output") or "")
-                except Exception:
-                    pass
+            logf.write(f"[{step_id}] {'ok' if r.get('ok') else 'FAIL'}\n")
+            logf.flush()
             if not r["ok"]:
+                if step_id in _SOFT_CONTINUE_STEPS:
+                    soft_failures.append(label)
+                    logf.write(f"⚠ continuing after content step failure: {label}\n")
+                    continue
                 return fail_pipeline(site_id, steps_out, r, log_path)
 
         for step_id, label, argv, timeout in optional_steps:
@@ -277,6 +449,9 @@ def execute_pipeline(
         logf.write(f"\n[{datetime.now():%F %T}] Pipeline OK\n")
 
         warn = _content_generation_warning(steps_out)
+        if soft_failures:
+            soft_msg = "일부 생성 단계 실패(이후 단계 계속): " + ", ".join(soft_failures)
+            warn = f"{warn}; {soft_msg}" if warn else soft_msg
         if warn:
             logf.write(f"⚠ content: {warn}\n")
 
@@ -290,6 +465,8 @@ def execute_pipeline(
     if warn:
         payload["content_warning"] = warn
         payload["message"] = f"{site_id} 완료 — {warn}"
+    if soft_failures:
+        payload["soft_failures"] = soft_failures
     return _stamp_pipeline_result(payload)
 
 
@@ -457,10 +634,66 @@ def gcs_image_sync(repo: Path, logf, site_id: str) -> dict[str, Any]:
     }
 
 
-def pipeline_post_steps(site_id: str) -> list[tuple[str, Callable[[Path, Any], dict[str, Any]]]]:
+_IMAGE_STEP_IDS = frozenset(
+    {
+        "images",
+        "images_places",
+        "images_opt",
+        "img_names",
+        "nearby",
+        "stay_images",
+    }
+)
+
+
+def pipeline_images_enabled(env: dict[str, str] | None) -> bool:
+    raw = str((env or {}).get("CONTENT_PIPELINE_WITH_IMAGES", "0")).strip().lower()
+    return raw in ("1", "true", "yes")
+
+
+def filter_pipeline_steps(
+    steps: list[Step],
+    env: dict[str, str] | None,
+) -> list[Step]:
+    """Drop or keep image steps based on CONTENT_PIPELINE_WITH_IMAGES / IMAGES_ONLY."""
+    images_only = str((env or {}).get("CONTENT_PIPELINE_IMAGES_ONLY", "0")).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if images_only:
+        only = [s for s in steps if s[0] in _IMAGE_STEP_IDS]
+        return only
+    if pipeline_images_enabled(env):
+        return steps
+    return [s for s in steps if s[0] not in _IMAGE_STEP_IDS]
+
+
+def pipeline_post_steps(
+    site_id: str,
+    env: dict[str, str] | None = None,
+) -> list[tuple[str, Callable[[Path, Any], dict[str, Any]]]]:
+    """Post content: sync generated images, then fill any GCS gaps with defaults."""
+    out: list[tuple[str, Callable[[Path, Any], dict[str, Any]]]] = []
+    if pipeline_images_enabled(env) and site_id in SITE_GCS_BUCKETS:
+        out.append(
+            ("gcs_images", lambda repo, logf, sid=site_id: gcs_image_sync(repo, logf, sid))
+        )
+
     if site_id in SITE_GCS_BUCKETS:
-        return [("gcs_images", lambda repo, logf, sid=site_id: gcs_image_sync(repo, logf, sid))]
-    return []
+        from image_site_content import upload_default_gcs_placeholders
+        from image_site_meta import SITE_IMAGE_META
+        from config import image_site_key
+
+        if image_site_key(site_id) in SITE_IMAGE_META:
+            # Always run after image steps (or alone when images=0): covers failures / missing.
+            out.append(
+                (
+                    "default_gcs",
+                    lambda repo, logf, sid=site_id: upload_default_gcs_placeholders(sid, repo, logf),
+                )
+            )
+    return out
 
 
 def run_ok_site_pipeline(
@@ -476,10 +709,10 @@ def run_ok_site_pipeline(
         site_id,
         repo,
         ensure_fn=ensure_fn,
-        steps=steps,
+        steps=filter_pipeline_steps(steps, env),
         env=env,
-        extra_steps=extra_steps or [],
-        post_steps=pipeline_post_steps(site_id),
+        extra_steps=filter_pipeline_steps(extra_steps or [], env),
+        post_steps=pipeline_post_steps(site_id, env),
     )
 
 

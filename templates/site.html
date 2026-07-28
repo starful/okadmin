@@ -20,7 +20,61 @@
     .summary-lines li { padding: 2px 0; color: #ccc; }
     .summary-lines li.created-highlight { color: #8cf; font-weight: 700; }
     .log-label { font-family: 'DM Mono'; font-size: 10px; color: #666; margin: 12px 0 4px; }
-    .log-full pre { margin: 4px 0 0; padding: 10px; background: #000; border: 1px solid var(--border); border-radius: 8px; font-size: 10px; color: #8a8; white-space: pre-wrap; min-height: 96px; }
+    .log-full pre {
+        margin: 4px 0 0; padding: 10px; background: #000; border: 1px solid var(--border); border-radius: 8px;
+        font-size: 10px; color: #8a8; white-space: pre-wrap; min-height: 96px; max-height: 320px; overflow: auto;
+    }
+    .git-diff-pre {
+        margin: 8px 0 0; padding: 10px; background: #000; border: 1px solid var(--border); border-radius: 8px;
+        font-size: 10px; color: #8a8; white-space: pre-wrap; max-height: 360px; overflow: auto;
+        font-family: ui-monospace, Menlo, monospace;
+    }
+    .git-msg-input { width: min(420px, 100%); margin-right: 8px; }
+    .ship-review-overlay {
+        display: none; position: fixed; inset: 0; z-index: 1200;
+        background: rgba(0,0,0,.72); align-items: center; justify-content: center; padding: 16px;
+    }
+    .ship-review-overlay.open { display: flex !important; }
+    .ship-review-modal {
+        width: min(920px, 100%); max-height: min(90vh, 900px); display: flex; flex-direction: column;
+        background: #111; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+    }
+    .ship-review-head { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .ship-review-head h3 { margin: 0 0 6px; font-size: 15px; }
+    .ship-review-meta { margin: 0; font-size: 11px; color: #888; }
+    .ship-review-body { flex: 1; overflow: auto; padding: 12px 16px; }
+    .ship-review-checks { margin: 0 0 10px; padding: 10px 12px; list-style: none; font-size: 13px; background: #0a0a0a; border: 1px solid var(--border); border-radius: 8px; }
+    .ship-review-checks .ship-review-checks-title { margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #eee; }
+    .ship-review-checks .ship-review-checks-hint { margin: 0 0 8px; font-size: 11px; color: #888; }
+    .ship-review-checks li { padding: 6px 0; color: #eee; }
+    .ship-review-checks label { cursor: pointer; display: flex; gap: 10px; align-items: flex-start; color: #eee; font-size: 13px; line-height: 1.45; margin: 0; }
+    .ship-review-checks input[type="checkbox"] { width: 16px; height: 16px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--accent); }
+    .ship-review-checks .chk-text { color: #eee; }
+    .ship-review-checks .chk-sub { display: block; font-size: 11px; color: #888; margin-top: 2px; }
+    .ship-review-blockers { margin: 0 0 10px; padding: 8px 10px; background: #2a1a1a; border-radius: 8px; font-size: 11px; color: #f88; }
+    .ship-review-foot {
+        padding: 12px 16px; border-top: 1px solid var(--border);
+        display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end;
+    }
+    .ship-progress { margin: 10px 0 0; padding: 10px 12px; background: #0a0a0a; border: 1px solid var(--border); border-radius: 8px; }
+    .ship-progress[hidden] { display: none !important; }
+    .ship-progress-title { margin: 0 0 8px; font-size: 11px; font-weight: 700; color: #aaa; }
+    .ship-progress-steps { list-style: none; margin: 0; padding: 0; }
+    .ship-progress-steps li { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; font-size: 12px; color: #ccc; }
+    .ship-progress-steps .ship-step-icon { width: 14px; flex-shrink: 0; font-family: ui-monospace, monospace; font-size: 11px; }
+    .ship-progress-steps .ship-step-label { font-weight: 600; min-width: 72px; color: #ddd; }
+    .ship-progress-steps .ship-step-msg { color: #888; flex: 1; }
+    .ship-progress-steps li.running .ship-step-icon { color: #fa0; }
+    .ship-progress-steps li.ok .ship-step-icon { color: #8c8; }
+    .ship-progress-steps li.skip .ship-step-icon { color: #666; }
+    .ship-progress-steps li.err .ship-step-icon { color: #f88; }
+    .ship-progress-steps li.pending .ship-step-icon { color: #444; }
+    .ship-manual-wrap { margin-top: 8px; }
+    .ship-manual-wrap[hidden] { display: none !important; }
+    .ship-manual-toggle { font-size: 11px; color: #666; background: none; border: none; padding: 4px 0; cursor: pointer; text-decoration: underline; }
+    .ship-manual-toggle:hover { color: #aaa; }
+    .workflow-strip { flex-wrap: wrap; }
+    .workflow-strip .wf-step { min-width: 88px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -46,26 +100,38 @@
 <div class="warn">WORK_ROOT 없음 — 생성·Git 비활성</div>
 {% endif %}
 
+<div id="claude-hub-banner" class="hub-claude-banner" hidden></div>
+
 <div class="workflow-strip" id="workflow-strip">
     <button type="button" class="wf-step" data-section="content" id="wf-content">
         <div class="wf-num">① 콘텐츠</div>
         <div class="wf-label" id="wf-content-label">—</div>
         <div class="wf-meta" id="wf-content-meta">대기</div>
     </button>
-    <button type="button" class="wf-step" data-section="deploy" id="wf-deploy">
-        <div class="wf-num">② 배포</div>
-        <div class="wf-label" id="wf-deploy-label">—</div>
-        <div class="wf-meta" id="wf-deploy-meta">Git</div>
-    </button>
-    <button type="button" class="wf-step" data-section="metrics" id="wf-metrics">
-        <div class="wf-num">③ 지표</div>
-        <div class="wf-label">GA4 · GSC</div>
-        <div class="wf-meta" id="wf-metrics-meta">불러오기</div>
-    </button>
     <button type="button" class="wf-step" data-section="seo" id="wf-seo">
-        <div class="wf-num">④ SEO</div>
+        <div class="wf-num">② SEO</div>
         <div class="wf-label" id="wf-seo-label">—</div>
         <div class="wf-meta" id="wf-seo-meta">URL 작업</div>
+    </button>
+    <button type="button" class="wf-step" data-section="git" id="wf-git">
+        <div class="wf-num">③ Git</div>
+        <div class="wf-label" id="wf-git-label">—</div>
+        <div class="wf-meta" id="wf-git-meta">status · diff</div>
+    </button>
+    <button type="button" class="wf-step" data-section="deploy" id="wf-deploy">
+        <div class="wf-num">④ 배포</div>
+        <div class="wf-label" id="wf-deploy-label">—</div>
+        <div class="wf-meta" id="wf-deploy-meta">Cloud Build</div>
+    </button>
+    <button type="button" class="wf-step" data-section="metrics" id="wf-metrics">
+        <div class="wf-num">⑤ 지표</div>
+        <div class="wf-label">GA4 · GSC</div>
+        <div class="wf-meta" id="wf-metrics-meta">차트</div>
+    </button>
+    <button type="button" class="wf-step" data-section="images" id="wf-images">
+        <div class="wf-num">⑥ GCS</div>
+        <div class="wf-label" id="wf-images-label">이미지</div>
+        <div class="wf-meta" id="wf-images-meta">목록 · 교체</div>
     </button>
 </div>
 </div>
@@ -82,10 +148,9 @@
         </div>
         <div class="phase-track" id="phase-track">
             <div class="phase-step idle" id="phase-generate">① 생성·빌드</div>
-            <div class="phase-step idle" id="phase-deploy">② 배포</div>
         </div>
         <ul class="summary-lines" id="summary-lines">
-            <li style="color:#666">「콘텐츠 생성」 실행 시 여기에 표시됩니다.</li>
+            <li style="color:#666">「콘텐츠 생성」= MD·이미지·빌드 · 이미지 실패 시 디폴트 · Git / 배포는 각 탭</li>
         </ul>
         <div class="log-full" id="log-full">
             <p class="log-label" id="log-label">상세 로그</p>
@@ -94,14 +159,48 @@
     </div>
 </div>
 
+<div class="hub-panel" id="panel-seo" role="tabpanel">
+    <iframe id="iframe-seo" class="hub-embed-frame" title="SEO" scrolling="no"
+        data-src="{{ url_for('pages.gsc_page', site=site_id, embed='1') }}"
+        src="about:blank"></iframe>
+</div>
+
+<div class="hub-panel" id="panel-git" role="tabpanel">
+    <div class="card hub-load-bar hub-action-bar" id="git-action-bar">
+        <div class="work-git-row" id="git-status-row">로딩…</div>
+    </div>
+    <div class="card" id="github-ship-card" style="margin-bottom:12px">
+        <h2 style="margin:0 0 8px;font-size:14px">Ship · GitHub</h2>
+        <p class="deploy-meta" id="github-ship-meta">로딩…</p>
+        <div class="hub-git-actions" id="github-ship-actions" style="margin:8px 0"></div>
+        <div id="github-ship-progress" class="ship-progress" hidden>
+            <p class="ship-progress-title">Ship progress</p>
+            <ul class="ship-progress-steps" id="github-ship-progress-steps"></ul>
+        </div>
+        <button type="button" class="ship-manual-toggle" id="gh-btn-manual-toggle" aria-expanded="false">Manual steps ▸</button>
+        <div class="hub-git-actions ship-manual-wrap" id="github-ship-manual" hidden></div>
+        <p class="deploy-meta" id="github-pr-line" style="color:#aaa">—</p>
+    </div>
+    <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px">
+            <button type="button" class="btn btn-ghost" id="git-btn-refresh">새로고침</button>
+        </div>
+        <p class="deploy-meta" id="git-push-hint" style="color:#888;margin:0 0 8px">Ship prep = Issue→PR 한 번에 (Claude 1회) · Review &amp; merge로 머지</p>
+        <p class="deploy-meta" id="git-files-meta">—</p>
+        <pre class="git-diff-pre" id="git-diff-stat">—</pre>
+        <pre class="git-diff-pre" id="git-diff-body" style="max-height:420px">—</pre>
+    </div>
+</div>
+
 <div class="hub-panel" id="panel-deploy" role="tabpanel">
     <div class="card hub-load-bar hub-action-bar" id="deploy-action-bar">
-        <div class="work-git-row" id="deploy-git">로딩…</div>
+        <div class="work-git-row" id="deploy-status-row">로딩…</div>
         <div class="hub-git-actions" id="deploy-actions"></div>
     </div>
     <div class="card">
         <h2 style="margin:0 0 8px;font-size:14px">배포 기록</h2>
         <p class="deploy-meta" id="deploy-recent-meta">—</p>
+        <p class="deploy-meta" style="margin-top:4px;color:#666">항목 클릭 → 전체 로그</p>
         <ul class="deploy-log-list" id="deploy-log-list">
             <li style="color:#666">기록 없음</li>
         </ul>
@@ -110,24 +209,68 @@
 
 <div class="hub-panel" id="panel-metrics" role="tabpanel">
     <iframe id="iframe-metrics" class="hub-embed-frame" title="지표" scrolling="no"
-        src="{{ url_for('pages.analytics_page', site=site_id, days=current_days, embed='1') }}"></iframe>
+        data-src="{{ url_for('pages.analytics_page', site=site_id, days=current_days, embed='1') }}"
+        src="about:blank"></iframe>
 </div>
 
-<div class="hub-panel" id="panel-seo" role="tabpanel">
-    <iframe id="iframe-seo" class="hub-embed-frame" title="SEO" scrolling="no"
-        src="{{ url_for('pages.gsc_page', site=site_id, embed='1') }}"></iframe>
+<div class="hub-panel" id="panel-images" role="tabpanel">
+    <iframe id="iframe-images" class="hub-embed-frame" title="GCS 이미지" scrolling="no"
+        data-src="{{ url_for('pages.images_page', site=site_id, embed='1') }}"
+        src="about:blank"></iframe>
+</div>
+
+<div id="ship-review-overlay" class="ship-review-overlay" role="dialog" aria-modal="true" aria-labelledby="ship-review-title">
+    <div class="ship-review-modal">
+        <div class="ship-review-head">
+            <h3 id="ship-review-title">Review & merge</h3>
+            <p class="ship-review-meta" id="ship-review-meta">—</p>
+        </div>
+        <div class="ship-review-body">
+            <div id="ship-review-blockers" class="ship-review-blockers" hidden></div>
+            <ul class="ship-review-checks" id="ship-review-checklist">
+                <li class="ship-review-checks-title">Self-review</li>
+                <li class="ship-review-checks-hint">3개 모두 체크하면 Approve &amp; Squash merge 활성화</li>
+                <li>
+                    <label>
+                        <input type="checkbox" id="ship-review-chk-tests">
+                        <span class="chk-text">테스트 통과 또는 수동 확인 완료<span class="chk-sub">Tests pass or manually verified</span></span>
+                    </label>
+                </li>
+                <li>
+                    <label>
+                        <input type="checkbox" id="ship-review-chk-secrets">
+                        <span class="chk-text">secrets / <code>.env</code> 없음<span class="chk-sub">No secrets in diff</span></span>
+                    </label>
+                </li>
+                <li>
+                    <label>
+                        <input type="checkbox" id="ship-review-chk-read">
+                        <span class="chk-text">아래 diff 전체 확인<span class="chk-sub">I read the full diff below</span></span>
+                    </label>
+                </li>
+            </ul>
+            <pre class="git-diff-pre" id="ship-review-stat">—</pre>
+            <pre class="git-diff-pre" id="ship-review-diff" style="max-height:50vh">—</pre>
+        </div>
+        <div class="ship-review-foot">
+            <a href="#" id="ship-review-github-link" class="btn btn-ghost btn-sm" target="_blank" rel="noopener" hidden>GitHub PR</a>
+            <button type="button" class="btn btn-ghost btn-sm" id="ship-review-close">Cancel</button>
+            <button type="button" class="btn btn-sm" id="ship-review-merge" disabled>Approve &amp; Squash merge</button>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='claude_monitor.js') }}"></script>
 <script src="{{ url_for('static', filename='pipeline.js') }}"></script>
 <script src="{{ url_for('static', filename='site_hub.js') }}"></script>
 <script>
 (function() {
     const SITE_ID = {{ site_id | tojson }};
-    const INITIAL_SECTION = {{ current_section | tojson }};
-    const SITE_COLOR = {{ site_color | tojson }};
-    initSiteHub(SITE_ID, INITIAL_SECTION, SITE_COLOR);
+    const SECTION = {{ current_section | tojson }};
+    const COLOR = {{ site_color | tojson }};
+    initSiteHub(SITE_ID, SECTION, COLOR);
 })();
 </script>
 {% endblock %}

@@ -4,8 +4,9 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 
 from analytics_api import load_analytics_overview, site_analytics_config
+from analytics_cache import normalize_days
 from auth import requires_auth
-from config import list_services
+from config import list_hub_services
 
 analytics_bp = Blueprint("analytics", __name__, url_prefix="/api/analytics")
 
@@ -14,7 +15,7 @@ analytics_bp = Blueprint("analytics", __name__, url_prefix="/api/analytics")
 @requires_auth
 def analytics_sites():
     items = []
-    for svc in list_services():
+    for svc in list_hub_services():
         sid = svc["id"]
         if sid == "okadmin":
             continue
@@ -40,6 +41,9 @@ def analytics_overview():
         days = int(request.args.get("days") or "28")
     except ValueError:
         days = 28
-    days = max(7, min(days, 90))
-    return jsonify(load_analytics_overview(site_id, days=days))
-
+    days = normalize_days(days)
+    refresh = (request.args.get("refresh") or "").strip().lower() in ("1", "true", "yes")
+    phase = (request.args.get("phase") or "all").strip().lower()
+    return jsonify(
+        load_analytics_overview(site_id, days=days, refresh=refresh, phase=phase)
+    )

@@ -8,7 +8,6 @@ from flask import Blueprint, jsonify, request
 
 from auth import requires_auth
 from config import CONTENT_JOBS, get_service, repo_path, work_root_available
-from git_ops import deploy_job_status
 from content_csv import list_csv_files, load_csv, save_csv
 from content_pipeline import (
     CONTENT_PIPELINES,
@@ -20,7 +19,6 @@ from content_pipeline import (
     read_pipeline_status,
     run_csv_expand,
     run_pipeline,
-    run_post_pipeline_deploy,
     run_trends_seed,
     summarize_pipeline_status,
     tail_pipeline_log,
@@ -34,8 +32,11 @@ content_bp = Blueprint("content", __name__, url_prefix="/api/content")
 
 _running: dict[str, subprocess.Popen] = {}
 _pipeline_running: dict[str, bool] = {}
-_pipeline_phase: dict[str, str] = {}  # generate | deploy
-_pipeline_deploy_job: dict[str, str] = {}  # site_id -> deploy job_id
+_pipeline_phase: dict[str, str] = {}  # generate
+
+
+def is_content_pipeline_running(site_id: str) -> bool:
+    return bool(_pipeline_running.get(site_id))
 
 
 def _pipeline_calendar_notes(result: dict) -> str:
@@ -123,6 +124,15 @@ def ai_spend_summary():
     return jsonify(spend_summary())
 
 
+@content_bp.route("/claude-usage")
+@requires_auth
+def claude_usage_summary():
+    from claude_usage import usage_summary
+
+    force = (request.args.get("force") or "").strip().lower() in ("1", "true", "yes")
+    return jsonify(usage_summary(force=force))
+
+
 @content_bp.route("/pipeline/backlog/refresh", methods=["POST"])
 @requires_auth
 def pipeline_backlog_refresh():
@@ -149,10 +159,16 @@ def pipeline_csv_expand():
         return jsonify({"error": "unknown pipeline"}), 400
     if _pipeline_running.get(site_id):
         return jsonify({"error": "pipeline already running"}), 409
-    insight_count = data.get("insight_count")
-    guide_count = data.get("guide_count")
-    school_count = data.get("school_count")
-    university_count = data.get("university_count")
+    from claude_usage import usage_summary
+
+    claude = usage_summary()
+    if not claude.get("pipeline_ok", True):
+        msg = (claude.get("headline") or "").strip() or "Claude 사용량 한도 — 리셋 후 콘텐츠 생성"
+        return jsonify({"error": msg, "claude_usage": claude}), 429
+    insight_count = _optional_nonneg_int(data, "insight_count")
+    guide_count = _optional_nonneg_int(data, "guide_count")
+    school_count = _optional_nonneg_int(data, "school_count")
+    university_count = _optional_nonneg_int(data, "university_count")
     expand = run_csv_expand(
         site_id,
         insight_count=insight_count,
@@ -170,7 +186,7 @@ def pipeline_csv_expand():
 @content_bp.route("/pipeline/trends-seed", methods=["POST"])
 @requires_auth
 def pipeline_trends_seed():
-    """Append topic-bank rows from Google Trends rising queries (Hatena excluded)."""
+    """Append topic-bank rows from Google Trends rising queries."""
     if not work_root_available():
         return jsonify({"error": "WORK_ROOT not available"}), 503
     data = request.get_json(silent=True) or {}
@@ -178,7 +194,7 @@ def pipeline_trends_seed():
     if site_id not in CONTENT_PIPELINES:
         return jsonify({"error": "unknown pipeline"}), 400
     if site_id not in TRENDS_SEED_SITES:
-        return jsonify({"error": "Trends 시드 미지원 (hatena 제외)"}), 400
+        return jsonify({"error": "Trends 시드 미지원"}), 400
     limit = data.get("limit")
     try:
         limit_n = int(limit) if limit is not None else None
@@ -212,6 +228,19 @@ def pipeline_run():
         return jsonify({"error": "unknown pipeline"}), 400
     if _pipeline_running.get(site_id):
         return jsonify({"error": "already running"}), 409
+    try:
+        from git_ops import site_has_running_deploy
+    except Exception:
+        site_has_running_deploy = None  # type: ignore[assignment]
+    if site_has_running_deploy and site_has_running_deploy(site_id):
+        return jsonify({"error": "배포가 진행 중입니다. 끝난 뒤 콘텐츠를 생성하세요"}), 409
+
+    from claude_usage import usage_summary
+
+    claude = usage_summary()
+    if not claude.get("pipeline_ok", True):
+        msg = (claude.get("headline") or "").strip() or "Claude 사용량 한도 — 리셋 후 콘텐츠 생성"
+        return jsonify({"error": msg, "claude_usage": claude}), 429
 
     import threading
 
@@ -231,18 +260,6 @@ def pipeline_run():
                 school_count=school_count,
                 university_count=university_count,
             )
-            if result.get("ok"):
-                _pipeline_phase[site_id] = "deploy"
-
-                def _on_deploy_started(job_id: str, _info: dict) -> None:
-                    _pipeline_deploy_job[site_id] = job_id
-
-                deploy = run_post_pipeline_deploy(site_id, on_job_started=_on_deploy_started)
-                result["deploy"] = deploy
-                deploy_ok = deploy.get("skipped") or deploy.get("state") == "success"
-                if not deploy_ok:
-                    result["ok"] = False
-                    result["error"] = deploy.get("error") or deploy.get("message") or "deploy failed"
             result["calendar_event"] = _record_pipeline_calendar(site_id, result)
             write_pipeline_status(site_id, result)
             try:
@@ -256,7 +273,6 @@ def pipeline_run():
         finally:
             _pipeline_running[site_id] = False
             _pipeline_phase.pop(site_id, None)
-            _pipeline_deploy_job.pop(site_id, None)
 
     threading.Thread(target=worker, daemon=True).start()
     return jsonify(
@@ -265,7 +281,7 @@ def pipeline_run():
             "started": True,
             "site_id": site_id,
             "log_path": str(pipeline_log_path(site_id)),
-            "message": "파이프라인 시작 (로그에서 진행 상황 확인)",
+            "message": "콘텐츠 생성 시작 (이미지 포함 · 실패 시 디폴트 · git·배포는 각 탭)",
         }
     )
 
@@ -331,39 +347,17 @@ def pipeline_result():
     status = read_pipeline_status(site_id) or {}
     text = tail_pipeline_log(site_id)
     running = _pipeline_running.get(site_id, False)
-    phase = _pipeline_phase.get(site_id, "generate") if running else None
-    deploy_live: dict = {}
-    job_id = _pipeline_deploy_job.get(site_id, "")
-    if running and phase == "deploy" and job_id:
-        deploy_live = deploy_job_status(job_id, site_id=site_id)
+    phase = _pipeline_phase.get(site_id) if running else None
 
     if running:
-        if phase == "deploy":
-            deploy_msg = deploy_live.get("message") or "git push · Cloud Build"
-            deploy_state = deploy_live.get("state") or "running"
-            lines = [
-                "② 배포 단계 (deploy.sh)",
-                f"   상태: {deploy_msg}",
-                f"   PID: {deploy_live.get('pid') or '—'}",
-            ]
-            if deploy_live.get("log_path"):
-                lines.append(f"   로그: {deploy_live['log_path']}")
-            title = "배포 중" if deploy_state == "running" else "실행 중"
-            log_snippet = (deploy_live.get("log_tail") or "").strip() or _log_snippet(
-                text[-12000:] if text else ""
-            )
-        else:
-            title = "생성 중"
-            lines = [
-                "① 콘텐츠 생성 · build_data",
-                "   (완료 후 ② 배포가 자동으로 시작됩니다)",
-            ]
-            log_snippet = _log_snippet(text[-12000:] if text else "")
         summary = {
-            "title": title,
+            "title": "생성 중",
             "ok": None,
-            "lines": lines,
-            "log_snippet": log_snippet,
+            "lines": [
+                "ensure → generate → images → build",
+                "   이미지 실패 시 디폴트 · git·배포는 각 탭",
+            ],
+            "log_snippet": _log_snippet(text[-12000:] if text else ""),
         }
     else:
         summary = summarize_pipeline_status(status, text)
@@ -373,15 +367,12 @@ def pipeline_result():
         {
             "running": running,
             "phase": phase,
-            "deploy": deploy_live if deploy_live else status.get("deploy"),
-            "deploy_job_id": job_id or None,
             "ok": status.get("ok") if not running else None,
             "error": status.get("error") or status.get("failed_step"),
             "steps": status.get("steps"),
             "message": status.get("message"),
             "summary": summary,
             "log_tail": text[-6000:] if text else "",
-            "deploy_log_tail": (deploy_live.get("log_tail") or "") if deploy_live else "",
             "last_run_at": last_meta.get("last_run_at"),
             "last_run_display": last_meta.get("last_run_display"),
             "last_run_ok": last_meta.get("last_run_ok"),
@@ -505,3 +496,94 @@ def csv_data_save():
     if result.get("error"):
         return jsonify(result), 400
     return jsonify(result)
+
+
+@content_bp.route("/stays/summary")
+@requires_auth
+def stays_summary():
+    """JP Campus stay catalog counts by region."""
+    if not work_root_available():
+        return jsonify({"error": "WORK_ROOT not available"}), 503
+    try:
+        from stay_publish import catalog_summary
+
+        return jsonify(catalog_summary())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@content_bp.route("/stays/catalog")
+@requires_auth
+def stays_catalog():
+    """List unpublished (default) stay catalog rows for selective publish."""
+    if not work_root_available():
+        return jsonify({"error": "WORK_ROOT not available"}), 503
+    region = (request.args.get("region") or "").strip() or None
+    q = (request.args.get("q") or "").strip() or None
+    unpublished_only = request.args.get("unpublished_only", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+    }
+    try:
+        limit = min(200, max(1, int(request.args.get("limit") or 80)))
+    except ValueError:
+        limit = 80
+    try:
+        from stay_publish import list_catalog
+
+        return jsonify(
+            list_catalog(
+                region=region,
+                unpublished_only=unpublished_only,
+                limit=limit,
+                q=q,
+            )
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@content_bp.route("/stays/publish", methods=["POST"])
+@requires_auth
+def stays_publish():
+    """Publish selected stay ids (or regional sample) into jpcampus content."""
+    if not work_root_available():
+        return jsonify({"error": "WORK_ROOT not available"}), 503
+    if _pipeline_running.get("jpcampus"):
+        return jsonify({"error": "jpcampus pipeline already running"}), 409
+
+    data = request.get_json(silent=True) or {}
+    build = data.get("build", True)
+    force = bool(data.get("force"))
+    ids = data.get("ids") or []
+    sample = bool(data.get("sample"))
+
+    try:
+        from stay_publish import publish_ids, publish_sample
+
+        if sample:
+            per_region = int(data.get("per_region") or 8)
+            result = publish_sample(per_region=per_region, build=bool(build))
+        else:
+            if not isinstance(ids, list):
+                return jsonify({"error": "ids must be a list"}), 400
+            result = publish_ids(ids, build=bool(build), force=force)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    status = 200 if result.get("ok") else 400
+    if result.get("ok"):
+        try:
+            refresh_backlog_snapshot("jpcampus")
+        except Exception:
+            pass
+        _record_pipeline_calendar(
+            "jpcampus",
+            {
+                "ok": True,
+                "steps": [{"label": "stay publish", "ok": True}],
+                "error": None,
+            },
+        )
+    return jsonify(result), status

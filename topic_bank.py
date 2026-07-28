@@ -284,7 +284,9 @@ def release_rows(
     state = dict(state or load_state(site_id))
     rows_state: dict[str, str] = dict(state.get("rows") or {})
     released: list[dict[str, str]] = []
-    for row in read_bank(site_id, spec.bank_id):
+    # Newest bank rows first (AI 「목록 추가」 appends at tail).
+    bank_rows = list(read_bank(site_id, spec.bank_id))
+    for row in reversed(bank_rows):
         if len(released) >= limit:
             break
         key = row_key(spec, row)
@@ -307,6 +309,7 @@ def release_site(
     content_limit_each: bool = False,
     school_limit: int | None = None,
     university_limit: int | None = None,
+    bank_caps: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Move pending bank rows to queued (cap per guide bank; content banks share or per-bank)."""
     state = load_state(site_id)
@@ -316,7 +319,9 @@ def release_site(
     school_left = school_limit if school_limit is not None else content_left
     university_left = university_limit if university_limit is not None else content_left
     for spec in banks_for_site(site_id):
-        if spec.limit_kind == "guide":
+        if bank_caps is not None and spec.bank_id in bank_caps:
+            cap = max(0, int(bank_caps[spec.bank_id]))
+        elif spec.limit_kind == "guide":
             cap = guide_left
         elif spec.bank_id == "language_schools" and school_limit is not None:
             cap = school_left
@@ -328,7 +333,9 @@ def release_site(
             cap = content_left
         rows, state = release_rows(site_id, spec, limit=cap, state=state)
         released_by_bank[spec.bank_id] = len(rows)
-        if spec.limit_kind == "guide":
+        if bank_caps is not None and spec.bank_id in bank_caps:
+            pass
+        elif spec.limit_kind == "guide":
             guide_left -= len(rows)
         elif spec.bank_id == "language_schools" and school_limit is not None:
             school_left -= len(rows)
@@ -372,7 +379,8 @@ def sync_queues(
             rows = _rows_for_queue(site_id, spec, state)
             cap = (bank_limits or {}).get(spec.bank_id)
             if cap is not None:
-                rows = rows[: max(0, cap)]
+                # Prefer newest queued rows when capping (AI appends at bank tail).
+                rows = rows[-max(0, cap) :] if cap > 0 else []
         dest = queue_path(site_id, spec.bank_id)
         _write_csv_rows(dest, spec.headers, rows)
         out["synced"][spec.bank_id] = len(rows)

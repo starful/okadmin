@@ -10,13 +10,15 @@ from pipeline_limits import (
     DEFAULT_GUIDE_LIMIT,
     DEFAULT_KRCAMPUS_SCHOOL_LIMIT,
     DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT,
-    bounded_limit,
+    MAX_CONTENT_LIMIT,
+    MAX_GUIDE_LIMIT,
     int_env_allow_zero,
 )
 from pipeline_runner import (
     PostStep,
     Step,
     execute_pipeline,
+    filter_pipeline_steps,
     pipeline_post_steps,
     run_ok_site_pipeline,
     starful_gcs_normalize,
@@ -24,7 +26,9 @@ from pipeline_runner import (
 
 
 def guide_cli_limit(env: dict[str, str], site_id: str) -> str:
-    topics = bounded_limit(env, "GUIDE_LIMIT", default=DEFAULT_GUIDE_LIMIT, ceiling=20)
+    """Topic count for guide CLIs. 0 means skip guides (must not fall back to default)."""
+    topics = int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT)
+    topics = min(topics, MAX_GUIDE_LIMIT)
     if site_id == "okonsen":
         return str(topics * 2)
     return str(topics)
@@ -41,9 +45,17 @@ def insight_generator_argv(env: dict[str, str]) -> list[str]:
 
 def guide_generator_argv(env: dict[str, str], site_id: str) -> list[str]:
     glimit = guide_cli_limit(env, site_id)
-    if site_id in ("okramen", "okstats"):
+    if site_id in ("okramen", "statfacts"):
         return ["python3", "script/guide_generator.py", "--batch-missing", glimit]
     return ["python3", "script/guide_generator.py", glimit]
+
+
+def content_limit_n(env: dict[str, str]) -> int:
+    return min(int_env_allow_zero(env, "CONTENT_LIMIT", DEFAULT_CONTENT_LIMIT), MAX_CONTENT_LIMIT)
+
+
+def guide_limit_n(env: dict[str, str]) -> int:
+    return min(int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT), MAX_GUIDE_LIMIT)
 
 
 def ok_series_content_steps(
@@ -54,11 +66,20 @@ def ok_series_content_steps(
     guide_first: bool = True,
     image_step: Step | None = None,
 ) -> list[Step]:
-    guide_step: Step = ("guides", "guide_generator", guide_generator_argv(env, site_id), 3600)
-    head: list[Step] = [guide_step, item_step] if guide_first else [item_step, guide_step]
+    head: list[Step] = []
+    if guide_limit_n(env) > 0:
+        head.append(("guides", "guide_generator", guide_generator_argv(env, site_id), 3600))
+    if content_limit_n(env) > 0:
+        item_head = [item_step]
+    else:
+        item_head = []
+    if guide_first:
+        ordered = head + item_head
+    else:
+        ordered = item_head + head
     if image_step is None:
         image_step = ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400)
-    return head + [
+    return ordered + [
         image_step,
         ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
         ("build", "build_data", ["python3", "script/build_data.py"], 600),
@@ -76,19 +97,25 @@ def pipeline_for_site(site_id: str, repo: Path, env: dict[str, str]) -> dict[str
     """Run the content pipeline for one site (steps from registry)."""
     optional: list[Step] = []
     steps: list[Step] = []
-    post_steps: list[PostStep] = list(pipeline_post_steps(site_id))
+    post_steps: list[PostStep] = list(pipeline_post_steps(site_id, env))
     ensure_fn: Callable | None = _ensure(site_id)
 
     if site_id == "okramen":
         limit = env["CONTENT_LIMIT"]
-        steps = [
-            ("items", "ramen_generator", ["python3", "script/ramen_generator.py", limit], 3600),
-            ("guides", "guide_generator", guide_generator_argv(env, site_id), 3600),
-            ("images_places", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
-            ("images", "generate_images", ["python3", "script/generate_images.py"], 2400),
-            ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
-            ("build", "build_data", ["python3", "script/build_data.py"], 600),
-        ]
+        if content_limit_n(env) > 0:
+            steps.append(
+                ("items", "ramen_generator", ["python3", "script/ramen_generator.py", limit], 3600)
+            )
+        if guide_limit_n(env) > 0:
+            steps.append(("guides", "guide_generator", guide_generator_argv(env, site_id), 3600))
+        steps.extend(
+            [
+                ("images_places", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
+                ("images", "generate_images", ["python3", "script/generate_images.py"], 2400),
+                ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
+                ("build", "build_data", ["python3", "script/build_data.py"], 600),
+            ]
+        )
         return run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure_fn, steps=steps)
 
     if site_id == "okonsen":
@@ -111,15 +138,37 @@ def pipeline_for_site(site_id: str, repo: Path, env: dict[str, str]) -> dict[str
         )
         return run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure_fn, steps=steps)
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
+        if content_limit_n(env) > 0:
+            steps.append(("items", "insight_generator", insight_generator_argv(env), 3600))
+        if guide_limit_n(env) > 0:
+            steps.append(("guides", "guide_generator", guide_generator_argv(env, site_id), 3600))
+        steps.extend(
+            [
+                ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
+                ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
+                ("build", "build_data", ["python3", "script/build_data.py"], 600),
+            ]
+        )
+        return run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure_fn, steps=steps)
+
+    if site_id == "krcare":
+        # TourAPI medical clinics → images → nearby Stay/Food cache → optimize → build
         steps = [
-            ("items", "insight_generator", insight_generator_argv(env), 3600),
-            ("guides", "guide_generator", guide_generator_argv(env, site_id), 3600),
+            ("items", "collect_medical_clinics", ["python3", "script/collect_medical_clinics.py", "--skip-detail"], 3600),
             ("images", "fetch_images", ["python3", "script/fetch_images.py"], 2400),
+            ("nearby", "fetch_nearby_pois", ["python3", "script/fetch_nearby_pois.py", "--replace", "--stay", "2", "--food", "2"], 1200),
             ("images_opt", "optimize_images", ["python3", "script/optimize_images.py"], 900),
             ("build", "build_data", ["python3", "script/build_data.py"], 600),
         ]
-        return run_ok_site_pipeline(site_id, repo, env, ensure_fn=ensure_fn, steps=steps)
+        return execute_pipeline(
+            site_id,
+            repo,
+            ensure_fn=None,
+            steps=filter_pipeline_steps(steps, env),
+            env=env,
+            post_steps=post_steps,
+        )
 
     if site_id == "starful.biz":
         steps = [
@@ -129,23 +178,53 @@ def pipeline_for_site(site_id: str, repo: Path, env: dict[str, str]) -> dict[str
             ("img_names", "normalize_image_names", ["python3", "scripts/normalize_image_names.py"], 300),
             ("build", "build_data", ["python3", "scripts/build_data.py"], 600),
         ]
-        post_steps = [("gcs_normalize", lambda repo, logf: starful_gcs_normalize(repo, logf))] + post_steps
+        if pipeline_post_steps(site_id, env):
+            post_steps = [("gcs_normalize", lambda repo, logf: starful_gcs_normalize(repo, logf))] + post_steps
         return execute_pipeline(
             site_id,
             repo,
             ensure_fn=ensure_fn,
-            steps=steps,
+            steps=filter_pipeline_steps(steps, env),
             env=env,
             post_steps=post_steps,
         )
 
-    if site_id == "hatena":
-        max_posts = env["HATENA_MAX_POSTS"]
-        steps = [
-            ("py", "unified_poster py", ["python3", "unified_poster.py", "py", "--max_posts", max_posts], 3600),
-            ("cloud", "unified_poster cloud", ["python3", "unified_poster.py", "cloud", "--max_posts", max_posts], 3600),
-        ]
-        return execute_pipeline(site_id, repo, ensure_fn=ensure_fn, steps=steps, env=env)
+    if site_id == "okpy":
+        py_n = int_env_allow_zero(env, "PYTHON_LIMIT", DEFAULT_CONTENT_LIMIT)
+        cloud_n = int_env_allow_zero(env, "CLOUD_LIMIT", DEFAULT_CONTENT_LIMIT)
+        tf_n = int_env_allow_zero(env, "TERRAFORM_LIMIT", DEFAULT_CONTENT_LIMIT)
+        # Fall back to CONTENT_LIMIT when specific limits unset via merge
+        if "PYTHON_LIMIT" not in env:
+            py_n = int_env_allow_zero(env, "CONTENT_LIMIT", DEFAULT_CONTENT_LIMIT)
+        if "CLOUD_LIMIT" not in env:
+            cloud_n = int_env_allow_zero(env, "CONTENT_LIMIT", DEFAULT_CONTENT_LIMIT)
+        if "TERRAFORM_LIMIT" not in env:
+            tf_n = int_env_allow_zero(env, "CONTENT_LIMIT", DEFAULT_CONTENT_LIMIT)
+        if py_n > 0:
+            steps.append(
+                ("python", "python posts", ["python3", "scripts/generate_posts.py", "python"], 3600)
+            )
+        if cloud_n > 0:
+            steps.append(
+                ("cloud", "cloud posts", ["python3", "scripts/generate_posts.py", "cloud"], 3600)
+            )
+        if tf_n > 0:
+            steps.append(
+                (
+                    "terraform",
+                    "terraform posts",
+                    ["python3", "scripts/generate_posts.py", "terraform"],
+                    3600,
+                )
+            )
+        return execute_pipeline(
+            site_id,
+            repo,
+            ensure_fn=ensure_fn,
+            steps=filter_pipeline_steps(steps, env),
+            env=env,
+            post_steps=post_steps,
+        )
 
     if site_id == "jpcampus":
         guide_n = int_env_allow_zero(env, "GUIDE_LIMIT", DEFAULT_GUIDE_LIMIT)
@@ -169,9 +248,10 @@ def pipeline_for_site(site_id: str, repo: Path, env: dict[str, str]) -> dict[str
             site_id,
             repo,
             ensure_fn=ensure_fn,
-            steps=steps,
+            steps=filter_pipeline_steps(steps, env),
             env=env,
             optional_steps=optional,
+            post_steps=post_steps,
         )
 
     if site_id == "krcampus":
@@ -210,7 +290,7 @@ def pipeline_for_site(site_id: str, repo: Path, env: dict[str, str]) -> dict[str
             site_id,
             repo,
             ensure_fn=ensure_fn,
-            steps=steps,
+            steps=filter_pipeline_steps(steps, env),
             env=env,
             optional_steps=optional,
             post_steps=post_steps,

@@ -28,6 +28,11 @@
             t.innerText = m; t.style.display = 'block';
             setTimeout(() => { t.style.display = 'none'; }, 3000);
         }
+        function showBusy(message, subMessage) {
+            /* minimal busy for embeds */
+            if (message) showToast(message);
+        }
+        function hideBusy() {}
         function escapeHtmlOps(s) {
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
         }
@@ -38,6 +43,20 @@
                 success: '#6a6', running: '#fa0', failed: '#f88', unknown: '#888',
             };
             const c = colors[state] || '#888';
+            const existingPre = el.querySelector('pre');
+            if (existingPre && logTail) {
+                const titleEl = el.firstElementChild;
+                if (titleEl) {
+                    titleEl.style.color = c;
+                    titleEl.textContent = title;
+                }
+                existingPre.textContent = logTail;
+                existingPre.scrollTop = existingPre.scrollHeight;
+                requestAnimationFrame(() => { existingPre.scrollTop = existingPre.scrollHeight; });
+                el.style.display = 'block';
+                if (typeof okadminEmbedResize === 'function') setTimeout(okadminEmbedResize, 80);
+                return;
+            }
             let html = `<div style="color:${c};font-weight:700;margin-bottom:4px">${escapeHtmlOps(title)}</div>`;
             if (detail) html += `<div style="color:#aaa;white-space:pre-wrap;word-break:break-word">${escapeHtmlOps(detail)}</div>`;
             if (logTail) {
@@ -45,6 +64,11 @@
             }
             el.style.display = 'block';
             el.innerHTML = html;
+            const pre = el.querySelector('pre');
+            if (pre) {
+                pre.scrollTop = pre.scrollHeight;
+                requestAnimationFrame(() => { pre.scrollTop = pre.scrollHeight; });
+            }
             if (typeof okadminEmbedResize === 'function') setTimeout(okadminEmbedResize, 80);
         }
 
@@ -84,14 +108,22 @@
             if (onDone) onDone(false, null);
         }
 
+        let _embedLastH = 0;
+        let _embedResizeTimer = null;
         function okadminEmbedResize() {
             if (window.parent === window) return;
-            const h = Math.max(
-                document.body.scrollHeight,
-                document.documentElement.scrollHeight,
-                document.body.offsetHeight
-            );
-            window.parent.postMessage({ type: 'okadmin-embed-resize', height: h }, '*');
+            if (_embedResizeTimer) clearTimeout(_embedResizeTimer);
+            _embedResizeTimer = setTimeout(() => {
+                const h = Math.max(
+                    document.body.scrollHeight,
+                    document.documentElement.scrollHeight,
+                    document.body.offsetHeight
+                );
+                // Avoid Chart.js ↔ iframe height feedback loops that freeze the Hub webview
+                if (Math.abs(h - _embedLastH) < 4) return;
+                _embedLastH = h;
+                window.parent.postMessage({ type: 'okadmin-embed-resize', height: h }, '*');
+            }, 120);
         }
         window.addEventListener('load', () => setTimeout(okadminEmbedResize, 80));
         if (typeof ResizeObserver !== 'undefined') {

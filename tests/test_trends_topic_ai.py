@@ -1,4 +1,4 @@
-"""Unit tests for Google Trends → topic bank seeding (Hatena excluded)."""
+"""Unit tests for Google Trends → topic bank seeding."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,11 +7,13 @@ from unittest.mock import MagicMock, patch
 import trends_topic_ai as tta
 
 
-def test_supports_trends_excludes_hatena():
+def test_supports_trends_includes_okpy_excludes_hatena():
     assert tta.supports_trends_seed("krcampus")
     assert tta.supports_trends_seed("okramen")
+    assert tta.supports_trends_seed("okpy")
     assert not tta.supports_trends_seed("hatena")
     assert "hatena" not in tta.TRENDS_SITES
+    assert "okpy" in tta.TRENDS_SITES
 
 
 def test_slugify_ascii_and_cjk():
@@ -98,4 +100,4 @@ def test_append_trends_topics_poi_with_mock_fetch():
 def test_run_trends_seed_rejects_hatena():
     info = tta.run_trends_seed("hatena")
     assert info["ok"] is False
-    assert "hatena" in info["error"].lower()
+    assert "okpy" in info["error"].lower() or "hatena" in info["error"].lower()

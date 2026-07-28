@@ -40,7 +40,7 @@ UNIV_HEADERS = ("name_ko", "name_en", "region")
 JP_UNIV_HEADERS = ("name_ja", "name_en", "region")
 
 SITE_BANKS: dict[str, tuple[BankSpec, ...]] = {
-    "okstats": (
+    "statfacts": (
         BankSpec("insights", INSIGHT_HEADERS, "id", "id", "script/csv/insights.csv"),
         BankSpec("guides", GUIDE_HEADERS, "id", "id", "script/csv/guides.csv", "guide"),
     ),
@@ -100,10 +100,10 @@ SITE_BANKS: dict[str, tuple[BankSpec, ...]] = {
             "data/universities.csv",
         ),
     ),
-    "hatena": (
-        BankSpec("python", ("lib_name",), "lib_name", "name", "csv/python.csv"),
-        BankSpec("cloud", ("Topic",), "Topic", "name", "csv/cloud.csv"),
-        BankSpec("positions", ("position_name",), "position_name", "name", "csv/positions.csv"),
+    "okpy": (
+        BankSpec("python", ("lib_name",), "lib_name", "name", "data/python.csv"),
+        BankSpec("cloud", ("Topic",), "Topic", "name", "data/cloud.csv"),
+        BankSpec("terraform", ("Topic",), "Topic", "name", "data/terraform.csv"),
     ),
 }
 

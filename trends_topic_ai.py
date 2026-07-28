@@ -1,4 +1,4 @@
-"""Google Trends → topic bank seed (Hatena excluded).
+"""Google Trends → topic bank seed.
 
 Uses rising related queries for site seed keywords, then appends guide/position
 rows to the okadmin topic bank. Items/universities/schools are not seeded from
@@ -22,10 +22,11 @@ TRENDS_SITES: tuple[str, ...] = (
     "okramen",
     "okonsen",
     "okcaddie",
-    "okstats",
+    "statfacts",
     "starful.biz",
     "jpcampus",
     "krcampus",
+    "okpy",
 )
 
 DEFAULT_LIMIT = 8
@@ -65,7 +66,7 @@ _SITE_CONFIG: dict[str, SiteTrendsConfig] = {
         seeds=("golf japan", "golf course tokyo", "golf resort japan"),
         category="Golf",
     ),
-    "okstats": SiteTrendsConfig(
+    "statfacts": SiteTrendsConfig(
         hl="en-US",
         geo="",
         tz=0,
@@ -92,6 +93,13 @@ _SITE_CONFIG: dict[str, SiteTrendsConfig] = {
         tz=540,
         seeds=("韓国留学", "語学堂", "D-4ビザ", "TOPIK"),
         category="Visa",
+    ),
+    "okpy": SiteTrendsConfig(
+        hl="ja-JP",
+        geo="JP",
+        tz=540,
+        seeds=("Python ライブラリ", "AWS GCP Azure 比較", "Terraform", "OpenTofu"),
+        category="Tech",
     ),
 }
 
@@ -353,12 +361,65 @@ def append_trends_topics(
     bank_appended: dict[str, int] = {}
     messages: list[str] = [f"Trends 후보 {len(queries)}건"]
 
-    if site_id in ("okramen", "okonsen", "okcaddie", "okstats"):
+    if site_id in ("okramen", "okonsen", "okcaddie", "statfacts"):
         spec = next(s for s in banks_for_site(site_id) if s.bank_id == "guides")
         rows = _rows_for_poi_guides(site_id, queries, limit=n, category=cfg.category)
         added = _append_bank_rows(site_id, spec, rows)
         bank_appended["guides"] = added
         messages.append(f"guides +{added}")
+    elif site_id == "okpy":
+        # Prefer cloud/terraform topics into Topic banks; python libs into lib_name
+        py_spec = next(s for s in banks_for_site(site_id) if s.bank_id == "python")
+        cloud_spec = next(s for s in banks_for_site(site_id) if s.bank_id == "cloud")
+        tf_spec = next(s for s in banks_for_site(site_id) if s.bank_id == "terraform")
+        exist_py = {
+            (r.get("lib_name") or "").strip().lower()
+            for r in read_bank(site_id, "python")
+            if (r.get("lib_name") or "").strip()
+        }
+        exist_cloud = {
+            (r.get("Topic") or "").strip().lower()
+            for r in read_bank(site_id, "cloud")
+            if (r.get("Topic") or "").strip()
+        }
+        exist_tf = {
+            (r.get("Topic") or "").strip().lower()
+            for r in read_bank(site_id, "terraform")
+            if (r.get("Topic") or "").strip()
+        }
+        py_rows: list[dict[str, str]] = []
+        cloud_rows: list[dict[str, str]] = []
+        tf_rows: list[dict[str, str]] = []
+        for item in queries:
+            q = str(item.get("query") or "").strip()
+            if not q:
+                continue
+            ql = q.lower()
+            if any(k in ql for k in ("terraform", "opentofu", "iac")):
+                if ql not in exist_tf and len(tf_rows) < max(1, n // 3 + 1):
+                    tf_rows.append({"Topic": q})
+                    exist_tf.add(ql)
+            elif any(k in ql for k in ("aws", "gcp", "azure", "cloud", "クラウド")):
+                if ql not in exist_cloud and len(cloud_rows) < max(1, n // 3 + 1):
+                    cloud_rows.append({"Topic": q})
+                    exist_cloud.add(ql)
+            else:
+                # Treat as python lib / topic name
+                name = q.split()[0] if q.split() else q
+                if name.lower() not in exist_py and len(py_rows) < max(1, n // 3 + 1):
+                    py_rows.append({"lib_name": name})
+                    exist_py.add(name.lower())
+            if len(py_rows) + len(cloud_rows) + len(tf_rows) >= n:
+                break
+        if py_rows:
+            bank_appended["python"] = _append_bank_rows(site_id, py_spec, py_rows)
+            messages.append(f"python +{bank_appended['python']}")
+        if cloud_rows:
+            bank_appended["cloud"] = _append_bank_rows(site_id, cloud_spec, cloud_rows)
+            messages.append(f"cloud +{bank_appended['cloud']}")
+        if tf_rows:
+            bank_appended["terraform"] = _append_bank_rows(site_id, tf_spec, tf_rows)
+            messages.append(f"terraform +{bank_appended['terraform']}")
     elif site_id in ("jpcampus", "krcampus"):
         spec = next(s for s in banks_for_site(site_id) if s.bank_id == "guide_topics")
         country = "Japan" if site_id == "jpcampus" else "South Korea"
@@ -403,7 +464,7 @@ def run_trends_seed(site_id: str, *, limit: int | None = None) -> dict[str, Any]
     if not work_root_available():
         return {"ok": False, "error": "WORK_ROOT not available"}
     if site_id == "hatena":
-        return {"ok": False, "error": "hatena는 Trends 시드 대상이 아닙니다"}
+        return {"ok": False, "error": "hatena는 제거되었습니다 — okpy를 사용하세요"}
     if not supports_trends_seed(site_id):
         return {"ok": False, "error": f"Trends 시드 미지원: {site_id}"}
     svc = get_service(site_id)

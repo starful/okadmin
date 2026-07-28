@@ -112,6 +112,7 @@ def topic_bank_release_queues(
     content_limit_each: bool = False,
     school_limit: int | None = None,
     university_limit: int | None = None,
+    bank_caps: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Refresh MD state, release up to N pending rows per bank, sync queue CSVs."""
     ensure_bootstrapped(site_id, repo)
@@ -123,6 +124,7 @@ def topic_bank_release_queues(
         content_limit_each=content_limit_each,
         school_limit=school_limit,
         university_limit=university_limit,
+        bank_caps=bank_caps,
     )
     by_bank = rel.get("by_bank") or {}
     if logf and rel.get("released"):
@@ -130,7 +132,10 @@ def topic_bank_release_queues(
         logf.write(f"큐 release: {', '.join(parts) or '0'}\n")
     active_banks: set[str] | None = None
     bank_limits: dict[str, int] | None = None
-    if school_limit is not None or university_limit is not None:
+    if bank_caps is not None:
+        active_banks = {bid for bid, n in bank_caps.items() if n > 0}
+        bank_limits = dict(bank_caps)
+    elif school_limit is not None or university_limit is not None:
         active_banks = set()
         bank_limits = {
             "guide_topics": guide_limit,
@@ -263,7 +268,7 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             "csv_guides": _bank_row_count(site_id, "guides"),
         }
 
-    if site_id == "okstats":
+    if site_id == "statfacts":
         ip, iff = _missing_md_for_bank("insights")
         gp, gf = _missing_md_for_bank("guides")
         images = 0
@@ -353,6 +358,20 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             "csv_guides": _bank_row_count(site_id, "guide_topics"),
             "csv_schools": _bank_row_count(site_id, "language_schools"),
             "csv_univs": _bank_row_count(site_id, "universities"),
+        }
+
+    if site_id == "okpy":
+        py_p, _ = _missing_md_for_bank("python")
+        cloud_p, _ = _missing_md_for_bank("cloud")
+        tf_p, _ = _missing_md_for_bank("terraform")
+        return {
+            "items_pairs": py_p + cloud_p + tf_p,
+            "python_pending": py_p,
+            "cloud_pending": cloud_p,
+            "terraform_pending": tf_p,
+            "csv_python": _bank_row_count(site_id, "python"),
+            "csv_cloud": _bank_row_count(site_id, "cloud"),
+            "csv_terraform": _bank_row_count(site_id, "terraform"),
         }
 
     return {}

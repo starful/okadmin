@@ -8,18 +8,18 @@ EnsureMode = Literal["release", "sync_only", "expand"]
 POI_SITES = frozenset({"okramen", "okonsen", "okcaddie"})
 
 # Sites with standard content+guide release (insights/items + guides).
-RELEASE_QUEUE_SITES = POI_SITES | frozenset({"okstats"})
+RELEASE_QUEUE_SITES = POI_SITES | frozenset({"statfacts"})
 
 # How ensure_csv prepares topic bank queues before generation.
 SITE_ENSURE_MODE: dict[str, EnsureMode] = {
     "okramen": "release",
     "okonsen": "release",
     "okcaddie": "release",
-    "okstats": "release",
+    "statfacts": "release",
     "starful.biz": "release",
     "jpcampus": "release",
     "krcampus": "release",
-    "hatena": "expand",
+    "okpy": "release",
 }
 
 

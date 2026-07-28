@@ -15,6 +15,7 @@ from blueprints.content_bp import content_bp
 from blueprints.gsc_bp import gsc_bp
 from blueprints.hub import hub_bp
 from blueprints.images import images_bp
+from blueprints.instagram_bp import instagram_bp
 from blueprints.pages import pages_bp
 from blueprints.schedule import schedule_bp
 from blueprints.todos import todos_bp
@@ -65,5 +66,6 @@ def create_app() -> Flask:
     app.register_blueprint(gsc_bp)
     app.register_blueprint(analytics_bp)
     app.register_blueprint(content_bp)
+    app.register_blueprint(instagram_bp)
 
     return app

@@ -10,17 +10,21 @@
         :root { --bg: #0a0a0a; --surf: #121212; --border: #222; --accent: #e8ff47; --text: #eee; --muted: #777; }
         html, body { background: #0a0a0a; color: #eee; }
         * { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
-        nav { width: 220px; border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
-        .logo-area { font-size: 18px; font-weight: 800; margin-bottom: 20px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .hub-topbar {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 12px 20px; border-bottom: 1px solid var(--border); background: #0c0c0c;
+            flex-shrink: 0;
+        }
+        .hub-topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .logo-area { font-size: 16px; font-weight: 800; white-space: nowrap; }
+        .logo-area a { color: inherit; text-decoration: none; }
         .logo-area span { color: var(--accent); font-size: 9px; border: 1px solid var(--accent); padding: 2px 5px; margin-left: 8px; }
-        nav a { color: #666; text-decoration: none; padding: 10px 12px; font-weight: 700; border-radius: 8px; font-size: 13px; }
-        nav a:hover { color: #aaa; }
-        nav a.active { background: var(--accent); color: #000; }
-        .nav-section { font-size: 10px; color: #444; margin-top: 16px; margin-bottom: 4px; padding-left: 12px; letter-spacing: 1px; }
-        .user-line { margin-top: auto; font-family: 'DM Mono'; font-size: 10px; color: var(--muted); padding: 12px; }
-        .user-line a { color: var(--accent); padding: 0; font-weight: 400; }
-        main { flex: 1; overflow-y: auto; padding: 32px 40px; }
+        .hub-topbar-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+        .hub-topbar .user-line { font-family: ui-monospace, monospace; font-size: 10px; color: var(--muted); text-align: right; line-height: 1.35; }
+        .hub-topbar .user-line a { color: var(--accent); text-decoration: none; }
+        .btn-sm { padding: 6px 12px; font-size: 11px; }
+        main { flex: 1; overflow-y: auto; padding: 24px 28px 40px; }
         h1 { margin: 0 0 8px; font-size: 22px; }
         .sub { font-family: 'DM Mono'; font-size: 11px; color: var(--muted); margin-bottom: 24px; }
         .btn { padding: 9px 16px; background: var(--accent); color: #000; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 12px; }
@@ -35,6 +39,50 @@
         .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-family: 'DM Mono'; }
         .badge-dirty { background: #422; color: #f88; }
         .badge-clean { background: #242; color: #8f8; }
+        /* Simple calendar modal */
+        #hub-cal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 1800;
+            background: rgba(0,0,0,.75); align-items: flex-start; justify-content: center;
+            padding: 48px 16px 24px;
+        }
+        #hub-cal-overlay.open { display: flex; }
+        #hub-cal-overlay[hidden] { display: none !important; }
+        .hub-cal-modal {
+            width: min(480px, 100%); max-height: calc(100vh - 72px);
+            display: flex; flex-direction: column;
+            background: var(--surf); border: 1px solid var(--border); border-radius: 14px;
+            box-shadow: 0 16px 48px rgba(0,0,0,.55);
+        }
+        .hub-cal-head {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 14px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+        }
+        .hub-cal-head h2 { margin: 0; font-size: 15px; }
+        .hub-cal-nav { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+        .hub-cal-range { font-family: ui-monospace, monospace; font-size: 10px; color: var(--muted); padding: 8px 16px 0; }
+        .hub-cal-body { padding: 8px 12px 16px; overflow: auto; flex: 1; min-height: 0; }
+        .hub-cal-day {
+            border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+            background: #0e0e0e;
+        }
+        .hub-cal-day.today { border-color: #555; outline: 1px solid var(--accent); outline-offset: -1px; }
+        .hub-cal-day-head {
+            display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
+            margin-bottom: 6px; font-size: 12px; font-weight: 700;
+        }
+        .hub-cal-day-head .meta { font-family: ui-monospace, monospace; font-size: 10px; color: #666; font-weight: 500; }
+        .hub-cal-empty { color: #444; font-size: 11px; }
+        .hub-cal-item {
+            display: flex; align-items: center; gap: 8px; padding: 5px 0;
+            border-top: 1px solid #1a1a1a; font-size: 12px; color: #ccc;
+        }
+        .hub-cal-item:first-of-type { border-top: none; }
+        .hub-cal-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #666; }
+        .hub-cal-item a { color: #ddd; text-decoration: none; font-weight: 700; }
+        .hub-cal-item a:hover { color: var(--accent); }
+        .hub-cal-kind { font-family: ui-monospace, monospace; font-size: 10px; color: #888; }
+        .hub-cal-label { color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+        .hub-cal-loading, .hub-cal-error { padding: 24px; text-align: center; color: #666; font-size: 12px; }
         #toast { position: fixed; bottom: 20px; right: 20px; background: var(--accent); color: #000; padding: 10px 20px; border-radius: 5px; font-weight: bold; display: none; z-index: 1000; }
         #hub-busy { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.72); backdrop-filter: blur(2px); }
         #hub-busy[hidden] { display: none !important; }
@@ -59,15 +107,64 @@
         .hub-results-modal .hub-res-head {
             padding: 16px 18px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0;
         }
-        .hub-results-modal .hub-res-head h3 { margin: 0 0 6px; font-size: 15px; }
-        .hub-results-modal .hub-res-meta { margin: 0; font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+        .hub-results-modal .hub-res-head-row {
+            display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+        }
+        .hub-results-modal .hub-res-head h3 { margin: 0; font-size: 15px; flex: 1; min-width: 0; }
+        .hub-results-modal .hub-res-actions { display: flex; gap: 6px; flex-shrink: 0; }
+        .hub-results-modal .hub-res-close,
+        .hub-results-modal .hub-res-minimize {
+            flex-shrink: 0; width: 36px; height: 36px; padding: 0; border-radius: 8px;
+            border: 1px solid var(--border); background: #222; color: #fff; font-size: 18px;
+            line-height: 1; cursor: pointer;
+        }
+        .hub-results-modal .hub-res-close { font-size: 22px; }
+        .hub-results-modal .hub-res-minimize { display: none; font-size: 16px; font-weight: 700; }
+        .hub-results-modal.progress .hub-res-minimize { display: inline-flex; align-items: center; justify-content: center; }
+        .hub-results-modal .hub-res-close:hover,
+        .hub-results-modal .hub-res-minimize:hover { border-color: var(--accent); color: var(--accent); }
+        .hub-results-modal .hub-res-meta { margin: 8px 0 0; font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
         .hub-results-modal .hub-res-body {
             padding: 12px 18px; overflow: auto; flex: 1; min-height: 0;
         }
-        .hub-results-modal .hub-res-foot {
-            padding: 12px 18px; border-top: 1px solid var(--border);
-            display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0;
+        .hub-results-modal .hub-res-foot { display: none; }
+        #hub-progress-docks {
+            position: fixed; left: 16px; bottom: 16px; z-index: 2050;
+            display: flex; flex-direction: column-reverse; gap: 8px;
+            max-width: min(420px, calc(100vw - 32px));
+            pointer-events: none;
         }
+        .hub-progress-dock {
+            display: none; pointer-events: auto;
+            background: var(--surf); border: 1px solid #555; border-radius: 12px;
+            box-shadow: 0 10px 32px rgba(0,0,0,.5); padding: 10px 12px;
+            align-items: center; gap: 10px;
+        }
+        .hub-progress-dock.open { display: flex; }
+        .hub-progress-dock.done { border-color: var(--accent); }
+        .hub-progress-dock.failed { border-color: #c66; }
+        .hub-dock-main {
+            flex: 1; min-width: 0; cursor: pointer; text-align: left; background: none; border: none;
+            color: inherit; padding: 0; font: inherit;
+        }
+        .hub-dock-title {
+            margin: 0; font-size: 12px; font-weight: 700; color: #fa0;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .hub-progress-dock.done .hub-dock-title { color: #8f8; }
+        .hub-progress-dock.failed .hub-dock-title { color: #f88; }
+        .hub-dock-meta {
+            margin: 3px 0 0; font-size: 10px; color: var(--muted);
+            font-family: ui-monospace, monospace;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .hub-dock-actions { display: flex; gap: 4px; flex-shrink: 0; }
+        .hub-dock-btn {
+            width: 32px; height: 32px; padding: 0; border-radius: 8px;
+            border: 1px solid var(--border); background: #222; color: #fff;
+            font-size: 16px; line-height: 1; cursor: pointer;
+        }
+        .hub-dock-btn:hover { border-color: var(--accent); color: var(--accent); }
         .hub-progress-pulse { color: #fa0; margin: 0 0 8px; font-weight: 700; }
         .hub-modal-phases { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 11px; font-weight: 700; }
         .hub-phase { color: #555; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); }
@@ -88,21 +185,40 @@
     {% block head %}{% endblock %}
 </head>
 <body>
-    <nav>
-        <div class="logo-area">OK Admin <span>WORK HUB</span></div>
-        <div class="nav-section">HUB</div>
-        <a href="{{ url_for('pages.dashboard') }}" class="{% if active == 'dashboard' %}active{% endif %}">홈</a>
-        <a href="{{ url_for('pages.schedule_page') }}" class="{% if active == 'schedule' %}active{% endif %}">달력</a>
-        <div class="nav-section">ASSETS</div>
-        <a href="{{ url_for('pages.images_page') }}" class="{% if active == 'images' %}active{% endif %}">GCS 이미지</a>
-        <div class="user-line">
-            {{ user_email }}<br>
-            <a href="{{ url_for('auth.logout') }}">로그아웃</a>
+    <header class="hub-topbar">
+        <div class="hub-topbar-left">
+            <div class="logo-area">
+                <a href="{{ url_for('pages.dashboard') }}">OK Admin <span>WORK HUB</span></a>
+            </div>
         </div>
-    </nav>
+        <div class="hub-topbar-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="hub-cal-open" aria-haspopup="dialog">달력</button>
+            <div class="user-line">
+                {{ user_email }}<br>
+                <a href="{{ url_for('auth.logout') }}">로그아웃</a>
+            </div>
+        </div>
+    </header>
     <main>
         {% block content %}{% endblock %}
     </main>
+    <div id="hub-cal-overlay" role="dialog" aria-modal="true" aria-labelledby="hub-cal-title" hidden>
+        <div class="hub-cal-modal">
+            <div class="hub-cal-head">
+                <h2 id="hub-cal-title">작업 달력</h2>
+                <div class="hub-cal-nav">
+                    <button type="button" class="btn btn-ghost btn-sm" id="hub-cal-prev" title="1주 전">◀</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="hub-cal-today">오늘</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="hub-cal-next" title="1주 후">▶</button>
+                    <button type="button" class="hub-res-close" id="hub-cal-close" aria-label="닫기">×</button>
+                </div>
+            </div>
+            <p class="hub-cal-range" id="hub-cal-range"></p>
+            <div class="hub-cal-body" id="hub-cal-body">
+                <div class="hub-cal-loading">불러오는 중…</div>
+            </div>
+        </div>
+    </div>
     <div id="toast"></div>
     <div id="hub-busy" hidden aria-live="polite" aria-busy="true">
         <div class="hub-busy-card">
@@ -114,16 +230,22 @@
     <div id="hub-results-overlay" class="hub-results-overlay" role="dialog" aria-modal="true" aria-labelledby="hub-results-title">
         <div class="hub-results-modal">
             <div class="hub-res-head">
-                <h3 id="hub-results-title">작업 결과</h3>
+                <div class="hub-res-head-row">
+                    <h3 id="hub-results-title">작업 결과</h3>
+                    <div class="hub-res-actions">
+                        <button type="button" class="hub-res-minimize" id="hub-results-minimize" aria-label="아래로 내리기" title="아래로 내리고 다른 작업하기">↓</button>
+                        <button type="button" class="hub-res-close" id="hub-results-close" aria-label="닫기">×</button>
+                    </div>
+                </div>
                 <p class="hub-res-meta" id="hub-results-meta">—</p>
             </div>
             <div class="hub-res-body" id="hub-results-body"></div>
-            <div class="hub-res-foot">
-                <button type="button" class="btn btn-ghost" id="hub-results-close">닫기</button>
-            </div>
+            <div class="hub-res-foot"></div>
         </div>
     </div>
+    <div id="hub-progress-docks" aria-live="polite"></div>
     <script src="{{ url_for('static', filename='hub_modal.js') }}"></script>
+    <script src="{{ url_for('static', filename='hub_calendar_modal.js') }}"></script>
     <script>
         function showToast(m) {
             const t = document.getElementById('toast');
@@ -159,6 +281,19 @@
                 success: '#6a6', running: '#fa0', failed: '#f88', unknown: '#888',
             };
             const c = colors[state] || '#888';
+            const existingPre = el.querySelector('pre');
+            if (existingPre && logTail) {
+                const titleEl = el.firstElementChild;
+                if (titleEl) {
+                    titleEl.style.color = c;
+                    titleEl.textContent = title;
+                }
+                existingPre.textContent = logTail;
+                existingPre.scrollTop = existingPre.scrollHeight;
+                requestAnimationFrame(() => { existingPre.scrollTop = existingPre.scrollHeight; });
+                el.style.display = 'block';
+                return;
+            }
             let html = `<div style="color:${c};font-weight:700;margin-bottom:4px">${escapeHtmlOps(title)}</div>`;
             if (detail) html += `<div style="color:#aaa;white-space:pre-wrap;word-break:break-word">${escapeHtmlOps(detail)}</div>`;
             if (logTail) {
@@ -166,6 +301,11 @@
             }
             el.style.display = 'block';
             el.innerHTML = html;
+            const pre = el.querySelector('pre');
+            if (pre) {
+                pre.scrollTop = pre.scrollHeight;
+                requestAnimationFrame(() => { pre.scrollTop = pre.scrollHeight; });
+            }
         }
 
         async function pollDeployStatus(siteId, jobId, statusEl, onDone) {

@@ -2,8 +2,11 @@
 {% block title %}홈{% endblock %}
 {% block head %}
 <style>
-.ai-spend-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
-@media (max-width: 720px) { .ai-spend-panel { grid-template-columns: 1fr; } }
+.ai-spend-panel {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;
+}
+@media (max-width: 960px) { .ai-spend-panel { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .ai-spend-panel { grid-template-columns: 1fr; } }
 .ai-spend-card {
     background: var(--surf); border: 1px solid var(--border); border-radius: 12px;
     padding: 14px 16px;
@@ -15,8 +18,12 @@
 .ai-spend-title { font-size: 12px; font-weight: 800; letter-spacing: .04em; }
 .ai-spend-title.gemini { color: #8cf; }
 .ai-spend-title.imagen { color: #c9f; }
+.ai-spend-title.banana { color: #e8c84a; }
+.ai-spend-title.places { color: #7ec8e3; }
+.ai-spend-title.total { color: #ddd; }
 .ai-spend-nums { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 700; }
 .ai-spend-bar { height: 6px; background: #222; border-radius: 3px; overflow: hidden; margin: 8px 0 6px; }
+.ai-spend-bar.nobudget { opacity: .35; }
 .ai-spend-bar > span { display: block; height: 100%; border-radius: 3px; transition: width .3s; }
 .ai-spend-bar.ok > span { background: #6a6; }
 .ai-spend-bar.warn > span { background: #ca3; }
@@ -43,31 +50,90 @@
 .ai-spend-day.has > span { background: #555; }
 .ai-spend-day.gemini.has > span { background: #48a; }
 .ai-spend-day.imagen.has > span { background: #85a; }
+.ai-spend-day.banana.has > span { background: #a90; }
+.ai-spend-day.places.has > span { background: #3a8; }
+.ai-spend-day.total.has > span { background: #888; }
 .ai-spend-day.today > span { background: #8cf; box-shadow: 0 0 0 1px #8cf8; }
 .ai-spend-day.imagen.today > span { background: #c9f; box-shadow: 0 0 0 1px #c9f8; }
+.ai-spend-day.banana.today > span { background: #e8c84a; box-shadow: 0 0 0 1px #e8c84a88; }
+.ai-spend-day.places.today > span { background: #7ec8e3; box-shadow: 0 0 0 1px #7ec8e388; }
+.ai-spend-day.total.today > span { background: #ddd; box-shadow: 0 0 0 1px #ddd8; }
 .ai-spend-day > em {
     font-style: normal; font-size: 8px; color: #444; line-height: 1;
 }
 .ai-spend-day.today > em { color: #aaa; font-weight: 700; }
 .ai-spend-day-label { font-size: 9px; color: #555; margin: 6px 0 0; }
+.claude-usage-panel {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+    margin-bottom: 12px;
+}
+@media (max-width: 560px) { .claude-usage-panel { grid-template-columns: 1fr; } }
+.ai-spend-title.claude { color: #d4a574; }
+.claude-usage-meta {
+    grid-column: 1 / -1; margin: 0; font-size: 10px; color: #666; line-height: 1.4;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+}
+.claude-usage-meta .claude-usage-meta-text { flex: 1; min-width: 12rem; }
+.claude-usage-meta .claude-usage-meta-text.stale { color: #c90; }
+.claude-usage-meta .btn { flex-shrink: 0; }
+.dash-home-head {
+    display: flex; flex-direction: column; align-items: flex-start;
+    gap: 10px; margin-bottom: 12px;
+}
+.dash-home-head h1 { margin-bottom: 4px; }
+.dash-home-head .sub { margin: 0; }
+.dash-toolbar-home { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
+.dash-home-hint { margin: 0 0 12px; font-size: 11px; color: #666; }
+.ai-spend-today.stale-hint { color: #c90; }
+.claude-usage-meta { flex-direction: row; }
+.claude-usage-meta .btn { order: -1; } /* 긴 note보다 버튼을 먼저 */
+.dash-card.slim.kind-instagram {
+    background: #1a1218;
+    border-color: #7a3a55;
+}
+.dash-card.slim.kind-instagram:hover {
+    border-color: #c45a7a;
+}
+.dash-card.slim.kind-instagram .slim-title { color: #f0a8c0; }
+.dash-card.slim.kind-instagram .slim-id { color: #8a5a6a; }
+.dash-card.slim.kind-instagram .card-verdict {
+    background: #241820;
+    border-color: #6a3a4a;
+    color: #e8b0c0;
+}
+.dash-card.slim.kind-instagram .verdict-action { color: #d090a8; }
+.dash-card.slim.kind-instagram .btn-open {
+    background: #c45a7a;
+    color: #1a0810;
+}
 </style>
 {% endblock %}
 {% block content %}
-<h1>홈</h1>
-<p class="sub">지금 할 일 판단 — 긴급순 정렬</p>
+<div class="dash-home-head">
+    <div>
+        <h1>홈</h1>
+        <p class="sub">지금 할 일 판단 — 긴급순 정렬</p>
+    </div>
+    <div class="dash-toolbar-home">
+        <button type="button" class="btn btn-sm" id="btn-refresh-home" onclick="refreshHome()" title="사이트·Claude 사용량·GCP 비용 다시 불러오기">홈 새로고침</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-refresh-backlog" onclick="refreshAllBacklog()">백로그 새로고침</button>
+    </div>
+</div>
 {% if not work_root_ok %}
 <div class="warn">WORK_ROOT 없음 — 콘텐츠·Git 비활성</div>
 {% endif %}
+<p class="dash-resources-head">리소스 · Claude 구독 · GCP 비용</p>
+<div id="claude-dash-banner" class="hub-claude-banner" hidden></div>
+<div id="claude-usage-panel" class="claude-usage-panel" hidden></div>
+<div id="ai-spend-banner" class="hub-claude-banner" hidden></div>
 <div id="ai-spend-panel" class="ai-spend-panel" hidden></div>
-<div class="dash-toolbar-home">
-    <button type="button" class="btn btn-ghost btn-sm" id="btn-refresh-backlog" onclick="refreshAllBacklog()">백로그 새로고침</button>
-    <p class="hint">백로그·due·Git·마지막 실행을 보고 지금/대기/스킵을 표시합니다</p>
-</div>
+<p class="hint dash-home-hint">백로그·due·Git·마지막 실행을 보고 지금/대기/스킵을 표시합니다</p>
 <div id="loading" class="mono" style="font-size:12px;color:#666;margin-bottom:12px">로딩 중…</div>
 <div id="sites-grid" class="grid-sites-slim"></div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='pipeline.js') }}"></script>
+<script src="{{ url_for('static', filename='claude_monitor.js') }}"></script>
 <script>
 const DASH_ORDER_KEY = 'okadmin_dashboard_site_order_v1';
 const DUE_WEIGHT = { overdue: 40, never: 35, today: 28, soon: 12, ok: 0 };
@@ -76,44 +142,130 @@ function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 }
 
-function renderDailyChart(daily, maxYen, cls) {
+function moneyFmt(n, currency) {
+    const cur = (currency || 'USD').toUpperCase();
+    const v = Number(n) || 0;
+    if (cur === 'JPY') return '¥' + Math.round(v).toLocaleString();
+    try {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, maximumFractionDigits: 2 }).format(v);
+    } catch (_) {
+        return cur + ' ' + v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+}
+
+function blockCost(b) {
+    return Number(b.cost != null ? b.cost : b.estimated_yen) || 0;
+}
+
+function renderDailyChart(daily, maxCost, cls, currency) {
     if (!daily || !daily.length) {
         return '<p class="ai-spend-day-label">日別 — まだデータなし</p>';
     }
-    const max = Math.max(maxYen || 0, ...daily.map(d => d.yen || 0), 1);
+    const vals = daily.map(d => Number(d.cost != null ? d.cost : d.yen) || 0);
+    const max = Math.max(maxCost || 0, ...vals, 1);
     const bars = daily.map(d => {
-        const yen = Number(d.yen) || 0;
-        const h = yen ? Math.max(6, Math.round(yen / max * 44)) : 2;
-        const dayCls = ['ai-spend-day', cls, yen ? 'has' : '', d.is_today ? 'today' : ''].filter(Boolean).join(' ');
-        const tip = `${d.date}: ¥${yen.toLocaleString()}`;
+        const cost = Number(d.cost != null ? d.cost : d.yen) || 0;
+        const h = cost ? Math.max(6, Math.round(cost / max * 44)) : 2;
+        const dayCls = ['ai-spend-day', cls, cost ? 'has' : '', d.is_today ? 'today' : ''].filter(Boolean).join(' ');
+        const tip = `${d.date}: ${moneyFmt(cost, currency)}`;
         return `<div class="${dayCls}" title="${escapeHtml(tip)}"><span style="height:${h}px"></span><em>${d.day}</em></div>`;
     }).join('');
     return `<p class="ai-spend-day-label">日別 (1–${daily.length}日)</p><div class="ai-spend-daily">${bars}</div>`;
 }
 
+function renderClaudeUsage(data) {
+    if (typeof ClaudeMonitor !== 'undefined') {
+        ClaudeMonitor.applyState(data);
+    }
+}
+
+async function loadClaudeUsage(force) {
+    if (typeof ClaudeMonitor !== 'undefined') {
+        return ClaudeMonitor.load(!!force);
+    }
+    return null;
+}
+
+async function refreshClaudeUsage() {
+    await loadClaudeUsage(true);
+}
+
+async function refreshHome() {
+    const btn = document.getElementById('btn-refresh-home');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '새로고침 중…';
+    }
+    try {
+        await loadClaudeUsage(true);
+        await loadHome({ skipClaude: true });
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '홈 새로고침';
+        }
+    }
+}
+
+function renderSpendBanner(data) {
+    const el = document.getElementById('ai-spend-banner');
+    if (!el) return;
+    const level = (data && data.alert_level) || 'ok';
+    const headline = (data && data.alert_headline) || '';
+    if (!headline || level === 'ok') {
+        el.hidden = true;
+        el.innerHTML = '';
+        return;
+    }
+    el.hidden = false;
+    el.className = `hub-claude-banner level-${level === 'over' ? 'over' : level}`;
+    const hint = escapeHtml((data && data.alert_hint) || '');
+    el.innerHTML =
+        `<span class="hub-claude-banner-label">GCP</span>`
+        + `<span class="hub-claude-banner-text">${escapeHtml(headline)}</span>`
+        + (hint ? `<span class="hub-claude-banner-hint">${hint}</span>` : '');
+}
+
 function renderAiSpend(data) {
     const panel = document.getElementById('ai-spend-panel');
     if (!panel || !data) return;
+    renderSpendBanner(data);
+    const currency = data.currency || 'USD';
     const blocks = [
-        { key: 'gemini', label: 'Gemini', cls: 'gemini', suffix: '推定' },
-        { key: 'imagen', label: 'Imagen', cls: 'imagen', suffix: '画像' },
+        { key: 'gemini', label: 'Gemini', cls: 'gemini', hint: 'Text AI' },
+        { key: 'imagen', label: 'Imagen', cls: 'imagen', hint: 'Imagen' },
+        { key: 'banana', label: 'Banana', cls: 'banana', hint: 'Nano Banana' },
+        { key: 'places', label: 'Places', cls: 'places', hint: 'Maps API' },
+        { key: 'total', label: 'Total', cls: 'total', hint: 'Project' },
     ];
-    panel.innerHTML = blocks.map(({ key, label, cls, suffix }) => {
+    panel.innerHTML = blocks.map(({ key, label, cls, hint }) => {
         const b = data[key] || {};
         const pct = Math.min(100, Number(b.percent) || 0);
         const level = b.level || 'ok';
         const over = data.over_budget && data.over_budget[key];
-        const extra = key === 'imagen' && b.images ? ` · ${b.images}枚` : '';
-        const todayYen = Number(b.today_yen) || 0;
+        const used = blockCost(b);
+        const budget = Number(b.budget != null ? b.budget : b.budget_yen) || 0;
+        const remain = Number(b.remaining != null ? b.remaining : b.remaining_yen) || 0;
+        const today = Number(b.today_cost != null ? b.today_cost : b.today_yen) || 0;
+        const maxDaily = Number(b.daily_max != null ? b.daily_max : b.daily_max_yen) || 0;
+        const hasBudget = budget > 0;
+        const nums = hasBudget
+            ? `${moneyFmt(used, currency)} / ${moneyFmt(budget, currency)}`
+            : moneyFmt(used, currency);
+        const sub = hasBudget
+            ? `${pct}% · 残り ${moneyFmt(remain, currency)}${over ? ' · 予算超過' : ''}`
+            : escapeHtml(hint);
+        const barCls = hasBudget ? level : `ok nobudget`;
+        const barW = hasBudget ? pct : (used ? 100 : 0);
         return `<div class="ai-spend-card ${level}${over ? ' over' : ''}">
             <div class="ai-spend-head">
-                <span class="ai-spend-title ${cls}">${label} ${suffix} · ${escapeHtml(data.month || '')}</span>
-                <span class="ai-spend-nums">¥${(b.estimated_yen || 0).toLocaleString()} / ¥${(b.budget_yen || 0).toLocaleString()}</span>
+                <span class="ai-spend-title ${cls}">${label} · ${escapeHtml(data.month || '')}</span>
+                <span class="ai-spend-nums">${nums}</span>
             </div>
-            <div class="ai-spend-bar ${level}"><span style="width:${pct}%"></span></div>
-            <p class="ai-spend-sub">${pct}% · 残り ¥${(b.remaining_yen || 0).toLocaleString()}${extra}${over ? ' · 予算超過' : ''}</p>
-            <p class="ai-spend-today">今日 <strong>¥${todayYen.toLocaleString()}</strong></p>
-            ${renderDailyChart(b.daily, b.daily_max_yen, cls)}
+            <div class="ai-spend-bar ${barCls}"><span style="width:${barW}%"></span></div>
+            <p class="ai-spend-sub">${sub}</p>
+            <p class="ai-spend-today">今日 <strong>${moneyFmt(today, currency)}</strong></p>
+            ${renderDailyChart(b.daily, maxDaily, cls, currency)}
         </div>`;
     }).join('');
     if (data.note) {
@@ -246,7 +398,7 @@ function assessSite(site, logs, pipe) {
         action = 'Git Push 권장';
     } else if (gscUrgent || gscSoon) {
         action = 'GSC·SEO 확인';
-    } else if (bl.csvSuggested) {
+    } else if (bl.csvSuggested && site.id !== 'krcare') {
         action = (typeof isAiQueueSite === 'function' && isAiQueueSite(site.id))
             ? '목록 추가 후 생성 검토'
             : 'CSV 추가 후 생성 검토';
@@ -370,8 +522,26 @@ function renderSitesGrid(sites, logData, pipelines) {
         })
         .sort((a, b) => b.assessment.priority - a.assessment.priority);
 
+    const igCard = `<a href="/instagram" class="card dash-card slim kind-instagram" data-site-id="instagram">
+            <div class="slim-head">
+                <span class="slim-title">Instagram</span>
+            </div>
+            <div class="slim-id">instagram · OK Japan</div>
+            <div class="card-verdict verdict-wait">
+                <strong>카드뉴스</strong>먹거리·부위·메뉴 프롬프트
+            </div>
+            <ul class="verdict-reasons">
+                <li>야키니쿠·야키토리·해산물·주문</li>
+                <li>사이트 URL 없이 저장 유도</li>
+            </ul>
+            <div class="slim-foot">
+                <span class="verdict-action">→ 프롬프트 열기</span>
+                <span class="btn btn-open">열기</span>
+            </div>
+        </a>`;
+
     const grid = document.getElementById('sites-grid');
-    grid.innerHTML = rows.map(({ site: s, logs, pipe, assessment }) => {
+    const siteCards = rows.map(({ site: s, logs, pipe, assessment }) => {
         const runningCls = pipe && pipe.running ? ' pipe-running' : '';
         const verdictCls = ` verdict-${assessment.verdict}`;
         const href = '/site/' + encodeURIComponent(s.id);
@@ -392,6 +562,7 @@ function renderSitesGrid(sites, logData, pipelines) {
             </div>
         </a>`;
     }).join('');
+    grid.innerHTML = igCard + siteCards;
 }
 
 async function refreshAllBacklog() {
@@ -404,8 +575,9 @@ async function refreshAllBacklog() {
     if (btn) btn.disabled = false;
 }
 
-async function loadHome() {
+async function loadHome(opts) {
     const loading = document.getElementById('loading');
+    const skipClaude = !!(opts && opts.skipClaude);
     try {
         if (typeof refreshBacklog === 'function') {
             try {
@@ -426,6 +598,7 @@ async function loadHome() {
         try { pipelines = await pipesRes.json(); } catch (_) {}
         loading.style.display = 'none';
         renderSitesGrid(sites, logData, pipelines);
+        if (!skipClaude) loadClaudeUsage();
         loadAiSpend();
     } catch (_) {
         loading.textContent = '로드 실패';
@@ -433,5 +606,6 @@ async function loadHome() {
 }
 
 loadHome();
+if (typeof ClaudeMonitor !== 'undefined') ClaudeMonitor.startPolling();
 </script>
 {% endblock %}

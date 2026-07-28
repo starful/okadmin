@@ -1,67 +1,110 @@
-# Work Hub / OK Admin
+# OK Admin — Work Hub
 
-로컬 운영 허브: 사이트 레지스트리, 달력, GSC, 콘텐츠 스크립트, GCS 이미지 (Flask).
+Local operations hub for the OK Series site fleet: site registry, content pipelines, Git/GitHub shipping, GSC/GA4 embeds, GCS images, and deploy orchestration.
 
-## 실행
+**Local URL:** [http://127.0.0.1:8090](http://127.0.0.1:8090) (port **8090** avoids clashes with site apps on 8080)
+
+## What it does
+
+| Area | Description |
+|------|-------------|
+| **Dashboard** | All Hub sites from `sites.yaml` — Git summary, deploy status, links |
+| **Per-site workflow** | ① Content ② SEO ③ Git ④ Deploy ⑤ Metrics ⑥ Images |
+| **Ship · GitHub** | `Ship prep` (Claude ×1 → issue → branch → commit → push → PR), `Review & merge` (diff + checklist → squash merge) |
+| **Content pipeline** | AI generation, image fetch, `build_data` per site (`pipeline_site_registry.py`) |
+| **GSC / Analytics** | Embedded Search Console and GA4 views |
+| **GCS images** | Per-site bucket prefix, Places search, Imagen prompts |
+| **Calendar** | Firestore-backed ops events (FullCalendar) |
+
+## Quick start
 
 ```bash
 cd /opt/work/okadmin
 chmod +x start.sh scripts/fetch_secrets.sh
-./start.sh   # .env / secrets 없으면 GCP Secret Manager에서 자동 pull
+./start.sh    # pulls secrets from GCP on first run if .env missing
 ```
 
-수동으로 시크릿만 다시 받을 때:
+Restart: `./restart.sh`
 
-```bash
-./scripts/fetch_secrets.sh
-```
-
-브라우저: **http://127.0.0.1:8090** (8080은 okcaddie 등 로컬 Flask와 겹치기 쉬움)
-
-### macOS — 앱처럼 더블클릭
+### macOS app bundle (optional)
 
 ```bash
 /opt/homebrew/bin/python3 -m pip install pywebview pyobjc-framework-WebKit pyobjc-framework-Cocoa
 ./scripts/build-macos-app.sh --install
 ```
 
-| 앱 | 용도 |
-|----|------|
-| **OK Admin.app** | 네이티브 창 (사용) |
-| **OK Admin Dev.app** | 브라우저 (개발) |
-| **OK Admin Stop.app** | 서버 종료 |
+| App | Purpose |
+|-----|---------|
+| **OK Admin.app** | Native window |
+| **OK Admin Dev.app** | Opens in browser |
+| **OK Admin Stop.app** | Stops server |
 
-상세: [mac/README.md](mac/README.md)
+Details: [mac/README.md](mac/README.md)
 
-재기동: `./restart.sh`
+## Configuration
 
-## 메뉴
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `WORK_ROOT` | `/opt/work` | Monorepo root with site repos |
+| `SITES_YAML` | `/opt/work/sites.yaml` | Site registry |
+| `PORT` | `8090` | Hub HTTP port |
+| `LOCAL_DEV_AUTH` | `1` | Skip Google OAuth locally |
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | Firestore, GA4 (optional) |
+| `GSC_TOKEN_PATH` | — | Search Console OAuth (optional) |
 
-| 메뉴 | 설명 |
-|------|------|
-| 대시보드 | `/opt/work/sites.yaml` · Git · GSC 링크 |
-| 달력 | Firestore `work_hub_ops_events` · FullCalendar |
-| 운영 · 콘텐츠 | 사이트별 원클릭 콘텐츠 생성 · 실행 상한/요약 (`/ops`) |
-| 새 OK 사이트 | oktemplate 복사 |
-| GSC | Search Console / GA4 · SEO |
-| GCS 이미지 | 사이트별 버킷 관리 |
+Copy `okadmin/.env.example` → `.env`. Secrets: `./scripts/fetch_secrets.sh`.
 
-Phase 2 상세: [docs/PHASE2.md](docs/PHASE2.md)
+### Local OAuth
 
-## 설정
-
-- `WORK_ROOT` — 기본 `/opt/work`
-- `SITES_YAML` — 기본 `/opt/work/sites.yaml`
-- `GOOGLE_APPLICATION_CREDENTIALS` — Firestore · GA4 (선택)
-- `GSC_TOKEN_PATH` — GSC API OAuth (선택, `GCAL_TOKEN_PATH` 폴백)
-
-Cloud Run 배포 시 `WORK_ROOT`가 없으면 Git·ops·oktemplate·콘텐츠는 비활성 메시지를 표시합니다.
-
-### 로컬 OAuth (`redirect_uri_mismatch`)
-
-포트 **8090** 사용 시 GCP OAuth 클라이언트에 추가:
+If using Google login (`LOCAL_DEV_AUTH=0`), add redirect URIs in GCP:
 
 - `http://127.0.0.1:8090/oauth/callback`
 - `http://localhost:8090/oauth/callback`
 
-기본 **`LOCAL_DEV_AUTH=1`** 이면 Google 로그인 없이 접속 가능합니다.
+### GitHub CLI (Ship workflow)
+
+```bash
+brew install gh
+gh auth login
+gh auth status
+```
+
+Ship uses local `gh` for issues, PRs, and squash merge. See [docs/GITHUB.md](docs/GITHUB.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Ship workflow (per site repo)
+
+1. Edit content in `/opt/work/<site>`.
+2. Open site in Hub → **③ Git** → **Ship prep** (optional hint; one Claude call drafts issue, commit message, PR).
+3. Progress panel: draft → issue → branch → commit → push → PR.
+4. **Review & merge** — read PR diff, complete checklist, **Approve & Squash merge**.
+5. `git checkout main && git pull` in site repo → **④ Deploy**.
+
+Manual steps (Issue / Branch / …) are under **Manual steps ▸**.
+
+## Project layout
+
+```text
+okadmin/
+├── app_factory.py          # Flask app
+├── blueprints/             # Hub API, analytics, GSC, images, Instagram, …
+├── github_ops.py           # gh CLI: issue, PR, review, ship_prepare
+├── git_ops.py              # commit, push, branch, deploy jobs
+├── pipeline_site_registry.py
+├── static/site_hub.js      # Per-site workflow UI
+├── templates/              # dashboard, site hub, embeds
+├── sites.yaml              # (usually /opt/work/sites.yaml)
+└── tests/
+```
+
+## Tests
+
+```bash
+cd /opt/work/okadmin
+pytest tests/
+```
+
+## Cloud Run note
+
+When deployed without `WORK_ROOT`, Git ops, content pipeline, and oktemplate clone are disabled in the UI (read-only hub features still work if configured).
+
+Further reading: [docs/PHASE2.md](docs/PHASE2.md), [docs/GITHUB.md](docs/GITHUB.md).

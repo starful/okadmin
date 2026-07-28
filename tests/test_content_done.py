@@ -34,16 +34,16 @@ def test_poi_item_done_and_missing(tmp_path: Path):
 
 
 def test_insight_missing(tmp_path: Path):
-    repo = tmp_path / "okstats"
+    repo = tmp_path / "statfacts"
     content = repo / "app" / "content"
     content.mkdir(parents=True)
     spec = _spec("insights")
     row = {"id": "sample-insight"}
 
-    assert row_backlog_missing_files("okstats", repo, spec, row) == 1
+    assert row_backlog_missing_files("statfacts", repo, spec, row) == 1
     (content / "sample-insight_en.md").write_text("x", encoding="utf-8")
-    assert row_backlog_missing_files("okstats", repo, spec, row) == 0
-    assert is_content_row_done("okstats", repo, spec, row)
+    assert row_backlog_missing_files("statfacts", repo, spec, row) == 0
+    assert is_content_row_done("statfacts", repo, spec, row)
 
 
 def test_poi_guide_partial_done_vs_backlog(tmp_path: Path):
@@ -56,3 +56,27 @@ def test_poi_guide_partial_done_vs_backlog(tmp_path: Path):
     (guides / "onsen-guide-1_en.md").write_text("en", encoding="utf-8")
     assert is_content_row_done("okonsen", repo, spec, row)
     assert row_backlog_missing_files("okonsen", repo, spec, row) == 1
+
+
+def test_okramen_item_slug_alias(tmp_path: Path):
+    repo = tmp_path / "okramen"
+    content = repo / "app" / "content"
+    content.mkdir(parents=True)
+    spec = _spec("items", key_kind="coord")
+    row = {"Name": "Mennoya Kyoto"}
+    (content / "mennoya_en.md").write_text("en", encoding="utf-8")
+    (content / "mennoya_ko.md").write_text("ko", encoding="utf-8")
+    assert row_backlog_missing_files("okramen", repo, spec, row) == 0
+    assert is_content_row_done("okramen", repo, spec, row)
+
+
+def test_okramen_guide_alias(tmp_path: Path):
+    repo = tmp_path / "okramen"
+    guides = repo / "app" / "content" / "guides"
+    guides.mkdir(parents=True)
+    spec = _spec("guides")
+    row = {"id": "ramen_queue_etiquette"}
+    (guides / "ramen_etiquette_en.md").write_text("en", encoding="utf-8")
+    (guides / "ramen_etiquette_ko.md").write_text("ko", encoding="utf-8")
+    assert row_backlog_missing_files("okramen", repo, spec, row) == 0
+    assert is_content_row_done("okramen", repo, spec, row)

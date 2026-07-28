@@ -93,7 +93,7 @@ def append_starful_positions(
         return {"ok": False, "error": "position_count is 0"}
 
     if not ensure_gemini_api_key():
-        return {"ok": False, "error": "GEMINI_API_KEY 없음"}
+        return {"ok": False, "error": "Claude CLI 미로그인 — `claude` 후 /login"}
 
     spec = next(s for s in banks_for_site(site_id) if s.bank_id == "positions")
     existing_names, existing_lines = _existing_positions(site_id, repo)

@@ -11,10 +11,64 @@ import yaml
 from content_slugs import content_item_slug, poi_item_slug
 from topic_bank_registry import BankSpec
 
+# Bank key → existing MD stem when the same content was saved under another name.
+# Only explicit same-topic pairs (do not fuzzy-match different shops/guides).
+OKRAMEN_ITEM_SLUG_ALIASES: dict[str, str] = {
+    # Bank "Mennoya Kyoto" → files mennoya_en.md / mennoya_ko.md (shop_name: Mennoya)
+    "mennoya_kyoto": "mennoya",
+}
+
+OKRAMEN_GUIDE_ALIASES: dict[str, str] = {
+    "ramen_queue_etiquette": "ramen_etiquette",
+    "ramen_seasonal_limited": "seasonal_ramen",
+    "ramen_inflation_prices": "ramen_prices",
+    "instant_ramen_hacks": "best-instant-ramen-japan",
+    "female_solo_ramen": "solo_traveler_ramen",
+    "how-to-order-kaedama": "how_to_order",
+    "tsukemen": "tsukemen_art",
+}
+
 
 def _content_dirs(repo: Path) -> tuple[Path, Path]:
     content_dir = repo / "app" / "content"
     return content_dir, content_dir / "guides"
+
+
+def _item_slug_candidates(site_id: str, name: str) -> list[str]:
+    slug = content_item_slug(site_id, name)
+    out = [slug]
+    if site_id == "okramen":
+        alt = OKRAMEN_ITEM_SLUG_ALIASES.get(slug)
+        if alt and alt not in out:
+            out.append(alt)
+    return out
+
+
+def _guide_id_candidates(site_id: str, gid: str) -> list[str]:
+    out = [gid]
+    if site_id == "okramen":
+        alt = OKRAMEN_GUIDE_ALIASES.get(gid)
+        if alt and alt not in out:
+            out.append(alt)
+        # hyphen/underscore equivalent
+        swapped = gid.replace("-", "_") if "-" in gid else gid.replace("_", "-")
+        if swapped != gid and swapped not in out:
+            out.append(swapped)
+    return out
+
+
+def _poi_pair_missing(content_dir: Path, slug: str) -> int:
+    en = content_dir / f"{slug}_en.md"
+    ko = content_dir / f"{slug}_ko.md"
+    return int(not en.is_file()) + int(not ko.is_file())
+
+
+def _poi_pair_done(content_dir: Path, slugs: list[str]) -> bool:
+    return any(_poi_pair_missing(content_dir, s) == 0 for s in slugs)
+
+
+def _poi_pair_missing_best(content_dir: Path, slugs: list[str]) -> int:
+    return min((_poi_pair_missing(content_dir, s) for s in slugs), default=2)
 
 
 def _read_univ_md_names(md_path: Path) -> tuple[str, str, str]:
@@ -102,7 +156,10 @@ def is_content_row_done(site_id: str, repo: Path, spec: BankSpec, row: dict[str,
         gid = (row.get("id") or "").strip()
         if not gid:
             return False
-        return any((guides_dir / f"{gid}{suf}.md").is_file() for suf in ("", "_en"))
+        for cand in _guide_id_candidates(site_id, gid):
+            if any((guides_dir / f"{cand}{suf}.md").is_file() for suf in ("", "_en")):
+                return True
+        return False
 
     if spec.bank_id == "guide_topics":
         slug = (row.get("slug") or "").strip()
@@ -129,10 +186,7 @@ def is_content_row_done(site_id: str, repo: Path, spec: BankSpec, row: dict[str,
         name = (row.get("Name") or row.get("name") or "").strip()
         if not name:
             return False
-        slug = content_item_slug(site_id, name)
-        en = content_dir / f"{slug}_en.md"
-        ko = content_dir / f"{slug}_ko.md"
-        return en.is_file() and ko.is_file()
+        return _poi_pair_done(content_dir, _item_slug_candidates(site_id, name))
 
     if spec.bank_id == "positions":
         from starful_assets import position_slug
@@ -144,12 +198,21 @@ def is_content_row_done(site_id: str, repo: Path, spec: BankSpec, row: dict[str,
         out_dir = repo / "app" / "contents"
         return (out_dir / f"{slug}.md").is_file() if out_dir.is_dir() else False
 
-    if spec.bank_id == "python":
-        lib = (row.get("lib_name") or "").strip().lower()
-        posts = repo / "posts"
-        return any(posts.glob(f"*{lib}*.md")) if lib and posts.is_dir() else False
-
-    if spec.bank_id == "cloud":
+    if spec.bank_id in ("python", "cloud", "terraform"):
+        topic = (row.get("lib_name") or row.get("Topic") or "").strip()
+        if not topic:
+            return False
+        cat = spec.bank_id
+        posts = repo / "app" / "content" / "posts" / cat
+        if not posts.is_dir():
+            return False
+        needle = "".join(ch for ch in topic.lower() if ch.isalnum())
+        if not needle:
+            return False
+        for md in posts.glob("*.md"):
+            stem = "".join(ch for ch in md.stem.lower() if ch.isalnum())
+            if needle in stem or stem in needle:
+                return True
         return False
 
     return False
@@ -169,13 +232,13 @@ def row_backlog_missing_files(site_id: str, repo: Path, spec: BankSpec, row: dic
         gid = (row.get("id") or "").strip()
         if not gid:
             return 0
+        cands = _guide_id_candidates(site_id, gid)
         if site_id in ("okramen", "okonsen", "okcaddie"):
-            en = guides_dir / f"{gid}_en.md"
-            ko = guides_dir / f"{gid}_ko.md"
-            return int(not en.is_file()) + int(not ko.is_file())
-        return int(
-            not any((guides_dir / f"{gid}{suf}.md").is_file() for suf in ("", "_en"))
-        )
+            return _poi_pair_missing_best(guides_dir, cands)
+        for cand in cands:
+            if any((guides_dir / f"{cand}{suf}.md").is_file() for suf in ("", "_en")):
+                return 0
+        return 1
 
     if spec.bank_id == "guide_topics":
         slug = (row.get("slug") or "").strip()
@@ -204,10 +267,7 @@ def row_backlog_missing_files(site_id: str, repo: Path, spec: BankSpec, row: dic
         name = (row.get("Name") or row.get("name") or "").strip()
         if not name:
             return 0
-        slug = content_item_slug(site_id, name)
-        en = content_dir / f"{slug}_en.md"
-        ko = content_dir / f"{slug}_ko.md"
-        return int(not en.is_file()) + int(not ko.is_file())
+        return _poi_pair_missing_best(content_dir, _item_slug_candidates(site_id, name))
 
     if spec.bank_id == "positions":
         from starful_assets import position_slug
@@ -221,14 +281,7 @@ def row_backlog_missing_files(site_id: str, repo: Path, spec: BankSpec, row: dic
             return 0
         return 1
 
-    if spec.bank_id == "python":
-        lib = (row.get("lib_name") or "").strip().lower()
-        posts = repo / "posts"
-        if lib and posts.is_dir() and any(posts.glob(f"*{lib}*.md")):
-            return 0
-        return 1 if lib else 0
-
-    if spec.bank_id == "cloud":
-        return 1
+    if spec.bank_id in ("python", "cloud", "terraform"):
+        return 0 if is_content_row_done(site_id, repo, spec, row) else 1
 
     return 0
