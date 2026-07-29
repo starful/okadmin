@@ -272,7 +272,7 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
             "id": "ramens",
             "label": "ramens.csv",
             "rel_path": "script/csv/ramens.csv",
-            "headers": ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"],
+            "headers": ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features"],
         },
         {
             "id": "guides",
@@ -286,7 +286,7 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
             "id": "onsens",
             "label": "onsens.csv",
             "rel_path": "script/csv/onsens.csv",
-            "headers": ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda"],
+            "headers": ["Name", "Lat", "Lng", "Address", "Thumbnail", "Features"],
         },
         {
             "id": "guides",
@@ -388,7 +388,6 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
                 "Lng",
                 "Address",
                 "Features",
-                "Agoda",
                 "Website",
                 "Tel",
                 "SourceImage",

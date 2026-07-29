@@ -19,7 +19,7 @@ class BankSpec:
 
 
 GUIDE_HEADERS = ("id", "topic_en", "topic_ko", "keywords")
-RAMEN_HEADERS = ("Name", "Lat", "Lng", "Address", "Thumbnail", "Features", "Agoda")
+RAMEN_HEADERS = ("Name", "Lat", "Lng", "Address", "Thumbnail", "Features")
 ONSEN_HEADERS = RAMEN_HEADERS
 COURSE_HEADERS = ("Name", "Lat", "Lng", "Address", "Features", "Booking")
 INSIGHT_HEADERS = (

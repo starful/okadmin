@@ -73,7 +73,7 @@ POI_EXPAND_SEEDS: list[dict[str, str]] = []
 # Removed shared cafe guide seeds (same cross-site leak).
 DEFAULT_GUIDE_SEEDS: list[dict[str, str]] = []
 
-ITEM_HEADERS = ["Name", "Lat", "Lng", "Address", "Features", "Agoda"]
+ITEM_HEADERS = ["Name", "Lat", "Lng", "Address", "Features"]
 GUIDE_HEADERS = ["id", "topic_en", "topic_ko", "keywords"]
 KRCAMPUS_GUIDE_HEADERS = ["id", "topic_en", "topic_ja", "keywords"]
 KRCAMPUS_GUIDE_SEEDS: list[dict[str, str]] = [

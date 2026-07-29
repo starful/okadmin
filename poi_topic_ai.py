@@ -21,14 +21,14 @@ _SITE_META: dict[str, dict[str, Any]] = {
         "domain": "OK Ramen — ramen shops in Japan for travelers",
         "item_noun": "ramen shop",
         "guide_theme": "ramen dining and travel guides for Japan",
-        "extra_item_fields": '"Thumbnail": "", "Agoda": ""',
+        "extra_item_fields": '"Thumbnail": "": ""',
         "features_hint": "tonkotsu, shoyu, tsukemen, miso, regional styles",
     },
     "okonsen": {
         "domain": "OK Onsen — hot springs and ryokan baths in Japan",
         "item_noun": "onsen or ryokan bath facility",
         "guide_theme": "onsen etiquette and travel guides for Japan",
-        "extra_item_fields": '"Thumbnail": "", "Agoda": ""',
+        "extra_item_fields": '"Thumbnail": "": ""',
         "features_hint": "rotenburo, indoor bath, day-trip onsen, ryokan stay",
     },
     "okcaddie": {
@@ -170,7 +170,6 @@ def _parse_item_row(
     }
     if site_id in ("okramen", "okonsen"):
         row["Thumbnail"] = str(item.get("Thumbnail") or "").strip()
-        row["Agoda"] = str(item.get("Agoda") or "").strip()
     elif site_id == "okcaddie":
         row["Booking"] = str(item.get("Booking") or "").strip()
     existing_names.add(name.lower())
@@ -243,7 +242,7 @@ Existing guides:
     if site_id == "okcaddie":
         item_json = """{ "Name": "Course Name", "Lat": "35.0", "Lng": "135.0", "Address": "Prefecture, City", "Features": "public | 18 holes", "Booking": "" }"""
     else:
-        item_json = """{ "Name": "Shop Name", "Lat": "35.0", "Lng": "135.0", "Address": "Prefecture, City", "Features": "style | notes", "Thumbnail": "", "Agoda": "" }"""
+        item_json = """{ "Name": "Shop Name", "Lat": "35.0", "Lng": "135.0", "Address": "Prefecture, City", "Features": "style | notes", "Thumbnail": "": "" }"""
 
     prompt = f"""You are a travel content editor for {meta["domain"]}.
 {item_block}
