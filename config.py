@@ -210,6 +210,11 @@ CONTENT_JOBS: dict[str, list[dict[str, str]]] = {
             "label": "Terraform 포스트",
             "command": "python3 scripts/generate_posts.py terraform",
         },
+        {
+            "id": "data_analysis_ja",
+            "label": "Data Analysis EN→JA",
+            "command": "python3 scripts/rewrite_data_analysis_ja.py",
+        },
     ],
     "jpcampus": [
         {

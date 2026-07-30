@@ -217,6 +217,24 @@ def pipeline_for_site(site_id: str, repo: Path, env: dict[str, str]) -> dict[str
                     3600,
                 )
             )
+        with_ja = env.get("CONTENT_PIPELINE_WITH_JA", "0").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        ja_n = int_env_allow_zero(env, "DATA_ANALYSIS_JA_LIMIT", 0)
+        if "DATA_ANALYSIS_JA_LIMIT" not in env and with_ja:
+            ja_n = int_env_allow_zero(env, "CONTENT_LIMIT", DEFAULT_CONTENT_LIMIT)
+        if with_ja and ja_n > 0:
+            env = {**env, "DATA_ANALYSIS_JA_LIMIT": str(ja_n)}
+            steps.append(
+                (
+                    "data_analysis_ja",
+                    "Data Analysis EN→JA",
+                    ["python3", "scripts/rewrite_data_analysis_ja.py"],
+                    3600,
+                )
+            )
         return execute_pipeline(
             site_id,
             repo,

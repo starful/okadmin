@@ -955,6 +955,11 @@ def pipeline_run_caps(site_id: str) -> dict[str, Any]:
             {"label": "Python", "cap": f"최대 {okpy_n}건", "note": "신규 포스트"},
             {"label": "Cloud", "cap": f"최대 {okpy_n}건", "note": "AWS/GCP/Azure"},
             {"label": "Terraform", "cap": f"최대 {okpy_n}건", "note": "IaC"},
+            {
+                "label": "Data Analysis JA",
+                "cap": f"최대 {okpy_n}건",
+                "note": "EN→JA (CONTENT_PIPELINE_WITH_JA=1 또는 Content 잡)",
+            },
             {"label": "배포", "cap": "④ 배포 탭", "note": "수동"},
         ]
     elif site_id == "jpcampus":
@@ -1320,7 +1325,7 @@ CONTENT_PIPELINES: dict[str, dict[str, str]] = {
     "okcaddie": {"label": "OK Caddie", "description": "골프 · 가이드 AI + build"},
     "statfacts": {"label": "StatFacts", "description": "인사이트 AI + 가이드 · Imagen · build · GCS"},
     "starful.biz": {"label": "Starful Biz", "description": "포지션 가이드 · 이미지 · build · GCS"},
-    "okpy": {"label": "OKPy", "description": "Python · Cloud · Terraform · build · deploy"},
+    "okpy": {"label": "OKPy", "description": "Python · Cloud · Terraform · Data Analysis · build · deploy"},
     "jpcampus": {"label": "JP Campus", "description": "가이드 · 대학 · 숙소 발행 · 한국어 · featured · build"},
     "krcampus": {"label": "KR Campus", "description": "韓国留学 · 가이드 · 어학원/대학 · EN/JA · build"},
     "krcare": {"label": "KR Care", "description": "TourAPI 의료클리닉 · 이미지 · nearby Stay/Food · build"},
