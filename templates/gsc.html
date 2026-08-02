@@ -415,10 +415,18 @@ function urlHistFor(url) {
     return urlHistory[url] || {};
 }
 
+function rowIsDeleted(r) {
+    if (!r) return false;
+    if (r.is_deleted) return true;
+    const url = r.label || r.page || '';
+    const h = r.url_history || urlHistFor(url);
+    return !!(h && h.is_deleted);
+}
+
 function resolveAdvice(r) {
     const url = r.label || r.page || '';
     const h = r.url_history || urlHistFor(url);
-    const isDeleted = !!(h.is_deleted || r.is_deleted);
+    const isDeleted = rowIsDeleted(r);
     const hasMd = !!r.has_md && !isDeleted;
     if (isDeleted || !hasMd) return null;
     if (h.advice_label) {
@@ -753,11 +761,16 @@ function rowsForPattern(pattern) {
     return pattern === 'low_impression' ? currentLowImpression : currentLowCtr;
 }
 
+function activePatternRows(rows) {
+    /** Drop hub-deleted URLs — they stay in GSC history but are not actionable. */
+    return (rows || []).filter((r) => !rowIsDeleted(r));
+}
+
 function updateTabCounts() {
     const ctrEl = document.getElementById('tab-count-low-ctr');
     const impEl = document.getElementById('tab-count-low-impression');
-    if (ctrEl) ctrEl.textContent = String(currentLowCtr.length);
-    if (impEl) impEl.textContent = String(currentLowImpression.length);
+    if (ctrEl) ctrEl.textContent = String(activePatternRows(currentLowCtr).length);
+    if (impEl) impEl.textContent = String(activePatternRows(currentLowImpression).length);
 }
 
 function onPatternTabClick(pat) {
@@ -768,10 +781,23 @@ function onPatternTabClick(pat) {
 function updatePushCommitHint(data) {
     const el = document.getElementById('push-commit-hint');
     if (!el) return;
+    if (data?.needs_local_content_deploy && data?.deploy_hint) {
+        el.style.display = 'block';
+        el.textContent = data.deploy_hint;
+        el.style.color = '#eca';
+        return;
+    }
+    if (data?.content_gitignored && data?.deploy_hint) {
+        el.style.display = 'block';
+        el.textContent = data.deploy_hint;
+        el.style.color = '#888';
+        return;
+    }
     const msg = data?.suggested_commit_message;
     if (msg) {
         el.style.display = 'block';
         el.textContent = 'Push 커밋 초안: ' + msg;
+        el.style.color = '#888';
     } else {
         el.style.display = 'none';
         el.textContent = '';
@@ -814,7 +840,7 @@ function selectAllUrls(limit) {
         if (sel.size >= cap) break;
         if (!r.has_md) continue;
         const u = r.label || r.page;
-        if (!u || urlHistFor(u).is_deleted) continue;
+        if (!u || rowIsDeleted(r)) continue;
         sel.add(u);
     }
     selectedByPattern[pat] = sel;
@@ -877,11 +903,20 @@ function renderGa4(d) {
 function renderUrlPatternList(rows, pattern) {
     const el = document.getElementById('pattern-url-list');
     const meta = document.getElementById('pattern-tab-meta');
-    const all = rows || [];
+    const allRaw = rows || [];
+    const deletedN = allRaw.filter(rowIsDeleted).length;
+    const all = activePatternRows(allRaw);
     const sel = selectedSetFor(pattern);
+    // Drop deleted URLs from the current selection
+    for (const u of [...sel]) {
+        const row = allRaw.find((r) => (r.label || r.page) === u);
+        if (row && rowIsDeleted(row)) sel.delete(u);
+    }
     if (!all.length) {
-        el.innerHTML = '<p class="mono" style="color:#666">해당 조건 URL 없음</p>';
-        meta.textContent = '0건';
+        el.innerHTML = deletedN
+            ? `<p class="mono" style="color:#666">표시할 URL 없음 (삭제 ${deletedN}건 숨김)</p>`
+            : '<p class="mono" style="color:#666">해당 조건 URL 없음</p>';
+        meta.textContent = deletedN ? `0건 · 삭제 ${deletedN}건 숨김` : '0건';
         return;
     }
     const missing = all.filter(r => !r.has_md).length;
@@ -889,6 +924,7 @@ function renderUrlPatternList(rows, pattern) {
     const sorted = sortPatternRows(visible, pattern);
     const show = sorted.slice(0, 100);
     const missNote = missing ? ` · MD 없음 ${missing}건(선택 불가)` : '';
+    const delNote = deletedN ? ` · 삭제 ${deletedN}건 숨김` : '';
     let seoN = 0, delN = 0, keepN = 0;
     for (const r of visible) {
         const a = resolveAdvice(r);
@@ -900,7 +936,7 @@ function renderUrlPatternList(rows, pattern) {
     const adviceNote = (seoN || delN || keepN)
         ? ` · SEO추천 ${seoN} · 삭제검토 ${delN}${keepN ? ` · 유지 ${keepN}` : ''}`
         : '';
-    meta.textContent = `총 ${all.length}건 · 표시 ${show.length}건${missNote}${adviceNote}`;
+    meta.textContent = `총 ${all.length}건 · 표시 ${show.length}건${missNote}${delNote}${adviceNote}`;
     if (!show.length) {
         el.innerHTML = '<p class="mono" style="color:#666">MD 매칭 URL 없음 — 「MD 있는 URL만 표시」 해제 시 GSC 잔여 URL 확인</p>';
         return;
@@ -919,13 +955,12 @@ function renderUrlPatternList(rows, pattern) {
         show.map((r) => {
             const url = r.label || r.page || '';
             const pretty = formatUrlDisplay(url);
-            const isDeleted = !!(r.is_deleted || (r.url_history || urlHistFor(url)).is_deleted);
-            const hasMd = !!r.has_md && !isDeleted;
+            const hasMd = !!r.has_md;
             const checked = sel.has(url) ? 'checked' : '';
-            const dis = (hasMd && !isDeleted) ? '' : 'disabled';
-            const rowCls = isDeleted ? 'row-deleted' : (hasMd ? '' : 'row-no-md');
+            const dis = hasMd ? '' : 'disabled';
+            const rowCls = hasMd ? '' : 'row-no-md';
             return `<tr class="${rowCls}">
-            <td><input type="checkbox" class="url-pick" data-pattern="${pattern}" data-has-md="${hasMd ? '1' : '0'}" data-deleted="${isDeleted ? '1' : '0'}" value="${escapeHtml(url)}" ${checked} ${dis}></td>
+            <td><input type="checkbox" class="url-pick" data-pattern="${pattern}" data-has-md="${hasMd ? '1' : '0'}" data-deleted="0" value="${escapeHtml(url)}" ${checked} ${dis}></td>
             <td class="gsc-hist">${historyCell(r)}</td>
             <td class="gsc-date">${dateCell(r)}</td>
             <td class="gsc-advice">${adviceCell(r)}</td>
@@ -958,9 +993,11 @@ function renderPatternUrlLists(lowCtr, lowImp) {
     document.getElementById('pattern-tabs').style.display = 'flex';
     document.getElementById('pattern-tab-panel').style.display = 'block';
     updateTabCounts();
-    if (!currentLowCtr.length && currentLowImpression.length) {
+    const activeCtr = activePatternRows(currentLowCtr);
+    const activeImp = activePatternRows(currentLowImpression);
+    if (!activeCtr.length && activeImp.length) {
         activePattern = 'low_impression';
-    } else if (currentLowCtr.length) {
+    } else if (activeCtr.length) {
         activePattern = 'low_ctr';
     }
     syncTabUi();
@@ -1246,7 +1283,11 @@ function openResultsModal(data, opts = {}) {
         } else if (items.length) {
             const ctrN = data.low_ctr_count ?? '—';
             const impN = data.low_impression_count ?? '—';
-            meta.textContent = `${items.length}건 처리 · 후보 저CTR ${ctrN} · 저노출 ${impN}`;
+            let line = `${items.length}건 처리 · 후보 저CTR ${ctrN} · 저노출 ${impN}`;
+            if (data.needs_local_content_deploy) {
+                line += ' · Deploy 필요 (Git ignore content)';
+            }
+            meta.textContent = line;
         } else {
             meta.textContent = '';
         }
@@ -1353,7 +1394,8 @@ async function runSeo() {
         const n = (d.results || []).length;
         if (n > 0) {
             const calNote = d.calendar_event ? ' · 달력 기록' : '';
-            showToast('완료 · ' + n + '건' + calNote);
+            const depNote = d.needs_local_content_deploy ? ' · Deploy 필요' : '';
+            showToast('완료 · ' + n + '건' + calNote + depNote);
         } else {
             showToast(d.error || '처리할 URL 없음');
         }

@@ -107,7 +107,7 @@
         el.className = `hub-claude-banner level-${lv}`;
         const hint = pipelineOk(data)
             ? '대량 생성 시 한도 주의'
-            : '콘텐츠 생성 일시 중단 · 리셋 후 재시도';
+            : '한도 임박 · 생성 시 Claude 실패 가능';
         el.innerHTML =
             `<span class="hub-claude-banner-label">Claude</span>`
             + `<span class="hub-claude-banner-text">${esc(text)}</span>`
@@ -156,7 +156,6 @@
         lastData = data;
         global.__claudeUsage = data;
         global.__claudePipelineOk = pipelineOk(data);
-        renderBanner(document.getElementById('claude-hub-banner'), data);
         renderBanner(document.getElementById('claude-dash-banner'), data);
         const panel = document.getElementById('claude-usage-panel');
         if (panel) renderCards(panel, data, { keys: HOME_WINDOW_KEYS });

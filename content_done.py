@@ -147,15 +147,19 @@ def is_content_row_done(site_id: str, repo: Path, spec: BankSpec, row: dict[str,
     content_dir, guides_dir = _content_dirs(repo)
 
     if spec.bank_id == "insights":
-        iid = (row.get("id") or "").strip()
+        iid = (row.get("id") or "").strip().removesuffix("_en")
         if not iid or iid.startswith("#"):
             return False
+        if site_id == "okpy":
+            return (repo / "app" / "content" / "posts" / "data-analysis" / f"{iid}.md").is_file()
         return (content_dir / f"{iid}_en.md").is_file()
 
     if spec.bank_id == "guides":
         gid = (row.get("id") or "").strip()
         if not gid:
             return False
+        if site_id == "okpy":
+            return (repo / "app" / "content" / "posts" / "data-analysis" / f"{gid}.md").is_file()
         for cand in _guide_id_candidates(site_id, gid):
             if any((guides_dir / f"{cand}{suf}.md").is_file() for suf in ("", "_en")):
                 return True
@@ -223,15 +227,23 @@ def row_backlog_missing_files(site_id: str, repo: Path, spec: BankSpec, row: dic
     content_dir, guides_dir = _content_dirs(repo)
 
     if spec.bank_id == "insights":
-        iid = (row.get("id") or "").strip()
+        iid = (row.get("id") or "").strip().removesuffix("_en")
         if not iid or iid.startswith("#"):
             return 0
+        if site_id == "okpy":
+            return int(
+                not (repo / "app" / "content" / "posts" / "data-analysis" / f"{iid}.md").is_file()
+            )
         return int(not (content_dir / f"{iid}_en.md").is_file())
 
     if spec.bank_id == "guides":
         gid = (row.get("id") or "").strip()
         if not gid:
             return 0
+        if site_id == "okpy":
+            return int(
+                not (repo / "app" / "content" / "posts" / "data-analysis" / f"{gid}.md").is_file()
+            )
         cands = _guide_id_candidates(site_id, gid)
         if site_id in ("okramen", "okonsen", "okcaddie"):
             return _poi_pair_missing_best(guides_dir, cands)

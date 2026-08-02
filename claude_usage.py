@@ -163,7 +163,7 @@ _WINDOW_PRIORITY = ("five_hour", "seven_day", "seven_day_sonnet", "seven_day_opu
 
 
 def attach_usage_summary(summary: dict[str, Any]) -> dict[str, Any]:
-    """Add headline / worst_level / pipeline_ok for Hub banner and pipeline gate."""
+    """Add headline / worst_level / pipeline_ok for dashboard banner."""
     windows = [w for w in (summary.get("windows") or []) if isinstance(w, dict)]
     by_key = {str(w.get("key") or ""): w for w in windows if w.get("key")}
 

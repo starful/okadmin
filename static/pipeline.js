@@ -18,12 +18,12 @@ function csvExpandAvail(snap) {
 }
 
 const AI_QUEUE_SITES = new Set([
-    'statfacts', 'okramen', 'okonsen', 'okcaddie',
+    'okramen', 'okonsen', 'okcaddie',
     'starful.biz', 'jpcampus', 'krcampus', 'okpy',
 ]);
 
 const TRENDS_SEED_SITES = new Set([
-    'statfacts', 'okramen', 'okonsen', 'okcaddie',
+    'okramen', 'okonsen', 'okcaddie',
     'starful.biz', 'jpcampus', 'krcampus', 'okpy',
 ]);
 
@@ -55,10 +55,10 @@ window.__aqCounts = window.__aqCounts || {};
 function aiQueueDefaults(snap) {
     const exp = (snap && snap.csv_expand) || {};
     return {
-        content: exp.default_insights ?? exp.default_items ?? exp.default_positions ?? 6,
-        guides: exp.default_guides ?? 3,
-        schools: exp.default_schools ?? 3,
-        universities: exp.default_universities ?? 3,
+        content: exp.default_insights ?? exp.default_items ?? exp.default_positions ?? 3,
+        guides: exp.default_guides ?? 2,
+        schools: exp.default_schools ?? 2,
+        universities: exp.default_universities ?? 2,
         mode: exp.queue_mode || '',
     };
 }
@@ -150,6 +150,7 @@ function aiQueueInputs(siteId, snap, disabled) {
             ${aqStepperField('Python', `aq-content-${siteId}`, defs.content, 15, disabled)}
             ${aqStepperField('Cloud', `aq-schools-${siteId}`, defs.schools, 15, disabled)}
             ${aqStepperField('Terraform', `aq-univs-${siteId}`, defs.universities, 15, disabled)}
+            ${aqStepperField('Data JA', `aq-guides-${siteId}`, defs.guides, 15, disabled)}
         </span>`;
     }
     const contentLabel = aiQueueContentLabel(siteId);
@@ -221,7 +222,7 @@ function aiQueueExpandMessage(siteId, counts) {
         return `AI가 가이드 ${counts.guide_count}건 · 어학원 ${counts.school_count}건 · 대학 ${counts.university_count}건을 목록에 추가합니다. 계속할까요?`;
     }
     if (siteId === 'okpy') {
-        return `AI가 Python ${counts.insight_count} · Cloud ${counts.school_count} · Terraform ${counts.university_count}건을 목록에 추가합니다. 계속할까요?`;
+        return `AI가 Python ${counts.insight_count} · Cloud ${counts.school_count} · Terraform ${counts.university_count} · Data JA ${counts.guide_count}건을 목록에 추가합니다. 계속할까요?`;
     }
     const contentLabel = aiQueueContentLabel(siteId);
     return `AI가 ${contentLabel} ${counts.insight_count}건 · 가이드 ${counts.guide_count}건을 작성 목록에 추가합니다. 계속할까요?`;
@@ -238,7 +239,7 @@ function aiQueueBusySub(siteId, counts) {
         return `가이드 ${counts.guide_count} · 어학원 ${counts.school_count} · 대학 ${counts.university_count} · 보통 10~30초`;
     }
     if (siteId === 'okpy') {
-        return `Python ${counts.insight_count} · Cloud ${counts.school_count} · Terraform ${counts.university_count} · 보통 10~30초`;
+        return `Python ${counts.insight_count} · Cloud ${counts.school_count} · Terraform ${counts.university_count} · Data JA ${counts.guide_count} · 보통 10~30초`;
     }
     const contentLabel = aiQueueContentLabel(siteId);
     return `${contentLabel} ${counts.insight_count}건 · 가이드 ${counts.guide_count}건 · 보통 10~30초`;
@@ -253,7 +254,7 @@ function aiQueueCountValid(siteId, counts) {
         return counts.guide_count > 0 || counts.school_count > 0 || counts.university_count > 0;
     }
     if (siteId === 'okpy') {
-        return counts.insight_count > 0 || counts.school_count > 0 || counts.university_count > 0;
+        return counts.insight_count > 0 || counts.school_count > 0 || counts.university_count > 0 || counts.guide_count > 0;
     }
     return counts.insight_count > 0 || counts.guide_count > 0;
 }
@@ -262,7 +263,7 @@ function aiQueueCountError(siteId) {
     if (siteId === 'starful.biz') return '포지션 개수를 1 이상 입력하세요';
     if (siteId === 'jpcampus') return '가이드·대학 중 1개 이상 입력하세요';
     if (siteId === 'krcampus') return '가이드·어학원·대학 중 1개 이상 입력하세요';
-    if (siteId === 'okpy') return 'Python·Cloud·Terraform 중 1개 이상 입력하세요';
+    if (siteId === 'okpy') return 'Python·Cloud·Terraform·Data JA 중 1개 이상 입력하세요';
     return `${aiQueueContentLabel(siteId)} 또는 가이드 개수를 1 이상 입력하세요`;
 }
 
@@ -287,6 +288,7 @@ function aiQueueExpandBody(siteId, counts) {
         body.insight_count = counts.insight_count;
         body.school_count = counts.school_count;
         body.university_count = counts.university_count;
+        body.guide_count = counts.guide_count;
         return JSON.stringify(body);
     }
     body.insight_count = counts.insight_count;
@@ -351,11 +353,12 @@ function mdPendingText(snap, siteId) {
         const py = g.python != null ? g.python : (snap.backlog && snap.backlog.python_pending) || 0;
         const cloud = g.cloud != null ? g.cloud : (snap.backlog && snap.backlog.cloud_pending) || 0;
         const tf = g.terraform != null ? g.terraform : (snap.backlog && snap.backlog.terraform_pending) || 0;
-        const total = py + cloud + tf;
+        const ja = g.data_analysis_ja != null ? g.data_analysis_ja : (snap.backlog && snap.backlog.data_analysis_ja_pending) || 0;
+        const total = py + cloud + tf + ja;
         const csvPy = csv.python;
         const csvCloud = csv.cloud;
         const csvTf = csv.terraform;
-        return `${total}건 (Python ${pending(py, csvPy)} · Cloud ${pending(cloud, csvCloud)} · Terraform ${pending(tf, csvTf)})`;
+        return `${total}건 (Python ${pending(py, csvPy)} · Cloud ${pending(cloud, csvCloud)} · Terraform ${pending(tf, csvTf)} · Data JA ${ja})`;
     }
     if (siteId === 'krcare') {
         return 'TourAPI 수집';
@@ -399,7 +402,7 @@ function remainingText(p) {
 function nextRunText(snap) {
     const next = snap && snap.next_run;
     if (!next) return '';
-    const lim = next.limits || { guide: 3, content: 6 };
+    const lim = next.limits || { guide: 2, content: 3 };
     const bits = [];
     if (next.guides_topics) bits.push(`가이드 ${next.guides_topics}`);
     if (next.items_pairs) bits.push(`콘텐츠 ${next.items_pairs}`);
@@ -603,10 +606,6 @@ async function loadPipelines() {
 
 async function runPipeline(siteId, label) {
     activePipelineSite = siteId;
-    if (typeof ClaudeMonitor !== 'undefined' && !ClaudeMonitor.pipelineOk(ClaudeMonitor.getLast())) {
-        showToast(ClaudeMonitor.headline(ClaudeMonitor.getLast()) || 'Claude 사용량 한도 — 리셋 후 재시도');
-        return;
-    }
     const siteEl = document.getElementById('result-site');
     if (siteEl) siteEl.textContent = '· ' + (label || siteId);
     if (typeof hubSiteHasDeployJob === 'function' && hubSiteHasDeployJob(siteId)) {
@@ -721,10 +720,6 @@ async function bootstrapBacklog() {
 async function expandCsv(siteId) {
     if (!supportsTopicExpand(siteId)) {
         showToast('이 사이트는 목록 추가가 없습니다 · TourAPI 갱신을 사용하세요');
-        return;
-    }
-    if (isAiQueueSite(siteId) && typeof ClaudeMonitor !== 'undefined' && !ClaudeMonitor.pipelineOk(ClaudeMonitor.getLast())) {
-        showToast(ClaudeMonitor.headline(ClaudeMonitor.getLast()) || 'Claude 사용량 한도 — 리셋 후 재시도');
         return;
     }
     const pipe = typeof pipelineForSite === 'function' ? pipelineForSite(siteId) : null;

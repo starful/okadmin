@@ -11,8 +11,8 @@ from topic_bank_registry import banks_for_site
 
 POI_AI_SITES: tuple[str, ...] = ("okramen", "okonsen", "okcaddie")
 
-DEFAULT_ITEM_COUNT = 6
-DEFAULT_GUIDE_COUNT = 3
+DEFAULT_ITEM_COUNT = 3
+DEFAULT_GUIDE_COUNT = 2
 MAX_ITEM_COUNT = 30
 MAX_GUIDE_COUNT = 15
 

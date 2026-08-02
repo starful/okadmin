@@ -255,6 +255,76 @@ def test_pr_review_github_diff(tmp_path, monkeypatch):
     assert "+added line" in out["diff"]
 
 
+def test_pr_review_github_diff_too_large_falls_back_local(tmp_path, monkeypatch):
+    from github_ops import pr_review
+
+    (tmp_path / ".git").mkdir()
+
+    monkeypatch.setattr("github_ops.gh_available", lambda: {"ok": True, "logged_in": True})
+    monkeypatch.setattr("github_ops.git_current_branch", lambda _p: "feat/x")
+    monkeypatch.setattr(
+        "git_ops.git_status_detail",
+        lambda _p: {"ok": True, "dirty": False},
+    )
+    monkeypatch.setattr(
+        "git_util.git_summary",
+        lambda _p: {"branch": "feat/x", "ahead": 0},
+    )
+
+    def fake_gh(_path, args, **kw):
+        if args[:2] == ["pr", "view"]:
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout=(
+                    '{"number":14,"title":"chore: content","url":"https://github.com/starful/okpy/pull/14",'
+                    '"mergeable":true,"baseRefName":"main","headRefName":"feat/x",'
+                    '"additions":100,"deletions":0,"changedFiles":400}'
+                ),
+                stderr="",
+            )
+        if args[:2] == ["pr", "diff"]:
+            return subprocess.CompletedProcess(
+                args,
+                1,
+                stdout="",
+                stderr=(
+                    "HTTP 406: Sorry, the diff exceeded the maximum number of files (300). "
+                    "PullRequest.diff too_large"
+                ),
+            )
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="fail")
+
+    monkeypatch.setattr("github_ops._run_gh", fake_gh)
+    monkeypatch.setattr(
+        "github_ops._local_pr_review",
+        lambda *_a, **_kw: {
+            "source": "local",
+            "branch": "feat/x",
+            "base": "main",
+            "stat": "400 files changed",
+            "diff": "+local truncated\n",
+            "empty": False,
+            "checks": {
+                "has_open_pr": False,
+                "uncommitted": False,
+                "unpushed": False,
+                "ahead": 0,
+                "has_diff": True,
+            },
+        },
+    )
+
+    out = pr_review(tmp_path, number=14)
+    assert out["ok"] is True
+    assert out["can_merge"] is True
+    assert out["source"] == "github+local"
+    assert out["warnings"]
+    assert "too large" in out["warnings"][0].lower()
+    assert "local truncated" in out["diff"]
+    assert out["pr"]["changedFiles"] == 400
+
+
 def test_draft_ship_english_one_call(tmp_path, monkeypatch):
     from github_ops import draft_ship_english
 
@@ -300,3 +370,59 @@ def test_draft_ship_english_one_call(tmp_path, monkeypatch):
     assert out["issue"]["title"].startswith("feat:")
     assert out["commit"]["message"].startswith("feat:")
     assert out["pr"]["title"].startswith("feat:")
+
+
+def _init_git_repo(path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=path, capture_output=True, check=True)
+    (path / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=path, capture_output=True, check=True)
+
+
+def test_ship_change_context_counts_untracked_content(tmp_path):
+    """Content generation usually adds new untracked MD — must count as ship changes."""
+    from github_ops import _ship_change_context
+
+    _init_git_repo(tmp_path)
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "new_shop_en.md").write_text("---\ntitle: x\n---\nbody\n", encoding="utf-8")
+
+    ctx = _ship_change_context(tmp_path)
+    assert ctx["ok"] is True
+    assert ctx["has_changes"] is True
+    assert "new_shop_en.md" in ctx["wt_files"]
+    assert ctx["status"]["dirty"] is True
+def test_draft_ship_english_untracked_content_no_hint(tmp_path, monkeypatch):
+    """Ship prep after content gen should work without a manual hint."""
+    from github_ops import draft_ship_english
+
+    _init_git_repo(tmp_path)
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "new_shop_en.md").write_text("---\ntitle: x\n---\n", encoding="utf-8")
+
+    monkeypatch.setattr("github_ops.repo_slug", lambda _p: "starful/demo")
+    monkeypatch.setattr("llm_claude.ensure_llm", lambda: True)
+    monkeypatch.setattr(
+        "llm_claude.claude_json",
+        lambda _prompt: {
+            "branch_slug": "add-new-shop",
+            "issue": {
+                "title": "feat: add new shop content",
+                "body": "## Context\nNew MD.\n\n## Acceptance criteria\n- [ ] page builds",
+            },
+            "commit": {"message": "feat: add new shop markdown"},
+            "pr": {
+                "title": "feat: add new shop content",
+                "summary": "- Add new_shop_en.md",
+                "test_plan": "- [ ] build site",
+            },
+        },
+    )
+
+    out = draft_ship_english(tmp_path, site_id="demo", hint="")
+    assert out["ok"] is True
+    assert out["commit"]["message"].startswith("feat:")

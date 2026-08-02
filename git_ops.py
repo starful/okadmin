@@ -222,7 +222,7 @@ def git_status_detail(repo_path: Path) -> dict[str, Any]:
         return {"ok": False, "error": "no git repository"}
     branch = git_current_branch(repo_path)
     short = _run_git(repo_path, ["status", "-sb"], timeout=30)
-    porcelain = _run_git(repo_path, ["status", "--porcelain"], timeout=30)
+    porcelain = _run_git(repo_path, ["status", "--porcelain", "-uall"], timeout=30)
     if short.returncode != 0:
         return {
             "ok": False,

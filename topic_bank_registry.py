@@ -104,6 +104,21 @@ SITE_BANKS: dict[str, tuple[BankSpec, ...]] = {
         BankSpec("python", ("lib_name",), "lib_name", "name", "data/python.csv"),
         BankSpec("cloud", ("Topic",), "Topic", "name", "data/cloud.csv"),
         BankSpec("terraform", ("Topic",), "Topic", "name", "data/terraform.csv"),
+        BankSpec(
+            "insights",
+            INSIGHT_HEADERS,
+            "id",
+            "id",
+            "data/insights.csv",
+        ),
+        BankSpec(
+            "guides",
+            GUIDE_HEADERS,
+            "id",
+            "id",
+            "data/guides.csv",
+            "guide",
+        ),
     ),
 }
 

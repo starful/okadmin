@@ -286,6 +286,17 @@ def site_activity(site_id: str, svc: dict[str, Any]) -> dict[str, Any]:
     activity["content_schedule"] = content_sched
     activity["content_due_label"] = format_due_label(content_sched)
 
+    if work_root_available():
+        from local_content_signal import local_content_deploy_signal
+
+        activity["local_content"] = local_content_deploy_signal(
+            site_id,
+            repo_path(svc) if svc.get("git") else None,
+            deploy_logs=deploy_logs,
+            seo_finished_at=gsc_meta.get("last_seo_at"),
+            seo_applied=gsc_meta.get("last_seo_applied"),
+        )
+
     return activity
 
 

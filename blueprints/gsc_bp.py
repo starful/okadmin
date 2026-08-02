@@ -115,8 +115,12 @@ def gsc_run_seo():
     result["suggested_commit_message"] = seo_commit_message(site_id, result)
     result["last_runs"] = gsc_last_runs(site_id)
     from gsc_url_store import url_history_meta
+    from local_content_signal import attach_seo_deploy_hint
 
     result["url_history"] = url_history_meta(site_id)
+    svc = get_service(site_id)
+    root = repo_path(svc) if svc and work_root_available() else None
+    attach_seo_deploy_hint(site_id, root, result)
     if result.get("error") and not result.get("results"):
         return jsonify(result), 400
     return jsonify(result)

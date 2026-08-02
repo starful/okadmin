@@ -245,6 +245,79 @@ OKRAMEN_GUIDE_SEEDS: list[dict[str, str]] = [
         "topic_ko": "라멘 웨이팅 줄 서는 법",
         "keywords": "ramen queue waitlist",
     },
+    # Booking playbooks (restaurant / ramen)
+    {
+        "id": "tablecheck_restaurant_booking",
+        "topic_en": "How to book Japanese restaurants with TableCheck",
+        "topic_ko": "테이블체크로 맛집 예약하기",
+        "keywords": "tablecheck restaurant booking japan",
+    },
+    {
+        "id": "tabelog_reservation_guide",
+        "topic_en": "How Tabelog reservations work for travelers",
+        "topic_ko": "타베로그 예약 방법",
+        "keywords": "tabelog reservation booking",
+    },
+    {
+        "id": "hotpepper_gourmet_booking",
+        "topic_en": "Booking lunch and dinner with Hot Pepper Gourmet",
+        "topic_ko": "핫페퍼 구르메 예약",
+        "keywords": "hotpepper gourmet booking",
+    },
+    {
+        "id": "gurunavi_reservation_basics",
+        "topic_en": "Gurunavi reservation basics for visitors",
+        "topic_ko": "구루나비 예약 기초",
+        "keywords": "gurunavi reservation japan",
+    },
+    {
+        "id": "phone_reservation_japanese_script",
+        "topic_en": "Japanese phone scripts for restaurant reservations",
+        "topic_ko": "식당 전화 예약 일본어 스크립트",
+        "keywords": "phone reservation japanese script restaurant",
+    },
+    {
+        "id": "queue_vs_reservation_shops",
+        "topic_en": "Queue-only vs reservation restaurants: how to tell",
+        "topic_ko": "줄 서기 vs 예약제 가게 구분",
+        "keywords": "queue waitlist reservation ramen restaurant",
+    },
+    {
+        "id": "ramen_number_ticket_systems",
+        "topic_en": "Ramen waiting systems: number tickets and apps",
+        "topic_ko": "라멘 웨이팅·번호표 시스템",
+        "keywords": "ramen number ticket waitlist app",
+    },
+    {
+        "id": "omakase_sushi_booking_basics",
+        "topic_en": "How omakase and sushi reservations usually work",
+        "topic_ko": "스시·오마카세 예약 기초",
+        "keywords": "omakase sushi reservation booking",
+    },
+    {
+        "id": "hotpepper_lunch_timesale",
+        "topic_en": "Catching Hot Pepper lunch time-sale seats",
+        "topic_ko": "핫페퍼 점심 타임세일 잡기",
+        "keywords": "hotpepper lunch timesale booking",
+    },
+    {
+        "id": "group_size_change_restaurant",
+        "topic_en": "How to change party size after booking a restaurant",
+        "topic_ko": "식당 예약 후 인원 변경 연락법",
+        "keywords": "restaurant booking party size change",
+    },
+    {
+        "id": "restaurant_cancel_noshow_manners",
+        "topic_en": "Cancel and no-show manners for Japanese restaurants",
+        "topic_ko": "식당 예약 부도·캔슬 매너",
+        "keywords": "restaurant cancel noshow manners",
+    },
+    {
+        "id": "tokyo_osaka_booking_fallback",
+        "topic_en": "Tokyo and Osaka food booking failures: what to do next",
+        "topic_ko": "도쿄·오사카 맛집 예약 실패 시 대안",
+        "keywords": "tokyo osaka restaurant booking fallback",
+    },
 ]
 
 OKONSEN_GUIDE_SEEDS: list[dict[str, str]] = [
@@ -278,6 +351,79 @@ OKONSEN_GUIDE_SEEDS: list[dict[str, str]] = [
         "topic_ko": "온천 마을 교통 팁",
         "keywords": "hakone kusatsu beppu transit onsen",
     },
+    # Booking playbooks (ryokan / onsen)
+    {
+        "id": "ryokan_official_site_booking",
+        "topic_en": "How to book a ryokan on the official website",
+        "topic_ko": "료칸 공식 사이트 예약",
+        "keywords": "ryokan official website booking",
+    },
+    {
+        "id": "rakuten_travel_onsen_booking",
+        "topic_en": "Booking onsen ryokan stays on Rakuten Travel",
+        "topic_ko": "라쿠텐으로 온천·료칸 잡기",
+        "keywords": "rakuten travel onsen ryokan booking",
+    },
+    {
+        "id": "ikyu_luxury_ryokan_booking",
+        "topic_en": "Using Ikyu for upscale ryokan reservations",
+        "topic_ko": "이큐로 고급 료칸 예약",
+        "keywords": "ikyu luxury ryokan booking",
+    },
+    {
+        "id": "ryokan_meal_allergy_requests",
+        "topic_en": "How to request meals, allergies, and kids menus when booking",
+        "topic_ko": "식사·알레르기·아이 식사 요청",
+        "keywords": "ryokan meal allergy kids request booking",
+    },
+    {
+        "id": "day_use_onsen_booking",
+        "topic_en": "How day-use (higaeri) onsen reservations work",
+        "topic_ko": "당일입욕 예약 방법",
+        "keywords": "higaeri day use onsen booking",
+    },
+    {
+        "id": "kashikiri_buro_booking_steps",
+        "topic_en": "Step-by-step: booking a private kashikiri bath",
+        "topic_ko": "전세탕·가족탕 예약 단계",
+        "keywords": "kashikiri kazoku buro private bath booking",
+    },
+    {
+        "id": "room_with_open_air_bath_booking",
+        "topic_en": "How to book a room with an open-air bath",
+        "topic_ko": "객실 노천탕 있는 방 예약",
+        "keywords": "room open air bath rotenburo booking",
+    },
+    {
+        "id": "tattoo_policy_before_booking",
+        "topic_en": "Checking tattoo policy before you book an onsen",
+        "topic_ko": "문신 가능 여부 예약 전 확인",
+        "keywords": "tattoo friendly onsen booking policy",
+    },
+    {
+        "id": "peak_season_onsen_booking_timing",
+        "topic_en": "When to book onsen stays for peak seasons and holidays",
+        "topic_ko": "성수기·연휴 온천 예약 타이밍",
+        "keywords": "peak season holiday onsen booking timing",
+    },
+    {
+        "id": "hakone_overnight_booking_checklist",
+        "topic_en": "Hakone overnight booking checklist",
+        "topic_ko": "하코네 1박 예약 체크리스트",
+        "keywords": "hakone overnight booking checklist",
+    },
+    {
+        "id": "kusatsu_kinosaki_weekend_booking_order",
+        "topic_en": "Weekend booking order for Kusatsu and Kinosaki",
+        "topic_ko": "구사쓰·기노사키 주말 예약 순서",
+        "keywords": "kusatsu kinosaki weekend booking order",
+    },
+    {
+        "id": "ryokan_cancel_change_noshow",
+        "topic_en": "Ryokan cancel, change, and no-show rules travelers miss",
+        "topic_ko": "료칸 취소·변경·노쇼 대응",
+        "keywords": "ryokan cancel change noshow policy",
+    },
 ]
 
 OKCADDIE_GUIDE_SEEDS: list[dict[str, str]] = [
@@ -310,6 +456,67 @@ OKCADDIE_GUIDE_SEEDS: list[dict[str, str]] = [
         "topic_en": "On-course golf etiquette: pace of play and caddie tips",
         "topic_ko": "라운드 예절·캐디 팁",
         "keywords": "golf etiquette pace caddie japan",
+    },
+    # Booking playbooks (golf)
+    {
+        "id": "japan_golf_booking_sites_compare",
+        "topic_en": "Comparing major Japan golf booking sites",
+        "topic_ko": "일본 골프 예약 사이트 비교",
+        "keywords": "golf booking sites compare rakuten gia",
+    },
+    {
+        "id": "rakuten_gora_golf_booking",
+        "topic_en": "How to book tee times on Rakuten GORA",
+        "topic_ko": "라쿠텐 골프(GORA) 예약",
+        "keywords": "rakuten gora golf booking",
+    },
+    {
+        "id": "gia_golf_app_booking",
+        "topic_en": "Using golf booking apps like GIA Golf",
+        "topic_ko": "지아골프 등 앱으로 예약하기",
+        "keywords": "gia golf app booking japan",
+    },
+    {
+        "id": "single_golfer_booking_deep_dive",
+        "topic_en": "Booking as a single golfer in Japan",
+        "topic_ko": "싱글 플레이어 골프 예약",
+        "keywords": "single golfer booking japan",
+    },
+    {
+        "id": "caddie_cart_options_when_booking",
+        "topic_en": "Choosing caddie and cart options when you book",
+        "topic_ko": "캐디·카트 옵션 고르는 법",
+        "keywords": "caddie cart options golf booking",
+    },
+    {
+        "id": "join_vs_private_group_booking",
+        "topic_en": "Join (companion) rounds vs private group booking",
+        "topic_ko": "조인(동반) vs 단독 예약",
+        "keywords": "join companion private group golf booking",
+    },
+    {
+        "id": "korean_friendly_course_booking_tips",
+        "topic_en": "Booking tips for Korean-friendly and foreigner-ok courses",
+        "topic_ko": "외국인·한국어 가능 코스 예약 팁",
+        "keywords": "korean friendly foreigner golf booking",
+    },
+    {
+        "id": "golf_same_day_cancel_rules",
+        "topic_en": "Same-day and day-before golf cancel rules",
+        "topic_ko": "당일·전날 골프 취소 규칙",
+        "keywords": "golf cancel same day policy",
+    },
+    {
+        "id": "weekend_tee_time_booking_order",
+        "topic_en": "Weekend tee-time booking order that actually works",
+        "topic_ko": "주말 티타임 잡는 순서",
+        "keywords": "weekend tee time booking order",
+    },
+    {
+        "id": "airport_near_golf_booking",
+        "topic_en": "Booking rounds near Narita and Haneda",
+        "topic_ko": "공항 근처 라운드 예약 (나리타·하네다)",
+        "keywords": "narita haneda airport golf booking",
     },
 ]
 
@@ -825,20 +1032,28 @@ def run_pipeline(
                 "error": "가이드·어학원·대학 중 1개 이상 입력하세요",
             }
     elif site_id == "okpy":
-        # Map Hub fields: insight→python, school→cloud, university→terraform
-        if any(x is not None for x in (insight_count, school_count, university_count)):
+        # Map Hub fields: insight→python, school→cloud, university→terraform, guide→Data Analysis JA
+        if any(x is not None for x in (insight_count, school_count, university_count, guide_count)):
             insight_count = 0 if insight_count is None else insight_count
             school_count = 0 if school_count is None else school_count
             university_count = 0 if university_count is None else university_count
+            guide_count = 0 if guide_count is None else guide_count
         p = user_run_limit(insight_count, default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
         c = user_run_limit(school_count, default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
         t = user_run_limit(university_count, default=DEFAULT_CONTENT_LIMIT, ceiling=MAX_CONTENT_LIMIT)
-        if p == c == t == 0:
-            return {"ok": False, "error": "python·cloud·terraform 중 1개 이상 입력하세요"}
+        ja = user_run_limit(guide_count, default=0, ceiling=MAX_CONTENT_LIMIT)
+        if p == c == t == ja == 0:
+            return {"ok": False, "error": "python·cloud·terraform·Data JA 중 1개 이상 입력하세요"}
         env["PYTHON_LIMIT"] = str(p)
         env["CLOUD_LIMIT"] = str(c)
         env["TERRAFORM_LIMIT"] = str(t)
-        env["CONTENT_LIMIT"] = str(max(p, c, t))
+        env["CONTENT_LIMIT"] = str(max(p, c, t, ja) or DEFAULT_CONTENT_LIMIT)
+        if ja > 0:
+            env["CONTENT_PIPELINE_WITH_JA"] = "1"
+            env["DATA_ANALYSIS_JA_LIMIT"] = str(ja)
+        else:
+            env["CONTENT_PIPELINE_WITH_JA"] = "0"
+            env["DATA_ANALYSIS_JA_LIMIT"] = "0"
     elif site_id == "jpcampus" and (guide_count is not None or university_count is not None):
         g = user_run_limit(guide_count, default=DEFAULT_GUIDE_LIMIT, ceiling=MAX_GUIDE_LIMIT)
         u = user_run_limit(
@@ -1323,7 +1538,6 @@ CONTENT_PIPELINES: dict[str, dict[str, str]] = {
     "okramen": {"label": "OK Ramen", "description": "라멘 · 가이드 AI + build"},
     "okonsen": {"label": "OK Onsen", "description": "온천 · 가이드 AI + build"},
     "okcaddie": {"label": "OK Caddie", "description": "골프 · 가이드 AI + build"},
-    "statfacts": {"label": "StatFacts", "description": "인사이트 AI + 가이드 · Imagen · build · GCS"},
     "starful.biz": {"label": "Starful Biz", "description": "포지션 가이드 · 이미지 · build · GCS"},
     "okpy": {"label": "OKPy", "description": "Python · Cloud · Terraform · Data Analysis · build · deploy"},
     "jpcampus": {"label": "JP Campus", "description": "가이드 · 대학 · 숙소 발행 · 한국어 · featured · build"},
@@ -1337,7 +1551,6 @@ TRENDS_SEED_SITES: frozenset[str] = frozenset(
         "okramen",
         "okonsen",
         "okcaddie",
-        "statfacts",
         "starful.biz",
         "jpcampus",
         "krcampus",

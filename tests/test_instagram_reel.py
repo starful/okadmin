@@ -87,8 +87,31 @@ def test_build_reel_mixed_png_jpeg(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     result = ir.build_reel(str(folder), site_id="okramen", seconds=1.0)
     assert result["ok"] is True, result.get("error")
     assert result["image_count"] == 3
-    assert Path(result["path"]).parent == folder.resolve()
-    assert Path(result["path"]).stat().st_size > 1000
+    out = Path(result["path"])
+    assert out.parent == folder.resolve()
+    assert out.stat().st_size > 1000
+    # AirDrop / iPhone: silent AAC track should be present
+    import subprocess
+
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,codec_name",
+            "-of",
+            "csv=p=0",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert probe.returncode == 0, probe.stderr
+    text = probe.stdout
+    assert "video" in text and "h264" in text, text
+    assert "audio" in text and "aac" in text, text
 
 
 def test_ffmpeg_error_message_prefers_real_errors():

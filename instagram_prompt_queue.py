@@ -13,15 +13,18 @@ from config_gemini import ensure_gemini_api_key
 from instagram_seed_data import build_seed_items
 from instagram_site_profiles import (
     INSTAGRAM_PROFILE,
+    apply_cta_to_item,
+    infer_cta_site,
     instagram_common_rules,
+    profile_link_cta_line,
     strip_slide_copy,
 )
 
 QUEUE_DIR = OKADMIN_ROOT / "data" / "instagram_prompts"
 QUEUE_PATH = QUEUE_DIR / "queue.json"  # single shared Instagram queue
-DEFAULT_BATCH_SIZE = 50
+DEFAULT_BATCH_SIZE = 10
 MAX_BATCH_SIZE = 50
-_CHUNK = 10
+_CHUNK = 5
 
 # cover + 5 points + outro
 SLIDE_COUNT = 7
@@ -201,10 +204,17 @@ def format_gemini_prompt(
             lines.append(f"부제: {strip_slide_copy(slide.get('body') or '')}")
             lines.append(f"하단 일러스트: {slide.get('art') or ''}")
         elif kind == "outro":
+            cta = item.get("cta_site") or infer_cta_site(
+                category=item.get("category"),
+                topic=item.get("topic"),
+            )
+            cta_line = strip_slide_copy(profile_link_cta_line(cta))
+            body = strip_slide_copy(slide.get("body") or "") or cta_line
             lines.append(f"[{SLIDE_COUNT}장 마무리]")
             lines.append(f"제목: {strip_slide_copy(slide.get('title') or '')}")
-            lines.append(f"본문: {strip_slide_copy(slide.get('body') or '')}")
-            lines.append("사이트 URL 넣지 말 것. 저장 유도만.")
+            lines.append(f"본문: {body}")
+            lines.append(f"CTA: {cta_line}")
+            lines.append("도메인·http URL 금지. 「더 보기 → 프로필 링크」문구만.")
             lines.append(f"하단 일러스트: {slide.get('art') or ''}")
         else:
             num = slide.get("num") or ""
@@ -221,7 +231,7 @@ def format_gemini_prompt(
         lines.append("")
     lines.append(
         f"지금 1장부터 생성해. 총 {SLIDE_COUNT}장. 모든 장 Instagram 4:5 (1080×1350). "
-        "확인 말고 이미지 출력. 마무리 장에 URL 넣지 말 것."
+        "확인 말고 이미지 출력. 마무리 장에 도메인 URL 넣지 말고 프로필 링크 CTA만."
     )
     return "\n".join(lines).strip() + "\n"
 
@@ -229,7 +239,9 @@ def format_gemini_prompt(
 def format_caption_block(item: dict[str, Any]) -> str:
     tags = item.get("hashtags") or []
     tag_line = " ".join(tags) if isinstance(tags, list) else str(tags)
-    caption = (item.get("caption") or "").strip()
+    # Ensure CTA line is present
+    patched = apply_cta_to_item(dict(item))
+    caption = (patched.get("caption") or "").strip()
     if tag_line:
         return f"{caption}\n\n{tag_line}\n" if caption else f"{tag_line}\n"
     return caption + ("\n" if caption else "")
@@ -298,19 +310,21 @@ def _normalize_generated_item(
     hashtags = raw.get("hashtags") or default_tags
     if isinstance(hashtags, str):
         hashtags = [h for h in hashtags.split() if h]
-    caption = (raw.get("caption") or f"{topic}\n\n일본 먹거리 카드뉴스. 저장해두고 보세요.").strip()
-    return {
+    caption = (raw.get("caption") or f"{topic}\n\n일본 먹거리 팁 릴스. 저장해두고 보세요.").strip()
+    item = {
         "id": f"ig-{batch:02d}-{seq:03d}",
         "batch": batch,
         "category": category,
         "topic": topic,
         "status": "todo",
         "done_at": None,
+        "cta_site": raw.get("cta_site"),
         "slides": slides,
         "caption": caption,
         "hashtags": hashtags,
         "site_url": None,
     }
+    return apply_cta_to_item(item)
 
 
 def _generation_prompt(
@@ -350,8 +364,9 @@ Return JSON only:
       "slides": [
         {{"title": "표지 제목", "body": "부제", "art": "하단 일러스트 설명"}},
         {point_slides},
-        {{"title": "마무리 제목", "body": "저장 유도만 (URL 없음)", "art": "..."}}
-      ]
+        {{"title": "마무리 제목", "body": "더 보기 → 프로필 링크 🍜 라멘·맛집", "art": "..."}}
+      ],
+      "cta_site": "okramen"
     }}
   ]
 }}
@@ -366,7 +381,9 @@ Rules:
 - Each slide art field must describe a UNIQUE scene/background; no repeated illustration across the {SLIDE_COUNT} slides.
 - Point bodies must be concrete. No generic filler alone.
 - Image size for every slide when rendered: Instagram portrait 4:5 (1080x1350).
-- The last slide (outro) must NOT include any website URL or domain. Save/share CTA only.
+- Outro body MUST be profile-link CTA like "더 보기 → 프로필 링크 🍜 라멘·맛집" (food→okramen). No http/domain.
+- Set cta_site to one of: okramen, okonsen, jpcampus, okcaddie.
+- Caption should also mention 프로필 링크.
 - Do NOT repeat any of these existing topics:
 {exclude_block}
 - Mix categories roughly like: {categories_hint} (favor food/cuts/menu/order).

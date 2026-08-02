@@ -24,6 +24,30 @@ from pipeline_specs import POI_SITES
 from topic_bank_registry import banks_for_site
 
 
+def _okpy_data_analysis_ja_pending(repo: Path) -> int:
+    """Count data-analysis posts still in EN (or missing lang: ja)."""
+    import re
+
+    posts = repo / "app" / "content" / "posts" / "data-analysis"
+    if not posts.is_dir():
+        return 0
+    pending = 0
+    for path in posts.glob("*.md"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if not text.startswith("---"):
+            pending += 1
+            continue
+        parts = text.split("---", 2)
+        meta = parts[1] if len(parts) > 1 else ""
+        if re.search(r"(?m)^lang:\s*ja\s*$", meta):
+            continue
+        pending += 1
+    return pending
+
+
 def refresh_topic_state(site_id: str, repo: Path) -> dict[str, Any]:
     ensure_bootstrapped(site_id, repo)
     return sync_state_from_repo(
@@ -369,6 +393,7 @@ def topic_bank_backlog(site_id: str, repo: Path) -> dict[str, Any]:
             "python_pending": py_p,
             "cloud_pending": cloud_p,
             "terraform_pending": tf_p,
+            "data_analysis_ja_pending": _okpy_data_analysis_ja_pending(repo),
             "csv_python": _bank_row_count(site_id, "python"),
             "csv_cloud": _bank_row_count(site_id, "cloud"),
             "csv_terraform": _bank_row_count(site_id, "terraform"),

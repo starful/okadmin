@@ -159,12 +159,6 @@ def pipeline_csv_expand():
         return jsonify({"error": "unknown pipeline"}), 400
     if _pipeline_running.get(site_id):
         return jsonify({"error": "pipeline already running"}), 409
-    from claude_usage import usage_summary
-
-    claude = usage_summary()
-    if not claude.get("pipeline_ok", True):
-        msg = (claude.get("headline") or "").strip() or "Claude 사용량 한도 — 리셋 후 콘텐츠 생성"
-        return jsonify({"error": msg, "claude_usage": claude}), 429
     insight_count = _optional_nonneg_int(data, "insight_count")
     guide_count = _optional_nonneg_int(data, "guide_count")
     school_count = _optional_nonneg_int(data, "school_count")
@@ -234,13 +228,6 @@ def pipeline_run():
         site_has_running_deploy = None  # type: ignore[assignment]
     if site_has_running_deploy and site_has_running_deploy(site_id):
         return jsonify({"error": "배포가 진행 중입니다. 끝난 뒤 콘텐츠를 생성하세요"}), 409
-
-    from claude_usage import usage_summary
-
-    claude = usage_summary()
-    if not claude.get("pipeline_ok", True):
-        msg = (claude.get("headline") or "").strip() or "Claude 사용량 한도 — 리셋 후 콘텐츠 생성"
-        return jsonify({"error": msg, "claude_usage": claude}), 429
 
     import threading
 

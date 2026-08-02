@@ -9,9 +9,9 @@ from statfacts_topic_ai import _clamp_count, _gemini_json
 from topic_bank import _append_bank_rows, read_bank
 from topic_bank_registry import banks_for_site
 
-DEFAULT_PYTHON_COUNT = 3
-DEFAULT_CLOUD_COUNT = 3
-DEFAULT_TERRAFORM_COUNT = 3
+DEFAULT_PYTHON_COUNT = 2
+DEFAULT_CLOUD_COUNT = 2
+DEFAULT_TERRAFORM_COUNT = 2
 MAX_COUNT = 15
 
 

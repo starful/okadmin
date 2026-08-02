@@ -90,6 +90,8 @@ def gsc_last_runs(site_id: str) -> dict[str, Any]:
     out: dict[str, Any] = {"site_id": site_id}
     out.update(_pack(dash, "dashboard"))
     out.update(_pack(seo, "seo"))
+    out["last_seo_applied"] = seo.get("applied")
+    out["last_seo_count"] = seo.get("count")
 
     latest_at = None
     latest_kind = None

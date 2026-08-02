@@ -2,6 +2,10 @@
 
 Uses local `claude -p` so usage stays on the Claude subscription, not Anthropic API billing.
 Do not set ANTHROPIC_API_KEY for this path unless you intentionally want API billing.
+
+Model tiers (aliases; override via env):
+  light  — haiku  — JSON drafts, topic AI, SEO meta, Ship prep
+  heavy  — sonnet — long markdown article generation
 """
 from __future__ import annotations
 
@@ -14,14 +18,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# Claude Code aliases: haiku / sonnet / opus / fable (see `claude --help --model`)
+MODEL_LIGHT = (os.environ.get("CLAUDE_MODEL_LIGHT") or "haiku").strip() or "haiku"
+MODEL_HEAVY = (os.environ.get("CLAUDE_MODEL_HEAVY") or "sonnet").strip() or "sonnet"
+
 
 def claude_bin() -> str:
     env = (os.environ.get("CLAUDE_BIN") or "").strip()
     if env and Path(env).is_file():
         return env
     for candidate in (
-        "/opt/work/node_modules/.bin/claude",
-        "/opt/work/.paperclip-tools/bin/claude",
+        "/opt/work/_hub/node_modules/.bin/claude",
         shutil.which("claude") or "",
     ):
         if candidate and Path(candidate).is_file():
@@ -58,13 +65,24 @@ def ensure_gemini_api_key() -> bool:
     return ensure_llm()
 
 
-def claude_text(prompt: str, *, timeout_sec: int | None = None) -> str | None:
-    """Non-interactive Claude Code prompt; returns plain text or None."""
+def claude_text(
+    prompt: str,
+    *,
+    timeout_sec: int | None = None,
+    model: str | None = None,
+) -> str | None:
+    """Non-interactive Claude Code prompt; returns plain text or None.
+
+    ``model`` defaults to light (haiku). Pass MODEL_HEAVY for long MD articles.
+    """
     timeout = timeout_sec or int(os.environ.get("CLAUDE_TIMEOUT_SEC", "180"))
+    resolved = (model or MODEL_LIGHT).strip() or MODEL_LIGHT
     # Disable agent tools so -p stays a pure text completion (no Write/permission chatter).
     cmd = [
         claude_bin(),
         "-p",
+        "--model",
+        resolved,
         "--output-format",
         "text",
         "--disallowedTools",
@@ -107,8 +125,14 @@ def claude_text(prompt: str, *, timeout_sec: int | None = None) -> str | None:
     return text.strip() or None
 
 
-def claude_json(prompt: str, *, timeout_sec: int | None = None) -> dict[str, Any] | None:
-    text = claude_text(prompt, timeout_sec=timeout_sec)
+def claude_json(
+    prompt: str,
+    *,
+    timeout_sec: int | None = None,
+    model: str | None = None,
+) -> dict[str, Any] | None:
+    """JSON helper — defaults to light (haiku) model."""
+    text = claude_text(prompt, timeout_sec=timeout_sec, model=model or MODEL_LIGHT)
     if not text:
         return None
     try:
@@ -133,18 +157,21 @@ class _ClaudeResponse:
 class ClaudeModel:
     """Drop-in for google.generativeai GenerativeModel.generate_content."""
 
+    def __init__(self, model: str | None = None) -> None:
+        self._model = (model or MODEL_LIGHT).strip() or MODEL_LIGHT
+
     def generate_content(self, prompt: str) -> _ClaudeResponse:
         try:
-            text = claude_text(prompt) or ""
+            text = claude_text(prompt, model=self._model) or ""
         except RuntimeError as exc:
             raise RuntimeError(str(exc)) from exc
         return _ClaudeResponse(text=text)
 
 
-def claude_model() -> tuple[ClaudeModel | None, str | None]:
+def claude_model(*, model: str | None = None) -> tuple[ClaudeModel | None, str | None]:
     if not ensure_llm():
         return None, (
             "Claude CLI 미로그인 — 터미널에서 `claude` 실행 후 /login "
             f"(bin={claude_bin()})"
         )
-    return ClaudeModel(), None
+    return ClaudeModel(model=model or MODEL_LIGHT), None

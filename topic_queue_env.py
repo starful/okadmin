@@ -35,6 +35,8 @@ _SITE_ALIASES: dict[str, dict[str, str]] = {
         "TOPIC_QUEUE_PYTHON": "python",
         "TOPIC_QUEUE_CLOUD": "cloud",
         "TOPIC_QUEUE_TERRAFORM": "terraform",
+        "TOPIC_QUEUE_INSIGHTS": "insights",
+        "TOPIC_QUEUE_GUIDES": "guides",
     },
 }
 

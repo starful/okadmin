@@ -21,12 +21,14 @@ from gsc_service import analyze_gsc_page_patterns, count_md_actionable
 
 FETCH_TIMEOUT = 20
 USER_AGENT = "WorkHub-GSC/1.0"
+# Cap Claude SEO calls per run (subscription quota).
+SEO_URL_CAP = max(1, int(os.environ.get("GSC_SEO_URL_CAP", "5")))
 
 
 def _gemini_model():
     from llm_claude import claude_model
 
-    return claude_model()
+    return claude_model()  # light (haiku) — title/meta JSON only
 
 
 def fetch_page_seo(url: str) -> dict[str, Any]:
@@ -326,6 +328,12 @@ def _suggest_seo(
     gsc: dict[str, Any],
     pattern: str = "low_ctr",
 ) -> dict[str, str]:
+    """Ask Claude for title/meta JSON. Retries once; uses resilient JSON parse.
+
+    ``model`` is unused (kept for call-site compatibility). All sites share this path.
+    """
+    from llm_claude import claude_json
+
     gsc_line = (
         f"GSC: impressions={gsc.get('impressions')}, "
         f"CTR={gsc.get('ctr', 0) * 100:.2f}%, position={gsc.get('position', 0):.1f}"
@@ -355,12 +363,27 @@ Return ONLY valid JSON with keys:
 title, description, seo_title, seo_description, summary_ko
 {goal}
 summary_ko: brief Korean note on what you changed and why."""
-    res = model.generate_content(prompt)
-    text = (res.text or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\n?", "", text)
-        text = re.sub(r"\n?```$", "", text)
-    data = json.loads(text)
+
+    data: dict[str, Any] | None = None
+    last_err = "empty or invalid JSON from Claude"
+    for attempt in range(2):
+        try:
+            data = claude_json(prompt)
+            if isinstance(data, dict) and (
+                data.get("title") or data.get("description") or data.get("seo_title")
+            ):
+                break
+            data = None
+            last_err = "empty or invalid JSON from Claude"
+        except RuntimeError as exc:
+            last_err = str(exc)[:240]
+            data = None
+        if attempt == 0 and data is None:
+            continue
+
+    if not isinstance(data, dict):
+        raise RuntimeError(last_err)
+
     return {
         "title": str(data.get("title") or page.get("title") or ""),
         "description": str(data.get("description") or page.get("description") or ""),
@@ -414,7 +437,7 @@ def run_seo_jobs(
 
     picked: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for raw_url in urls[:15]:
+    for raw_url in urls[:SEO_URL_CAP]:
         url = (raw_url or "").strip()
         if not url or url in seen:
             continue

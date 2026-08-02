@@ -425,6 +425,7 @@ async function openDetail(id) {
                 <h2>${esc(it.topic)}</h2>
                 <button type="button" class="btn btn-ghost" onclick="closeDetail()">닫기</button>
             </div>
+            <p class="hint" style="margin:0 0 12px">CTA: ${esc(it.cta_site || '-')} · ${esc(it.cta_label || '프로필 링크')}</p>
             <div class="ig-logo-inline">
                 <img src="${esc(LOGO_URL)}" alt="OK - JAPAN logo" width="56" height="56">
                 <div class="t">

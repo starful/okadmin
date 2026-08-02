@@ -21,8 +21,8 @@ STATFACTS_CATEGORIES: tuple[str, ...] = (
     "health",
 )
 
-DEFAULT_INSIGHT_COUNT = 6
-DEFAULT_GUIDE_COUNT = 3
+DEFAULT_INSIGHT_COUNT = 3
+DEFAULT_GUIDE_COUNT = 2
 MAX_INSIGHT_COUNT = 30
 MAX_GUIDE_COUNT = 15
 
@@ -303,7 +303,7 @@ Rules:
     return insights, guides, rejected
 
 
-MAX_TOPIC_AI_ATTEMPTS = 3
+MAX_TOPIC_AI_ATTEMPTS = 2
 
 
 def append_statfacts_topics(

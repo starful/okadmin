@@ -10,7 +10,7 @@ from statfacts_topic_ai import _clamp_count, _gemini_json
 from topic_bank import _append_bank_rows, read_bank
 from topic_bank_registry import banks_for_site
 
-DEFAULT_POSITION_COUNT = 6
+DEFAULT_POSITION_COUNT = 3
 MAX_POSITION_COUNT = 30
 
 

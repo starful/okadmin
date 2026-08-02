@@ -12,9 +12,9 @@ from topic_bank import _append_bank_rows, read_bank
 from content_done import _read_univ_md_names
 from topic_bank_registry import banks_for_site
 
-DEFAULT_GUIDE_COUNT = 3
-DEFAULT_SCHOOL_COUNT = 3
-DEFAULT_UNIVERSITY_COUNT = 3
+DEFAULT_GUIDE_COUNT = 2
+DEFAULT_SCHOOL_COUNT = 2
+DEFAULT_UNIVERSITY_COUNT = 2
 MAX_GUIDE_COUNT = 15
 MAX_SCHOOL_COUNT = 15
 MAX_UNIVERSITY_COUNT = 15

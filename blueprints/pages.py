@@ -57,6 +57,7 @@ def dashboard():
         active="dashboard",
         user_email=session.get("user_email", ""),
         work_root_ok=work_root_available(),
+        site_icons=site_favicon_urls(),
     )
 
 

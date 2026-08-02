@@ -95,13 +95,17 @@
     border-color: #c45a7a;
 }
 .dash-card.slim.kind-instagram .slim-title { color: #f0a8c0; }
-.dash-card.slim.kind-instagram .slim-id { color: #8a5a6a; }
+.dash-card.slim.kind-instagram .slim-favicon-fallback {
+    background: #2a1820; border-color: #6a3a4a; color: #f0a8c0;
+}
 .dash-card.slim.kind-instagram .card-verdict {
     background: #241820;
     border-color: #6a3a4a;
     color: #e8b0c0;
 }
-.dash-card.slim.kind-instagram .verdict-action { color: #d090a8; }
+.dash-card.slim.kind-instagram .st-chip {
+    background: #241820; border-color: #4a2a38; color: #d090a8;
+}
 .dash-card.slim.kind-instagram .btn-open {
     background: #c45a7a;
     color: #1a0810;
@@ -127,7 +131,7 @@
 <div id="claude-usage-panel" class="claude-usage-panel" hidden></div>
 <div id="ai-spend-banner" class="hub-claude-banner" hidden></div>
 <div id="ai-spend-panel" class="ai-spend-panel" hidden></div>
-<p class="hint dash-home-hint">백로그·due·Git·마지막 실행을 보고 지금/대기/스킵을 표시합니다</p>
+<p class="hint dash-home-hint">아이콘으로 지금/대기/스킵 · MD · Git · SEO를 표시합니다</p>
 <div id="loading" class="mono" style="font-size:12px;color:#666;margin-bottom:12px">로딩 중…</div>
 <div id="sites-grid" class="grid-sites-slim"></div>
 {% endblock %}
@@ -137,9 +141,27 @@
 <script>
 const DASH_ORDER_KEY = 'okadmin_dashboard_site_order_v1';
 const DUE_WEIGHT = { overdue: 40, never: 35, today: 28, soon: 12, ok: 0 };
+const SITE_ICONS = {{ site_icons | default({}) | tojson }};
 
 function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+}
+
+function svgIcon(name) {
+    const common = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+    const paths = {
+        zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+        clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+        pause: '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
+        check: '<polyline points="20 6 9 17 4 12"/>',
+        spin: '<path d="M21 12a9 9 0 1 1-6.2-8.6"/>',
+        file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+        git: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/>',
+        search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+        camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+        prompt: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    };
+    return `<svg ${common}>${paths[name] || paths.check}</svg>`;
 }
 
 function moneyFmt(n, currency) {
@@ -379,6 +401,14 @@ function assessSite(site, logs, pipe) {
         reasons.push(`Git clean · ${git.branch}`);
     }
 
+    const localContent = logs.local_content || {};
+    if (localContent.needs_deploy) {
+        priority += 16;
+        reasons.push(localContent.reason || '로컬 content 변경 · Deploy 필요');
+    } else if (localContent.content_gitignored) {
+        reasons.push('content Git ignore · Deploy로 반영');
+    }
+
     reasons.push(`콘텐츠 주기: ${logs.content_due_label || '—'}`);
     reasons.push(`GSC 주기: ${logs.gsc_due_label || '—'}`);
 
@@ -390,6 +420,8 @@ function assessSite(site, logs, pipe) {
     if (gStat === 'overdue' || (gStat === 'never' && !logs.last_gsc_response_at)) {
         action = 'SEO 작업 권장';
         priority += 5;
+    } else if (localContent.needs_deploy) {
+        action = 'Deploy 권장 (로컬 content)';
     } else if (contentUrgent && bl.total > 0) {
         action = '콘텐츠 생성 권장';
     } else if (bl.total > 0 && (contentUrgent || contentSoon)) {
@@ -402,7 +434,7 @@ function assessSite(site, logs, pipe) {
         action = (typeof isAiQueueSite === 'function' && isAiQueueSite(site.id))
             ? '목록 추가 후 생성 검토'
             : 'CSV 추가 후 생성 검토';
-    } else if (bl.total === 0 && cStat === 'ok' && gStat === 'ok' && !git.dirty) {
+    } else if (bl.total === 0 && cStat === 'ok' && gStat === 'ok' && !git.dirty && !localContent.needs_deploy) {
         action = '지금은 패스 가능';
         verdict = 'skip';
         priority = Math.min(priority, 5);
@@ -425,7 +457,38 @@ function assessSite(site, logs, pipe) {
         action = '즉시 대응 필요';
     }
 
-    return { verdict, priority, action, reasons, bl, git, cStat, gStat };
+    return { verdict, priority, action, reasons, bl, git, cStat, gStat, localContent };
+}
+
+function shortDueLabel(raw) {
+    const s = String(raw || '').trim();
+    if (!s || s === '—') return '—';
+    const dMatch = s.match(/D-?\d+/i);
+    if (dMatch) return 'D-' + dMatch[0].replace(/^D-?/i, '');
+    if (/미실행|never|없음/i.test(s)) return '미실행';
+    if (/오늘|today/i.test(s)) return '오늘';
+    if (/지남|overdue|초과/i.test(s)) return '지남';
+    if (s.length <= 8) return s;
+    return s.slice(0, 7) + '…';
+}
+
+function faviconHtml(siteId, label) {
+    const src = SITE_ICONS[siteId] || '';
+    const letter = escapeHtml(String(label || siteId || '?').charAt(0).toUpperCase());
+    if (!src) {
+        return `<span class="slim-favicon-fallback">${letter}</span>`;
+    }
+    return `<img class="slim-favicon" src="${escapeHtml(src)}" alt="" loading="lazy" ` +
+        `onerror="this.outerHTML='<span class=\\'slim-favicon-fallback\\'>${letter}</span>'">`;
+}
+
+function cardHead(siteId, label) {
+    return `<div class="slim-head">
+        <span class="slim-brand">
+            ${faviconHtml(siteId, label)}
+            <span class="slim-title">${escapeHtml(label || siteId)}</span>
+        </span>
+    </div>`;
 }
 
 function verdictBanner(assessment) {
@@ -434,19 +497,33 @@ function verdictBanner(assessment) {
         today: '오늘',
         wait: '대기',
         skip: '스킵',
-        running: '진행 중',
+        running: '진행',
+    };
+    const icons = {
+        now: 'zap',
+        today: 'clock',
+        wait: 'pause',
+        skip: 'check',
+        running: 'spin',
     };
     const label = labels[assessment.verdict] || '—';
+    const icon = icons[assessment.verdict] || 'pause';
     let headline = assessment.action;
     if (assessment.verdict === 'now') {
         const urg = [];
         if (['overdue', 'never', 'today'].includes(assessment.gStat)) urg.push('GSC');
         if (['overdue', 'never', 'today'].includes(assessment.cStat)) urg.push('콘텐츠');
         if (assessment.git.dirty) urg.push('Push');
+        if (assessment.localContent?.needs_deploy) urg.push('Deploy');
         if (urg.length) headline = urg.join(' · ') + ' — ' + assessment.action;
     }
-    return `<div class="card-verdict verdict-${escapeHtml(assessment.verdict)}">
-        <strong>${escapeHtml(label)}</strong>${escapeHtml(headline)}
+    const tip = (assessment.reasons || []).join(' · ');
+    return `<div class="card-verdict verdict-${escapeHtml(assessment.verdict)}" title="${escapeHtml(tip)}">
+        <span class="verdict-ico">${svgIcon(icon)}</span>
+        <span class="verdict-copy">
+            <strong>${escapeHtml(label)}</strong>
+            <span class="verdict-action-inline">${escapeHtml(headline)}</span>
+        </span>
     </div>`;
 }
 
@@ -486,26 +563,43 @@ function seoDetail(logs, assessment) {
     return { mid, due: dueClass(logs.gsc_schedule), dueText: logs.gsc_due_label || '—' };
 }
 
-function wfRow(tag, detail) {
-    return `<div class="wf-row">
-        <span class="wf-tag">${escapeHtml(tag)}</span>
-        <span class="wf-detail" title="${escapeHtml(detail.mid)}">${escapeHtml(detail.mid)}</span>
-        <span class="wf-due ${escapeHtml(detail.due)}">${escapeHtml(detail.dueText)}</span>
-    </div>`;
+function statusChip(level, icon, value, tip) {
+    return `<span class="st-chip ${escapeHtml(level)}" title="${escapeHtml(tip)}">`
+        + `${svgIcon(icon)}`
+        + (value != null && value !== '' ? `<b>${escapeHtml(String(value))}</b>` : '')
+        + `</span>`;
 }
 
-function workflowRowsHtml(site, logs, pipe, assessment) {
-    return `<div class="wf-rows">
-        ${wfRow('콘텐츠', contentDetail(site, logs, pipe, assessment))}
-        ${wfRow('배포', deployDetail(site, logs, pipe, assessment))}
-        ${wfRow('SEO', seoDetail(logs, assessment))}
-    </div>`;
-}
+function statusIconsHtml(site, logs, pipe, assessment) {
+    const content = contentDetail(site, logs, pipe, assessment);
+    const deploy = deployDetail(site, logs, pipe, assessment);
+    const seo = seoDetail(logs, assessment);
+    const bl = assessment.bl;
+    const mdLevel = (pipe && pipe.running && pipe.phase !== 'deploy')
+        ? 'run'
+        : (bl.total > 0 ? (['overdue', 'today', 'never'].includes(assessment.cStat) ? 'today' : 'soon') : 'ok');
+    const mdValue = (pipe && pipe.running && pipe.phase !== 'deploy')
+        ? '…'
+        : String(bl.total || 0);
+    const mdTip = content.mid + (content.dueText && content.dueText !== '—' ? ` · ${content.dueText}` : '');
 
-function reasonsHtml(assessment) {
-    const top = assessment.reasons.slice(0, 4);
-    if (!top.length) return '';
-    return `<ul class="verdict-reasons">${top.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`;
+    const gitDirty = !!(assessment.git && assessment.git.dirty);
+    const gitLevel = (pipe && pipe.running && pipe.phase === 'deploy')
+        ? 'run'
+        : (gitDirty ? 'today' : 'ok');
+    const gitValue = (pipe && pipe.running && pipe.phase === 'deploy')
+        ? '배포'
+        : (gitDirty ? 'Push' : 'OK');
+    const gitTip = deploy.mid + (deploy.dueText && deploy.dueText !== '—' ? ` · ${deploy.dueText}` : '');
+
+    const seoValue = shortDueLabel(seo.dueText);
+    const seoTip = seo.mid + (seo.dueText && seo.dueText !== '—' ? ` · ${seo.dueText}` : '');
+
+    return `<div class="status-icons">
+        ${statusChip(mdLevel, 'file', mdValue, mdTip)}
+        ${statusChip(gitLevel, 'git', gitValue, gitTip)}
+        ${statusChip(seo.due, 'search', seoValue, seoTip)}
+    </div>`;
 }
 
 function renderSitesGrid(sites, logData, pipelines) {
@@ -523,19 +617,19 @@ function renderSitesGrid(sites, logData, pipelines) {
         .sort((a, b) => b.assessment.priority - a.assessment.priority);
 
     const igCard = `<a href="/instagram" class="card dash-card slim kind-instagram" data-site-id="instagram">
-            <div class="slim-head">
-                <span class="slim-title">Instagram</span>
+            ${cardHead('instagram', 'Instagram')}
+            <div class="card-verdict verdict-wait" title="야키니쿠·야키토리·해산물·주문 · 마무리에 프로필 링크 CTA">
+                <span class="verdict-ico">${svgIcon('camera')}</span>
+                <span class="verdict-copy">
+                    <strong>카드뉴스</strong>
+                    <span class="verdict-action-inline">먹거리·부위·메뉴 프롬프트</span>
+                </span>
             </div>
-            <div class="slim-id">instagram · OK Japan</div>
-            <div class="card-verdict verdict-wait">
-                <strong>카드뉴스</strong>먹거리·부위·메뉴 프롬프트
+            <div class="status-icons">
+                ${statusChip('soon', 'prompt', '프롬프트', '카드뉴스 프롬프트 열기')}
+                ${statusChip('ok', 'camera', 'OK Japan', 'Instagram · OK Japan')}
             </div>
-            <ul class="verdict-reasons">
-                <li>야키니쿠·야키토리·해산물·주문</li>
-                <li>사이트 URL 없이 저장 유도</li>
-            </ul>
             <div class="slim-foot">
-                <span class="verdict-action">→ 프롬프트 열기</span>
                 <span class="btn btn-open">열기</span>
             </div>
         </a>`;
@@ -549,15 +643,10 @@ function renderSitesGrid(sites, logData, pipelines) {
             ? '?section=seo'
             : (assessment.bl.total > 0 ? '?section=content' : (assessment.git?.dirty ? '?section=deploy' : ''));
         return `<a href="${href}${sectionHint}" class="card dash-card slim${runningCls}${verdictCls}" data-site-id="${escapeHtml(s.id)}">
-            <div class="slim-head">
-                <span class="slim-title">${escapeHtml(s.label || s.id)}</span>
-            </div>
-            <div class="slim-id">${escapeHtml(s.id)}</div>
+            ${cardHead(s.id, s.label || s.id)}
             ${verdictBanner(assessment)}
-            ${reasonsHtml(assessment)}
-            ${workflowRowsHtml(s, logs, pipe, assessment)}
+            ${statusIconsHtml(s, logs, pipe, assessment)}
             <div class="slim-foot">
-                <span class="verdict-action">→ ${escapeHtml(assessment.action)}</span>
                 <span class="btn btn-open">열기</span>
             </div>
         </a>`;

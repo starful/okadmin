@@ -100,8 +100,6 @@
 <div class="warn">WORK_ROOT 없음 — 생성·Git 비활성</div>
 {% endif %}
 
-<div id="claude-hub-banner" class="hub-claude-banner" hidden></div>
-
 <div class="workflow-strip" id="workflow-strip">
     <button type="button" class="wf-step" data-section="content" id="wf-content">
         <div class="wf-num">① 콘텐츠</div>
@@ -262,7 +260,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='claude_monitor.js') }}"></script>
 <script src="{{ url_for('static', filename='pipeline.js') }}"></script>
 <script src="{{ url_for('static', filename='site_hub.js') }}"></script>
 <script>

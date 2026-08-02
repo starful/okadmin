@@ -250,6 +250,7 @@ def build_reel(
             return {"ok": False, "error": f"이미지 변환 실패: {exc}"}
 
         pattern = str(tmp_path / "frames" / "frame_%03d.png")
+        # Silent AAC track: video-only MP4s often fail AirDrop / iPhone receive.
         cmd = [
             ffmpeg_bin(),
             "-y",
@@ -259,6 +260,10 @@ def build_reel(
             "0",
             "-i",
             pattern,
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=stereo:sample_rate=44100",
             "-vf",
             vf,
             "-r",
@@ -269,6 +274,11 @@ def build_reel(
             "stillimage",
             "-pix_fmt",
             "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-shortest",
             "-movflags",
             "+faststart",
             str(out_path),

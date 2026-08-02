@@ -56,14 +56,6 @@ function initSiteHub(siteId, initialSection, siteColor) {
     wireGitPanel(siteId);
     wireDeployPanel(siteId);
 
-    if (typeof ClaudeMonitor !== 'undefined') {
-        window.onClaudeUsageUpdated = function () {
-            const sid = document.getElementById('site-select')?.value;
-            if (sid && typeof renderContentBar === 'function') renderContentBar(sid);
-        };
-        ClaudeMonitor.load(false).then(() => ClaudeMonitor.startPolling());
-    }
-
     (async () => {
         try {
             if (typeof refreshBacklog === 'function') {
@@ -210,14 +202,10 @@ function renderContentBar(siteId) {
 
     const label = escHub(p?.label || siteId);
     const running = p?.running;
-    const claudeBlocked = typeof ClaudeMonitor !== 'undefined' && !ClaudeMonitor.pipelineOk(ClaudeMonitor.getLast());
     const runLabel = running
         ? '① 생성 중…'
-        : (claudeBlocked ? 'Claude 한도' : (siteId === 'krcare' ? 'TourAPI 갱신' : '콘텐츠 생성'));
-    const runDisabled = !(p?.available && !running) || claudeBlocked;
-    const runTitle = claudeBlocked
-        ? (typeof ClaudeMonitor !== 'undefined' ? ClaudeMonitor.headline(ClaudeMonitor.getLast()) : 'Claude 한도')
-        : '';
+        : (siteId === 'krcare' ? 'TourAPI 갱신' : '콘텐츠 생성');
+    const runDisabled = !(p?.available && !running);
     let html = `<button type="button" class="btn btn-ghost" onclick="refreshBacklog('${escHub(siteId)}')" ${running ? 'disabled' : ''}>건수 새로고침</button>`;
     const canExpand = typeof supportsTopicExpand !== 'function' || supportsTopicExpand(siteId);
     if (canExpand && typeof isAiQueueSite === 'function' && isAiQueueSite(siteId)) {
@@ -234,7 +222,6 @@ function renderContentBar(siteId) {
         html += `<button type="button" class="btn btn-ghost" onclick="expandCsv('${escHub(siteId)}')" ${running ? 'disabled' : ''} title="${escHub(csvTitle)}">CSV 추가${expandAvail ? ` (${expandAvail})` : ''}</button>`;
     }
     html += `<button type="button" class="btn" id="hub-run-pipeline" ${runDisabled ? 'disabled' : ''}
-        ${runTitle ? `title="${escHub(runTitle)}"` : ''}
         onclick="runPipeline('${escHub(siteId)}', '${label}')">${escHub(runLabel)}</button>`;
     actions.innerHTML = html;
     if (typeof bindAqSteppers === 'function') bindAqSteppers(actions);
@@ -829,6 +816,7 @@ async function openShipReviewModal(siteId) {
                     blockersEl.textContent = items.join(' · ');
                 }
             }
+            updateShipReviewMergeBtn(review);
             return;
         }
 
@@ -838,10 +826,11 @@ async function openShipReviewModal(siteId) {
                 ? `Review · PR #${pr.number}`
                 : `Review · ${review.branch || 'branch'} → ${review.base || 'main'}`;
         }
-        const src = review.source === 'github' ? 'GitHub PR' : 'local diff';
+        const src = review.source === 'github' ? 'GitHub PR'
+            : (review.source === 'github+local' ? 'GitHub PR (local diff)' : 'local diff');
         const mergeTxt = pr?.mergeable === false ? ' · conflict' : (pr?.mergeable ? ' · mergeable' : '');
         if (metaEl) {
-            metaEl.textContent = `${src}${pr?.url ? '' : ''} · ${review.stat || ''}${mergeTxt}`.trim();
+            metaEl.textContent = `${src} · ${review.stat || ''}${mergeTxt}`.trim();
         }
         if (statEl) statEl.textContent = review.stat || '(no stat)';
         if (diffEl) diffEl.textContent = review.empty ? '(empty diff)' : (review.diff || '—');
@@ -851,9 +840,11 @@ async function openShipReviewModal(siteId) {
         }
         if (blockersEl) {
             const blockers = review.blockers || [];
-            if (blockers.length) {
+            const warnings = review.warnings || [];
+            const items = blockers.concat(warnings);
+            if (items.length) {
                 blockersEl.hidden = false;
-                blockersEl.textContent = blockers.join(' · ');
+                blockersEl.textContent = items.join(' · ');
             } else {
                 blockersEl.hidden = true;
             }
@@ -958,6 +949,14 @@ function deployStatus(site, logs) {
             text: '직전 배포 실패 · Deploy 가능',
         };
     }
+    const local = logs.local_content || {};
+    if (local.needs_deploy) {
+        return {
+            kind: 'ready',
+            badge: '<span class="badge badge-dirty">배포 필요</span>',
+            text: local.reason || '로컬 content 변경 · Deploy 필요 (Git에 안 보임)',
+        };
+    }
     const commitAt = git.last_commit_at ? Date.parse(git.last_commit_at) : NaN;
     const deployAt = dep?.mtime ? parseDeployMtime(dep.mtime) : NaN;
     if (!dep) {
@@ -977,7 +976,9 @@ function deployStatus(site, logs) {
     return {
         kind: 'ok',
         badge: '<span class="badge badge-clean">최신</span>',
-        text: '배포할 변경 없음 (최근 배포됨)',
+        text: local.content_gitignored
+            ? '배포할 변경 없음 (로컬 content · 최근 배포됨)'
+            : '배포할 변경 없음 (최근 배포됨)',
     };
 }
 

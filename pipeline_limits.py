@@ -4,15 +4,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# Hub one-click caps: 가이드 3토픽(최대 6 MD) · 아이템 6행(최대 12 MD en/ko).
+# Hub one-click caps (Claude-quota friendly): 가이드 2 · 아이템 3행(최대 6 MD en/ko).
 MIN_ITEM_ROWS = 8
 MIN_GUIDE_ROWS = 3
 
-DEFAULT_CONTENT_LIMIT = 6
-DEFAULT_GUIDE_LIMIT = 3
+DEFAULT_CONTENT_LIMIT = 3
+DEFAULT_GUIDE_LIMIT = 2
 DEFAULT_HATENA_MAX_POSTS = 6
-DEFAULT_KOREAN_LIMIT = 6
-DEFAULT_JAPANESE_LIMIT = 3
+DEFAULT_KOREAN_LIMIT = 3
+DEFAULT_JAPANESE_LIMIT = 2
 MAX_CONTENT_LIMIT = 50
 MAX_GUIDE_LIMIT = 20
 MAX_HATENA_MAX_POSTS = 20
@@ -20,8 +20,8 @@ MAX_KOREAN_LIMIT = 30
 MAX_JAPANESE_LIMIT = 20
 MAX_SCHOOL_LIMIT = 15
 MAX_UNIVERSITY_LIMIT = 15
-DEFAULT_KRCAMPUS_SCHOOL_LIMIT = 3
-DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT = 3
+DEFAULT_KRCAMPUS_SCHOOL_LIMIT = 2
+DEFAULT_KRCAMPUS_UNIVERSITY_LIMIT = 2
 
 SITE_GCS_BUCKETS: dict[str, str] = {
     "okramen": "gs://ok-project-assets/okramen",
@@ -83,7 +83,7 @@ def bounded_limit(
 
 
 def sanitize_pipeline_limits(env: dict[str, str]) -> None:
-    """Work Hub standard per-run caps (fixed): guide 3, content 6."""
+    """Work Hub standard per-run caps (Claude-quota friendly)."""
     env["CONTENT_LIMIT"] = str(DEFAULT_CONTENT_LIMIT)
     env["GUIDE_LIMIT"] = str(DEFAULT_GUIDE_LIMIT)
     env["HATENA_MAX_POSTS"] = str(

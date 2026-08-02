@@ -43,7 +43,6 @@ SITE_COLORS: dict[str, str] = {
     "okonsen": "#e67c73",
     "okramen": "#f6bf26",
     "starful.biz": "#7986cb",
-    "statfacts": "#2563eb",
     "krcare": "#2EB5A8",
     "instagram": "#c45a7a",
 }
@@ -73,7 +72,6 @@ GCS_IMAGE_SITE_ORDER = (
     "okonsen",
     "okramen",
     "okcaddie",
-    "statfacts",
     "krcampus",
     "jpcampus",
     "starful_biz",
@@ -215,6 +213,21 @@ CONTENT_JOBS: dict[str, list[dict[str, str]]] = {
             "label": "Data Analysis EN→JA",
             "command": "python3 scripts/rewrite_data_analysis_ja.py",
         },
+        {
+            "id": "data_analysis_insights",
+            "label": "Data Analysis 인사이트 생성",
+            "command": "python3 scripts/generate_data_analysis.py insights",
+        },
+        {
+            "id": "data_analysis_guides",
+            "label": "Data Analysis 가이드 생성",
+            "command": "python3 scripts/generate_data_analysis.py guides",
+        },
+        {
+            "id": "data_analysis_images",
+            "label": "Data Analysis 이미지",
+            "command": "python3 scripts/fetch_data_analysis_images.py",
+        },
     ],
     "jpcampus": [
         {
@@ -270,6 +283,29 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
             "label": "terraform.csv",
             "rel_path": "data/terraform.csv",
             "headers": ["Topic"],
+        },
+        {
+            "id": "insights",
+            "label": "insights.csv",
+            "rel_path": "data/insights.csv",
+            "headers": [
+                "id",
+                "topic",
+                "intervention",
+                "outcome",
+                "effect_min",
+                "effect_max",
+                "effect_unit",
+                "categories",
+                "confidence",
+                "keywords",
+            ],
+        },
+        {
+            "id": "guides",
+            "label": "guides.csv",
+            "rel_path": "data/guides.csv",
+            "headers": ["id", "topic_en", "topic_ko", "keywords"],
         },
     ],
     "okramen": [
@@ -354,31 +390,6 @@ CONTENT_CSV_FILES: dict[str, list[dict[str, Any]]] = {
             "label": "universities.csv",
             "rel_path": "data/universities.csv",
             "headers": ["name_ko", "name_en", "region"],
-        },
-    ],
-    "statfacts": [
-        {
-            "id": "insights",
-            "label": "insights.csv",
-            "rel_path": "script/csv/insights.csv",
-            "headers": [
-                "id",
-                "topic",
-                "intervention",
-                "outcome",
-                "effect_min",
-                "effect_max",
-                "effect_unit",
-                "categories",
-                "confidence",
-                "keywords",
-            ],
-        },
-        {
-            "id": "guides",
-            "label": "guides.csv",
-            "rel_path": "script/csv/guides.csv",
-            "headers": ["id", "topic_en", "topic_ko", "keywords"],
         },
     ],
     "krcare": [

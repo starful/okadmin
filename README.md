@@ -10,8 +10,8 @@ Local operations hub for the OK Series site fleet: site registry, content pipeli
 |------|-------------|
 | **Dashboard** | All Hub sites from `sites.yaml` — Git summary, deploy status, links |
 | **Per-site workflow** | ① Content ② SEO ③ Git ④ Deploy ⑤ Metrics ⑥ Images |
-| **Ship · GitHub** | `Ship prep` (Claude ×1 → issue → branch → commit → push → PR), `Review & merge` (diff + checklist → squash merge) |
-| **Content pipeline** | AI generation, image fetch, `build_data` per site (`pipeline_site_registry.py`) |
+| **Ship · GitHub** | `Ship prep` (Claude Haiku ×1 → issue → branch → commit → push → PR), `Review & merge` (diff + checklist → squash merge) |
+| **Content pipeline** | AI generation (Haiku topics / Sonnet MD), image fetch, `build_data` per site (`pipeline_site_registry.py`) |
 | **GSC / Analytics** | Embedded Search Console and GA4 views |
 | **GCS images** | Per-site bucket prefix, Places search, Imagen prompts |
 | **Calendar** | Firestore-backed ops events (FullCalendar) |

@@ -112,7 +112,8 @@ def _build_prompt(slide: dict[str, Any], *, topic: str) -> str:
     return (
         "Create ONE Instagram card-news image, portrait 4:5 (about 1080x1350). "
         "Pure white (#FFFFFF) background. Flat vector, cute clean Japanese food style. "
-        "Bright colors, no purple, no neon, no watermark, no website URL, no QR code. "
+        "Bright colors, no purple, no neon, no watermark, no website URL/domain, no QR code. "
+        "Outro may say profile link CTA in Korean. "
         "Korean text must be sharp, large, and perfectly readable. "
         "Do NOT draw any logo, brand mark, or empty circle placeholder in the corners. "
         "Leave plain white space at top-left for a logo to be added later. "

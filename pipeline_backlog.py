@@ -129,12 +129,13 @@ def _preview_csv_expand(site_id: str, repo: Path) -> dict[str, Any]:
 
         return {
             "items_expandable": DEFAULT_PYTHON_COUNT + DEFAULT_CLOUD_COUNT + DEFAULT_TERRAFORM_COUNT,
-            "guides_expandable": 0,
+            "guides_expandable": 3,
             "ai_queue": True,
             "queue_mode": "okpy",
             "default_insights": DEFAULT_PYTHON_COUNT,
             "default_schools": DEFAULT_CLOUD_COUNT,
             "default_universities": DEFAULT_TERRAFORM_COUNT,
+            "default_guides": 0,
         }
 
     if site_id == "krcare":
@@ -259,7 +260,7 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         cloud_n = int(raw.get("cloud_pending") or 0)
         tf_n = int(raw.get("terraform_pending") or 0)
         content_n = py_n + cloud_n + tf_n
-        guide_n = 0
+        guide_n = int(raw.get("data_analysis_ja_pending") or 0)
     else:
         content_n = items_pairs
         guide_n = guides_topics
@@ -282,10 +283,17 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         generatable["python"] = int(raw.get("python_pending") or 0)
         generatable["cloud"] = int(raw.get("cloud_pending") or 0)
         generatable["terraform"] = int(raw.get("terraform_pending") or 0)
+        generatable["data_analysis_ja"] = int(raw.get("data_analysis_ja_pending") or 0)
+        generatable["guides"] = generatable["data_analysis_ja"]
         generatable["total"] = (
+            generatable["python"]
+            + generatable["cloud"]
+            + generatable["terraform"]
+            + generatable["data_analysis_ja"]
+        )
+        generatable["content"] = (
             generatable["python"] + generatable["cloud"] + generatable["terraform"]
         )
-        generatable["content"] = generatable["total"]
 
     if site_id == "statfacts":
         total_gen = content_n + guide_n
@@ -315,10 +323,11 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
         py_n = int(raw.get("python_pending") or 0)
         cloud_n = int(raw.get("cloud_pending") or 0)
         tf_n = int(raw.get("terraform_pending") or 0)
-        total_gen = py_n + cloud_n + tf_n
+        ja_n = int(raw.get("data_analysis_ja_pending") or 0)
+        total_gen = py_n + cloud_n + tf_n + ja_n
         summary = (
             f"생성 가능 {total_gen}건 "
-            f"(Python {py_n} · Cloud {cloud_n} · Terraform {tf_n})"
+            f"(Python {py_n} · Cloud {cloud_n} · Terraform {tf_n} · Data JA {ja_n})"
         )
     else:
         summary = f"콘텐츠 {content_n} · 가이드 {guide_n}"
@@ -355,6 +364,7 @@ def compute_backlog(site_id: str) -> dict[str, Any]:
             "python_pending": raw.get("python_pending", 0),
             "cloud_pending": raw.get("cloud_pending", 0),
             "terraform_pending": raw.get("terraform_pending", 0),
+            "data_analysis_ja_pending": raw.get("data_analysis_ja_pending", 0),
         },
         "next_run": {
             "items_pairs": next_items,

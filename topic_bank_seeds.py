@@ -18,13 +18,13 @@ def bootstrap_seeds_for_site(site_id: str) -> dict[str, list[dict[str, str]]]:
         out["guides"] = []
         if site_id == "okramen":
             out["items"] = [
-                {"Name": "Ichiran Shinjuku", "Lat": "35.6909", "Lng": "139.7018", "Address": "Tokyo, Shinjuku", "Thumbnail": "", "Features": "Tonkotsu": ""},
-                {"Name": "Ippudo Ginza", "Lat": "35.6711", "Lng": "139.7662", "Address": "Tokyo, Chuo", "Thumbnail": "", "Features": "Tonkotsu": ""},
+                {"Name": "Ichiran Shinjuku", "Lat": "35.6909", "Lng": "139.7018", "Address": "Tokyo, Shinjuku", "Thumbnail": "", "Features": "Tonkotsu"},
+                {"Name": "Ippudo Ginza", "Lat": "35.6711", "Lng": "139.7662", "Address": "Tokyo, Chuo", "Thumbnail": "", "Features": "Tonkotsu"},
             ]
         elif site_id == "okonsen":
             out["items"] = [
-                {"Name": "Hakone Ten-yu", "Lat": "35.2393", "Lng": "139.0456", "Address": "Hakone", "Thumbnail": "", "Features": "Family bath": ""},
-                {"Name": "Gora Kadan", "Lat": "35.2492", "Lng": "139.0465", "Address": "Hakone", "Thumbnail": "", "Features": "Ryokan onsen": ""},
+                {"Name": "Hakone Ten-yu", "Lat": "35.2393", "Lng": "139.0456", "Address": "Hakone", "Thumbnail": "", "Features": "Family bath"},
+                {"Name": "Gora Kadan", "Lat": "35.2492", "Lng": "139.0465", "Address": "Hakone", "Thumbnail": "", "Features": "Ryokan onsen"},
             ]
         elif site_id == "okcaddie":
             out["items"] = [{"Name": "Sample Golf Club", "Lat": "35.0", "Lng": "135.0", "Address": "Hyogo", "Features": "Public", "Booking": ""}]

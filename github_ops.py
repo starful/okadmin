@@ -111,7 +111,11 @@ def _ship_change_context(
     base: str = DEFAULT_BASE,
     max_diff_chars: int = 12000,
 ) -> dict[str, Any]:
-    """Working tree + branch-vs-base commits/diff for issue/PR drafts."""
+    """Working tree + branch-vs-base commits/diff for issue/PR drafts.
+
+    New content MD files are often untracked; ``git diff`` alone misses them, so
+    porcelain dirty status counts as changes too.
+    """
     from git_ops import _run_git, git_current_branch, git_diff_detail, git_status_detail
 
     status = git_status_detail(repo_path)
@@ -128,8 +132,23 @@ def _ship_change_context(
     if len(range_diff) > max_diff_chars:
         range_diff = range_diff[:max_diff_chars] + f"\n… truncated ({len(range_diff)} chars)"
 
+    files = list(status.get("files") or [])
+    files_text = "\n".join(files[:80])
+    dirty = bool(status.get("dirty"))
+    wt_stat = (wt.get("stat") or "").strip()
+    wt_diff = (wt.get("diff") or "").strip()
+    if not wt_stat and files_text:
+        wt_stat = f"(working tree dirty — includes untracked)\n{files_text}"
+    elif not wt_stat:
+        wt_stat = "(clean working tree)"
+    if not wt_diff and files_text:
+        wt_diff = f"(no unified diff — new/untracked or binary)\n{files_text}"
+    elif not wt_diff:
+        wt_diff = "(no uncommitted diff)"
+
     has_changes = bool(
-        (wt.get("diff") or "").strip()
+        dirty
+        or (wt.get("diff") or "").strip()
         or commits != "(no commits ahead of base)"
         or range_diff
     )
@@ -138,8 +157,9 @@ def _ship_change_context(
         "branch": branch,
         "base": base,
         "status": status,
-        "wt_stat": (wt.get("stat") or "").strip() or "(clean working tree)",
-        "wt_diff": (wt.get("diff") or "").strip() or "(no uncommitted diff)",
+        "wt_files": files_text or "(none)",
+        "wt_stat": wt_stat,
+        "wt_diff": wt_diff,
         "commits": commits,
         "range_stat": (range_stat.stdout or "").strip() or "(no diff vs base)",
         "range_diff": range_diff or "(no diff vs base)",
@@ -249,7 +269,8 @@ def draft_commit_english(
     slug = repo_slug(repo_path) or site_id or "repository"
     hint = (hint or "").strip()
     wt_diff = (ctx.get("wt_diff") or "").strip()
-    has_wt = wt_diff and wt_diff not in ("(no uncommitted diff)", "")
+    dirty = bool((ctx.get("status") or {}).get("dirty"))
+    has_wt = dirty or (wt_diff and wt_diff not in ("(no uncommitted diff)", ""))
     if not has_wt and not hint:
         return {"ok": False, "error": "no uncommitted changes — edit files or add a short hint"}
 
@@ -261,6 +282,9 @@ Branch: {branch}
 
 Developer hint (may be Korean — translate intent to English):
 {hint or "(none)"}
+
+Working tree files (porcelain):
+{ctx.get("wt_files") or "(none)"}
 
 Uncommitted diff --stat:
 {ctx["wt_stat"]}
@@ -280,7 +304,7 @@ Rules:
 - English only
 - One line subject; optional body after blank line if needed (keep short)
 - feat/fix/chore/docs/test prefix when appropriate
-- Specific to the diff; do not invent unrelated scope
+- Specific to the diff or new content files; do not invent unrelated scope
 - No code fences in JSON values
 """
     try:
@@ -458,6 +482,9 @@ Diff vs {base} --stat:
 Diff vs {base} (truncated):
 {ctx["range_diff"]}
 
+Working tree files (porcelain):
+{ctx.get("wt_files") or "(none)"}
+
 Uncommitted diff --stat:
 {ctx["wt_stat"]}
 
@@ -482,7 +509,7 @@ Return JSON only:
 }}
 
 Rules:
-- English only; be specific to the diff
+- English only; be specific to the diff or new content files
 - branch_slug, issue title, commit message, PR title should describe the SAME change consistently
 - No code fences in JSON values
 """
@@ -828,6 +855,16 @@ def _local_pr_review(
     }
 
 
+def _gh_diff_too_large(err: str) -> bool:
+    low = (err or "").lower()
+    return (
+        "too_large" in low
+        or "exceeded the maximum number of files" in low
+        or "http 406" in low
+        or "pullrequest.diff too_large" in low
+    )
+
+
 def pr_review(
     repo_path: Path,
     *,
@@ -914,11 +951,29 @@ def pr_review(
         return {"ok": False, "error": "gh not logged in"}
 
     pr_num = int(pr_data["number"])
+    warnings: list[str] = []
     diff_proc = _run_gh(repo_path, ["pr", "diff", str(pr_num)], timeout=120)
     if diff_proc.returncode != 0:
-        return {"ok": False, "error": _gh_err(diff_proc)}
-    diff = (diff_proc.stdout or "").strip()
-    empty = not diff
+        err = _gh_err(diff_proc)
+        if not _gh_diff_too_large(err):
+            return {"ok": False, "error": err}
+        # GitHub caps PR unified diffs at 300 files — fall back to local git.
+        local = _local_pr_review(
+            repo_path,
+            base=str(pr_data.get("baseRefName") or base),
+            max_diff_chars=max_diff_chars,
+        )
+        diff = (local.get("diff") or "").strip()
+        empty = bool(local.get("empty"))
+        warnings.append(
+            "GitHub PR diff too large (>300 files). Showing truncated local diff — "
+            "open GitHub Files for the full list."
+        )
+        source = "github+local"
+    else:
+        diff = (diff_proc.stdout or "").strip()
+        empty = not diff
+        source = "github"
     if len(diff) > max_diff_chars:
         diff = diff[:max_diff_chars] + f"\n… truncated ({len(diff)} chars)"
 
@@ -931,9 +986,21 @@ def pr_review(
             stat += f", {additions} insertions(+), {deletions} deletions(-)"
     else:
         stat_proc = _run_gh(repo_path, ["pr", "diff", str(pr_num), "--stat"], timeout=60)
-        stat = (stat_proc.stdout or "").strip() or "(stat unavailable)"
+        if stat_proc.returncode == 0:
+            stat = (stat_proc.stdout or "").strip() or "(stat unavailable)"
+        else:
+            local_stat = _local_pr_review(
+                repo_path,
+                base=str(pr_data.get("baseRefName") or base),
+                max_diff_chars=max_diff_chars,
+            )
+            stat = local_stat.get("stat") or "(stat unavailable)"
+
+    if warnings and diff:
+        diff = "# " + warnings[0] + "\n\n" + diff
 
     mergeable = pr_data.get("mergeable")
+    has_files = bool(changed and int(changed) > 0)
     checks = {
         "has_open_pr": True,
         "mergeable": mergeable,
@@ -941,29 +1008,31 @@ def pr_review(
         "unpushed": ahead > 0,
         "ahead": ahead,
         "on_production_branch": branch in PRODUCTION_BRANCHES,
-        "has_diff": not empty,
+        "has_diff": (not empty) or has_files,
+        "diff_truncated": bool(warnings),
     }
-    blockers: list[str] = []
+    blockers = []
     if checks["uncommitted"]:
         blockers.append("uncommitted changes — Commit (EN) first")
     if checks["unpushed"]:
         blockers.append(f"{ahead} unpushed commit(s) — Push first")
     if mergeable is False:
         blockers.append("merge conflict — resolve on GitHub")
-    if empty:
+    if empty and not has_files:
         blockers.append("PR diff is empty")
 
     return {
         "ok": True,
-        "source": "github",
+        "source": source,
         "branch": branch,
         "base": pr_data.get("baseRefName") or base,
         "stat": stat,
-        "diff": diff or "(empty diff)",
-        "empty": empty,
+        "diff": diff or "(empty diff — open GitHub Files for large PRs)",
+        "empty": empty and not has_files,
         "pr": pr_data,
         "checks": checks,
         "blockers": blockers,
+        "warnings": warnings,
         "can_merge": not blockers and mergeable is not False,
     }
 
